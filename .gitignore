@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment variables — NEVER commit secrets
+.env
+.env.*
+!.env.example
+
+# Service account / credential files
+*.json
+!package.json
+!package-lock.json
+
+# Binaries
+*.exe
+*.bin
+
+# Logs & audio artifacts
+*.log
+*.mulaw
+*.wav
+*.mp3
+*.pcm
+
+# OS
+.DS_Store
+Thumbs.db
