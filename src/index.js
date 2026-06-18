@@ -10,7 +10,9 @@ import publicRoutes from './api/public.js'
 import clientRoutes from './api/client.js'
 import adminRoutes from './api/admin.js'
 import agentRoutes from './api/agent.js'
+import authRoutes from './api/auth-routes.js'
 import signupRoutes from './api/signup.js'
+import { vobizAnswer, vobizHangup, handleVobizConnection } from './telephony/vobiz.js'
 import 'dotenv/config'
 
 const app = express()
@@ -30,12 +32,17 @@ app.use(express.json())
 
 // ─── Web API routes (for the frontend) ────────────────────────────────────────
 app.use('/api/public', publicRoutes)
+app.use('/api/auth', authRoutes)
 app.use('/api/signup', signupRoutes)
 app.use('/api/client/agent', agentRoutes)
 app.use('/api/client', clientRoutes)
 app.use('/api/admin', adminRoutes)
 
 const activeCalls = new Map()
+
+// ─── Vobiz telephony (Indian numbers) — additive, runs alongside Twilio ───────
+app.post('/answer', vobizAnswer)
+app.post('/hangup', vobizHangup)
 
 app.post('/incoming-call', async (req, res) => {
   // Extract E.164 number from either "+1234" or "sip:+1234@domain"
@@ -104,7 +111,33 @@ app.post('/incoming-call', async (req, res) => {
 })
 
 const server = createServer(app)
-const wss = new WebSocketServer({ server, path: '/media-stream' })
+
+// Two WebSocket endpoints share one HTTP server:
+//   /media-stream — Twilio phone calls (production)
+//   /test-stream  — browser "web call" agent testing (same pipeline, no phone)
+const wss = new WebSocketServer({ noServer: true })
+const testWss = new WebSocketServer({ noServer: true })
+const vobizWss = new WebSocketServer({ noServer: true })
+
+server.on('upgrade', (req, socket, head) => {
+  let pathname
+  try {
+    pathname = new URL(req.url, `http://${req.headers.host}`).pathname
+  } catch {
+    pathname = req.url
+  }
+  if (pathname === '/media-stream') {
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
+  } else if (pathname === '/test-stream') {
+    testWss.handleUpgrade(req, socket, head, ws => testWss.emit('connection', ws, req))
+  } else if (pathname === '/media-stream-vobiz') {
+    vobizWss.handleUpgrade(req, socket, head, ws => vobizWss.emit('connection', ws, req))
+  } else {
+    socket.destroy()
+  }
+})
+
+vobizWss.on('connection', handleVobizConnection)
 
 wss.on('connection', (ws) => {
   console.log('WebSocket connected')
@@ -171,11 +204,12 @@ wss.on('connection', (ws) => {
         tenantConfig,
         ws,
         streamSid,
-        (finalTranscript) => {
-          // onTranscript hook — save turns for Supabase transcript
+        (text, role = 'user') => {
+          // onTranscript hook — save turns for Supabase transcript. Role defaults
+          // to 'user' (caller); the agent's spoken lines come through with 'assistant'.
           transcriptBuffer.push({
-            role: 'user',
-            text: finalTranscript,
+            role,
+            text,
             timestamp: new Date().toISOString()
           })
         },
@@ -259,6 +293,102 @@ wss.on('connection', (ws) => {
     if (deepgramConnection) deepgramConnection.finish()
     if (callSid) clearHistory(callSid)
     console.log('WebSocket disconnected')
+  })
+})
+
+// ─── Browser "web call" test stream ───────────────────────────────────────────
+// A client tests their agent from the browser using the SAME realtime pipeline a
+// Twilio call uses (Deepgram + Sarvam STT → translation → LLM → Sarvam TTS). The
+// browser sends/receives Twilio-format audio frames (base64 mulaw 8kHz), so the
+// existing createDeepgramConnection works unchanged. No phone, no call/lead rows.
+testWss.on('connection', (ws) => {
+  console.log('[TEST-STREAM] connected')
+
+  const sid = 'webtest-' + Math.random().toString(36).slice(2, 8)
+  let deepgramConnection = null
+  let deepgramReady = false
+  let audioBuffer = []
+  let started = false
+
+  ws.on('message', async (data) => {
+    let msg
+    try { msg = JSON.parse(data) } catch { return }
+
+    // First message authenticates the client and starts the pipeline.
+    if (msg.event === 'start' && !started) {
+      started = true
+
+      // Resolve the tenant from the bearer token sent in the start payload.
+      let tenant = null
+      try {
+        const { data: { user } } = await supabase.auth.getUser(msg.start?.token || '')
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles').select('tenant_id').eq('id', user.id).single()
+          if (profile?.tenant_id) {
+            const { data: t } = await supabase
+              .from('tenants').select('*').eq('id', profile.tenant_id).single()
+            tenant = t
+          }
+        }
+      } catch (e) {
+        console.error('[TEST-STREAM] auth error:', e.message)
+      }
+
+      if (!tenant) {
+        try { ws.send(JSON.stringify({ event: 'error', error: 'unauthorized' })) } catch {}
+        ws.close()
+        return
+      }
+
+      // Merge the builder's draft config OVER the saved config (so fields the
+      // draft doesn't set — e.g. business_name from signup — are preserved).
+      // Always inject tenant_id so RAG searches this tenant's knowledge base.
+      const providedConfig =
+        msg.start?.config && typeof msg.start.config === 'object' ? msg.start.config : null
+      const tenantConfig = {
+        ...(tenant.config || {}),
+        ...(providedConfig || {}),
+        tenant_id: tenant.id,
+      }
+      const streamSid = msg.start?.streamSid || sid
+
+      deepgramConnection = createDeepgramConnection(
+        sid,                 // callSid → key for LLM history
+        tenantConfig,
+        ws,                  // browser ws receives Twilio-format media frames
+        streamSid,
+        () => {},            // onTranscript — not persisted for a test
+        () => {              // onReady — flush any audio buffered before STT was ready
+          deepgramReady = true
+          audioBuffer.forEach(c => deepgramConnection.send(c))
+          audioBuffer = []
+        },
+        'web-test',          // callerNumber (handoff transfer is a no-op here)
+      )
+      console.log('[TEST-STREAM] pipeline started for tenant:', tenant.name)
+      return
+    }
+
+    if (msg.event === 'media' && msg.media?.payload) {
+      if (!deepgramConnection) return
+      const chunk = Buffer.from(msg.media.payload, 'base64')
+      if (!deepgramReady) audioBuffer.push(chunk)
+      else deepgramConnection.send(chunk)
+      return
+    }
+
+    if (msg.event === 'stop') {
+      if (deepgramConnection) deepgramConnection.finish()
+      clearHistory(sid)
+      deepgramConnection = null
+    }
+  })
+
+  ws.on('close', () => {
+    if (deepgramConnection) deepgramConnection.finish()
+    clearHistory(sid)
+    console.log('[TEST-STREAM] disconnected')
   })
 })
 

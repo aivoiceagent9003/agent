@@ -6,16 +6,74 @@
 
 import { Router } from 'express'
 import OpenAI from 'openai'
+import multer from 'multer'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
 import { TEMPLATES, getTemplate } from './templates.js'
 import { buildSystemPrompt, streamAIReply, clearHistory } from '../services/llm.js'
 import { retrieveKnowledge } from '../services/rag.js'
 import { ingestText } from '../ingest.js'
+import {
+  ingestDataset,
+  listDatasets,
+  deleteDataset,
+  parseCSV,
+  sanitizeName,
+} from '../services/lookups.js'
 import 'dotenv/config'
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const router = Router()
+
+// In-memory upload handling for knowledge files (we parse the buffer, never
+// write it to disk). 15MB cap keeps a stray huge file from exhausting memory.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+})
+
+// Extract plain text from an uploaded file based on its type:
+//   PDF   → pdf-parse        DOCX → mammoth
+//   image → OpenAI vision    everything else → treat as UTF-8 text
+async function extractTextFromFile(file) {
+  const name = (file.originalname || '').toLowerCase()
+  const mime = file.mimetype || ''
+  const buf = file.buffer
+
+  if (mime === 'application/pdf' || name.endsWith('.pdf')) {
+    const { PDFParse } = await import('pdf-parse')
+    const parser = new PDFParse({ data: buf })
+    const result = await parser.getText()
+    return result?.text || ''
+  }
+
+  if (name.endsWith('.docx') ||
+      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    const mammoth = (await import('mammoth')).default
+    const { value } = await mammoth.extractRawText({ buffer: buf })
+    return value || ''
+  }
+
+  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/.test(name)) {
+    // OCR via a vision model — handles scanned docs, screenshots, photos.
+    const dataUrl = `data:${mime || 'image/png'};base64,${buf.toString('base64')}`
+    const completion = await ai.chat.completions.create({
+      model: process.env.OPENAI_VISION_MODEL || 'gpt-4o-mini',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Extract ALL text and useful information from this image as plain text for a knowledge base — include prices, names, numbers, and details. Output only the extracted text, no commentary.' },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      }],
+      max_tokens: 1500,
+    })
+    return completion.choices[0]?.message?.content || ''
+  }
+
+  // .txt / .md / .csv / .json / unknown → best-effort UTF-8
+  return buf.toString('utf8')
+}
 
 // ─── Templates are public-ish (any logged-in client can browse them) ──────────
 router.get('/templates', requireClient(), (req, res) => {
@@ -36,7 +94,33 @@ router.get('/templates/:id', requireClient(), (req, res) => {
 })
 
 // ─── Available voices (for the "Choose what voice to speak" picker) ───────────
+// Provider-aware: the voice IDs differ between Sarvam and Smallest AI, so return
+// the set that matches the active TTS_PROVIDER. Each voice's `label` is a human
+// name the UI also uses as the suggested agent name when that voice is picked.
 router.get('/voices', requireClient(), (req, res) => {
+  const provider = (process.env.TTS_PROVIDER || 'sarvam').toLowerCase()
+
+  if (provider === 'smallest') {
+    // Smallest AI (Waves) voices we ship by default, plus any extra IDs added via
+    // SMALLEST_VOICES_AVAILABLE (comma-separated) so the catalog can grow without
+    // a code change. Label = capitalized id (e.g. sameera → Sameera).
+    const known = [
+      { id: 'sameera', gender: 'female', note: 'Indian English (default)' },
+      { id: 'padmaja', gender: 'female', note: 'Telugu' },
+    ]
+    const extra = (process.env.SMALLEST_VOICES_AVAILABLE || '')
+      .split(',').map(s => s.trim()).filter(Boolean)
+      .map(id => ({ id, gender: 'unknown', note: 'Smallest AI voice' }))
+
+    const byId = new Map()
+    for (const v of [...known, ...extra]) {
+      if (!byId.has(v.id)) {
+        byId.set(v.id, { ...v, label: v.id.charAt(0).toUpperCase() + v.id.slice(1) })
+      }
+    }
+    return res.json([...byId.values()])
+  }
+
   res.json([
     { id: 'priya',  label: 'Priya',  gender: 'female', note: 'Warm, natural (default)' },
     { id: 'ritu',   label: 'Ritu',   gender: 'female', note: 'Clear, professional' },
@@ -94,6 +178,9 @@ Output ONLY the system prompt text, nothing else.`
         allow_multilingual: (languages || []).length > 1 || (languages || []).includes('Hindi'),
         enable_handoff: true,
         enable_kb: true,
+        use_sarvam_stt: true,
+        language_hint: 'unknown',   // auto-detect; client can override
+        translate_replies: true,    // translate LLM replies to caller's language
         system_prompt,
         filler_phrases: ['Let me check that for you.', 'One moment, please.'],
       },
@@ -251,6 +338,24 @@ router.post('/knowledge', requireClient(), async (req, res) => {
   }
 })
 
+// Upload a file (pdf/txt/docx/image/…) → extract text → ingest into this
+// client's knowledge base. Field name: "file".
+router.post('/knowledge/upload', requireClient(), upload.single('file'), async (req, res) => {
+  const t = req.auth.tenantId
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+  try {
+    const text = await extractTextFromFile(req.file)
+    if (!text || !text.trim()) {
+      return res.status(422).json({ error: 'Could not extract any text from this file' })
+    }
+    const result = await ingestText(t, text, req.file.originalname || 'upload', { replace: false })
+    res.json({ ...result, filename: req.file.originalname || 'upload', chars: text.length })
+  } catch (e) {
+    console.error('[AGENT] kb upload error:', e.message)
+    res.status(500).json({ error: 'Could not process file' })
+  }
+})
+
 // Delete one chunk (must belong to this tenant)
 router.delete('/knowledge/:chunkId', requireClient(), async (req, res) => {
   const t = req.auth.tenantId
@@ -267,6 +372,93 @@ router.delete('/knowledge', requireClient(), async (req, res) => {
   const { error } = await supabase
     .from('knowledge_base').delete().eq('tenant_id', t)
   if (error) return res.status(500).json({ error: 'Could not clear knowledge' })
+  res.json({ success: true })
+})
+
+// ─── Live data lookups (orders, dues, bookings…) ─────────────────────────────
+// The dynamic counterpart to the knowledge base: per-caller data the agent fetches
+// at call time. A lookup is either backed by the client's own REST API ('http')
+// or by a data sheet they upload here ('table'). Config lives in tenants.config.lookups;
+// uploaded sheets live in the lookup_rows table.
+
+// Get the client's lookup config + a summary of any uploaded datasets.
+router.get('/lookups', requireClient(), async (req, res) => {
+  const t = req.auth.tenantId
+  const { data: tenant } = await supabase
+    .from('tenants').select('config').eq('id', t).single()
+  const lookups = Array.isArray(tenant?.config?.lookups) ? tenant.config.lookups : []
+  const datasets = await listDatasets(t)
+  res.json({
+    enable_lookups: tenant?.config?.enable_lookups !== false,
+    lookups,
+    datasets,
+  })
+})
+
+// Save the client's lookup config (the array of lookups + the on/off toggle).
+// Body: { lookups: [...], enable_lookups?: boolean }
+router.patch('/lookups', requireClient(), async (req, res) => {
+  const t = req.auth.tenantId
+  const { lookups, enable_lookups } = req.body || {}
+  if (!Array.isArray(lookups)) {
+    return res.status(400).json({ error: 'lookups must be an array' })
+  }
+
+  // Normalise: ensure every lookup has a sanitized, unique tool name.
+  const seen = new Set()
+  const clean = lookups.map((lk, i) => {
+    let name = sanitizeName(lk?.name || `lookup_${i + 1}`) || `lookup_${i + 1}`
+    while (seen.has(name)) name = `${name}_${i + 1}`
+    seen.add(name)
+    return { ...lk, name }
+  })
+
+  const { data: tenant } = await supabase
+    .from('tenants').select('config').eq('id', t).single()
+  const merged = {
+    ...(tenant?.config || {}),
+    lookups: clean,
+    ...(enable_lookups !== undefined ? { enable_lookups: !!enable_lookups } : {}),
+  }
+  const { error } = await supabase.from('tenants').update({ config: merged }).eq('id', t)
+  if (error) {
+    console.error('[AGENT] save lookups error:', error.message)
+    return res.status(500).json({ error: 'Could not save lookups' })
+  }
+  res.json({ lookups: clean, enable_lookups: merged.enable_lookups !== false })
+})
+
+// Upload a data sheet for the 'table' backend. Accepts either a CSV file
+// (multipart field "file") or pasted CSV text in the JSON body.
+// Body/Query: { dataset } — the dataset name the table lookups reference.
+router.post('/lookups/dataset', requireClient(), upload.single('file'), async (req, res) => {
+  const t = req.auth.tenantId
+  const dataset = (req.body?.dataset || req.query?.dataset || '').toString().trim()
+  if (!dataset) return res.status(400).json({ error: 'dataset name is required' })
+
+  let csv = ''
+  if (req.file) csv = req.file.buffer.toString('utf8')
+  else if (req.body?.csv) csv = String(req.body.csv)
+  if (!csv.trim()) return res.status(400).json({ error: 'Provide a CSV file or csv text' })
+
+  const rows = parseCSV(csv)
+  if (!rows.length) {
+    return res.status(422).json({ error: 'Could not read any rows. Use a header row + comma-separated values.' })
+  }
+
+  try {
+    const { rows_added } = await ingestDataset(t, dataset, rows, { replace: true })
+    res.json({ dataset, rows_added, columns: Object.keys(rows[0]) })
+  } catch (e) {
+    console.error('[AGENT] dataset upload error:', e.message)
+    res.status(500).json({ error: 'Could not save dataset' })
+  }
+})
+
+// Delete an uploaded dataset.
+router.delete('/lookups/dataset/:dataset', requireClient(), async (req, res) => {
+  const t = req.auth.tenantId
+  await deleteDataset(t, req.params.dataset)
   res.json({ success: true })
 })
 

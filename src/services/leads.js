@@ -27,7 +27,7 @@ Return ONLY a valid JSON object (no markdown, no backticks, no explanation) with
   "key_details": ["array", "of", "important facts mentioned"],
   "follow_up_needed": true or false,
   "handed_off": true or false,
-  "contact_info": "any phone/email/order number mentioned, else null"
+  "contact_info": "an ALTERNATE phone number or email the caller gives to be reached at, else null"
 }
 
 Rules:

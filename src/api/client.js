@@ -111,7 +111,19 @@ router.get('/leads', async (req, res) => {
 
     const { data, count, error } = await q.range(from, to)
     if (error) throw error
-    res.json({ leads: data || [], total: count || 0, page, limit })
+
+    // Attach each lead's call transcript (lives on the calls table, linked by
+    // call_id) so the Leads UI can show it without a second round-trip per row.
+    const leads = data || []
+    const callIds = [...new Set(leads.map(l => l.call_id).filter(Boolean))]
+    if (callIds.length) {
+      const { data: calls } = await supabase
+        .from('calls').select('id, transcript').in('id', callIds)
+      const byId = new Map((calls || []).map(c => [c.id, c.transcript]))
+      for (const l of leads) l.transcript = byId.get(l.call_id) || null
+    }
+
+    res.json({ leads, total: count || 0, page, limit })
   } catch (e) {
     console.error('[CLIENT] leads error:', e.message)
     res.status(500).json({ error: 'Could not load leads' })

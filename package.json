@@ -22,7 +22,10 @@
     "@supabase/supabase-js": "^2.105.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "mammoth": "^1.12.0",
+    "multer": "^2.1.1",
     "openai": "^6.39.0",
+    "pdf-parse": "^2.4.5",
     "sarvamai": "^1.1.7",
     "twilio": "^6.0.1",
     "ws": "^8.20.0"

@@ -1,0 +1,301 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-glow: var(--primary-glow);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Design system — "living voice", soft light
+   A calm, soft-light canvas (never stark white) with a periwinkle voice accent
+   and gentle pastel highlights. The signature is a morphing voice bloom; motion
+   communicates life. Premium, human, distinctly not another dark AI-agent site.
+   (A cinematic dark alternative lives under the .dark class for a toggle.)
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --radius: 0.85rem;
+
+  --background: oklch(0.984 0.006 292);    /* soft lavender-white, not bright */
+  --foreground: oklch(0.315 0.022 285);    /* soft slate ink */
+
+  --card: oklch(0.998 0.0025 292);
+  --card-foreground: oklch(0.315 0.022 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.315 0.022 285);
+
+  --primary: oklch(0.555 0.16 282);        /* periwinkle — the voice color */
+  --primary-foreground: oklch(0.99 0.004 292);
+  --primary-glow: oklch(0.72 0.13 290);
+
+  --secondary: oklch(0.955 0.01 292);
+  --secondary-foreground: oklch(0.36 0.02 285);
+
+  --muted: oklch(0.962 0.008 292);
+  --muted-foreground: oklch(0.52 0.022 286);
+
+  --accent: oklch(0.95 0.014 292);
+  --accent-foreground: oklch(0.34 0.02 285);
+
+  --destructive: oklch(0.6 0.16 22);
+  --destructive-foreground: oklch(0.99 0.004 292);
+  --success: oklch(0.62 0.12 165);
+  --warning: oklch(0.74 0.12 78);
+
+  --border: oklch(0.91 0.008 292);
+  --input: oklch(0.94 0.008 292);
+  --ring: oklch(0.6 0.15 282);
+
+  --chart-1: oklch(0.6 0.15 285);
+  --chart-2: oklch(0.68 0.12 232);
+  --chart-3: oklch(0.72 0.12 175);
+  --chart-4: oklch(0.78 0.12 52);
+  --chart-5: oklch(0.66 0.14 330);
+
+  --sidebar: oklch(0.975 0.006 292);
+  --sidebar-foreground: oklch(0.315 0.022 285);
+  --sidebar-primary: oklch(0.555 0.16 282);
+  --sidebar-primary-foreground: oklch(0.99 0.004 292);
+  --sidebar-accent: oklch(0.95 0.014 292);
+  --sidebar-accent-foreground: oklch(0.315 0.022 285);
+  --sidebar-border: oklch(0.91 0.008 292);
+  --sidebar-ring: oklch(0.6 0.15 282);
+
+  --gradient-primary: linear-gradient(135deg, oklch(0.62 0.16 292), oklch(0.55 0.15 266));
+  --gradient-hero:
+    radial-gradient(1100px 520px at 50% -10%, oklch(0.72 0.12 292 / 0.16), transparent 70%);
+  --shadow-glow: 0 1px 2px oklch(0.5 0.1 285 / 0.06), 0 12px 36px -14px oklch(0.55 0.16 285 / 0.26);
+  --shadow-card: 0 1px 2px oklch(0.35 0.05 285 / 0.05), 0 10px 30px -20px oklch(0.35 0.06 285 / 0.18);
+}
+
+/* Cinematic dark alternative (for an optional toggle). */
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.145 0.028 280);
+  --foreground: oklch(0.97 0.008 280);
+  --card: oklch(0.205 0.03 282 / 0.72);
+  --card-foreground: oklch(0.97 0.008 280);
+  --popover: oklch(0.18 0.03 282 / 0.96);
+  --popover-foreground: oklch(0.97 0.008 280);
+  --primary: oklch(0.62 0.2 288);
+  --primary-foreground: oklch(0.99 0.005 280);
+  --primary-glow: oklch(0.78 0.16 250);
+  --secondary: oklch(0.26 0.03 284 / 0.7);
+  --secondary-foreground: oklch(0.97 0.008 280);
+  --muted: oklch(0.24 0.028 284 / 0.6);
+  --muted-foreground: oklch(0.74 0.03 282);
+  --accent: oklch(0.3 0.045 286 / 0.7);
+  --accent-foreground: oklch(0.97 0.008 280);
+  --border: oklch(1 0 0 / 0.1);
+  --input: oklch(1 0 0 / 0.08);
+  --ring: oklch(0.72 0.16 262);
+  --sidebar: oklch(0.165 0.03 282 / 0.6);
+  --sidebar-foreground: oklch(0.97 0.008 280);
+  --sidebar-accent: oklch(1 0 0 / 0.07);
+  --sidebar-accent-foreground: oklch(0.99 0.005 280);
+  --sidebar-border: oklch(1 0 0 / 0.09);
+  --gradient-primary: linear-gradient(135deg, oklch(0.64 0.22 292), oklch(0.62 0.17 254));
+  --shadow-glow: 0 0 0 1px oklch(0.7 0.18 280 / 0.08), 0 14px 40px -12px oklch(0.55 0.22 288 / 0.5);
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 0.4), 0 24px 60px -28px oklch(0 0 0 / 0.7);
+}
+
+/* Frosted surface with depth — glass where it earns its place. */
+@utility glass {
+  background-color: oklch(1 0 0 / 0.7);
+  backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--color-border);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-feature-settings: "cv02", "cv11", "ss01";
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.022em;
+    font-weight: 600;
+  }
+  h1 { letter-spacing: -0.032em; }
+  ::selection { background: oklch(0.72 0.16 262 / 0.25); }
+
+  /* Every interactive element gets life — smooth state + a tactile press. */
+  a, button, [role="button"], input, select, textarea {
+    transition: color .2s ease, background-color .2s ease, border-color .2s ease,
+                box-shadow .25s ease, transform .14s cubic-bezier(.22,1,.36,1), opacity .2s ease;
+  }
+  button:not(:disabled):active, [role="button"]:active { transform: scale(0.98); }
+}
+
+/* ── Scroll-reveal (motion plays when an element enters the viewport) ──────── */
+.reveal { opacity: 0; transform: translateY(18px); will-change: opacity, transform; }
+.reveal.in {
+  opacity: 1;
+  transform: none;
+  transition: opacity .7s cubic-bezier(.22,1,.36,1), transform .7s cubic-bezier(.22,1,.36,1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; }
+}
+
+/* ── Interaction polish — magnetic lift + aurora edge on hover ─────────────── */
+.hover-lift {
+  transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s ease, border-color .3s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-glow);
+  border-color: oklch(0.72 0.16 262 / 0.45);
+}
+.hover-glow { transition: box-shadow .3s ease, border-color .3s ease; }
+.hover-glow:hover {
+  box-shadow: var(--shadow-glow);
+  border-color: oklch(0.72 0.16 262 / 0.45);
+}
+
+/* Sheen that sweeps across a surface on hover (premium card highlight). */
+.sheen { position: relative; overflow: hidden; }
+.sheen::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 30%, oklch(1 0 0 / 0.06) 48%, transparent 66%);
+  transform: translateX(-120%);
+  transition: transform .8s cubic-bezier(.22,1,.36,1);
+  pointer-events: none;
+}
+.sheen:hover::after { transform: translateX(120%); }
+
+/* Compatibility utilities — same names the app already uses, restrained look. */
+@utility bg-gradient-primary { background-image: var(--gradient-primary); }
+@utility bg-gradient-hero { background-image: var(--gradient-hero); }
+@utility shadow-glow { box-shadow: var(--shadow-glow); }
+@utility shadow-card { box-shadow: var(--shadow-card); }
+@utility text-gradient {
+  background-image: linear-gradient(100deg, #7c5cff, #4f8cff 40%, #18b6d9 60%, #ff7a59);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Motion — communicates state, never decorates ─────────────────────────── */
+@keyframes pulse-ring {
+  0% { transform: scale(0.85); opacity: 0.5; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+@utility animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@utility animate-float { animation: float 5s ease-in-out infinite; }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@utility animate-fade-up { animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@utility animate-fade-in { animation: fade-in 0.4s ease both; }
+
+@keyframes live-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@utility animate-live { animation: live-blink 1.4s ease-in-out infinite; }
+
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+@utility animate-eq { animation: eq 0.9s ease-in-out infinite; }
+
+/* ── Cinematic "living voice" primitives (used by the immersive hero) ──────── */
+@keyframes aurora-drift {
+  0%   { transform: translate3d(0,0,0) scale(1); }
+  33%  { transform: translate3d(6%, -4%, 0) scale(1.12); }
+  66%  { transform: translate3d(-5%, 5%, 0) scale(0.95); }
+  100% { transform: translate3d(0,0,0) scale(1); }
+}
+@utility animate-aurora { animation: aurora-drift 18s ease-in-out infinite; }
+
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-10px) translateX(4px); }
+}
+@utility animate-float-soft { animation: float-soft 7s ease-in-out infinite; }
+
+@keyframes iridescent-pan {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@utility text-iridescent {
+  background-image: linear-gradient(100deg, #7c5cff 0%, #4f8cff 28%, #18b6d9 50%, #ff7a59 72%, #7c5cff 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: iridescent-pan 6s linear infinite;
+}
+
+/* A soft frosted panel with a faint tinted hairline — glass where it adds depth. */
+@utility glass-card {
+  background: linear-gradient(180deg, oklch(1 0 0 / 0.88), oklch(1 0 0 / 0.72));
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid oklch(0.6 0.12 285 / 0.14);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.7),
+    0 18px 48px -24px oklch(0.4 0.08 285 / 0.28);
+}
+@utility ring-iridescent {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--cine-surface, #ffffff), var(--cine-surface, #ffffff)) padding-box,
+    linear-gradient(120deg, rgb(124 92 255 / 0.55), rgb(79 140 255 / 0.45), rgb(255 122 89 / 0.5)) border-box;
+}
