@@ -1,25 +1,25 @@
 // telephony/vobiz.js — Vobiz adapter (Indian numbers, TRAI-compliant).
 //
-// Vobiz streams G.711 mu-law 8kHz over a bidirectional WebSocket — byte-for-byte
-// the same audio format Twilio uses — so the whole STT→translate→LLM→lookup→TTS
-// pipeline in createDeepgramConnection works UNCHANGED. This module only adapts
-// the TRANSPORT:
-//   • /answer  webhook → returns Vobiz <Stream> XML (like Twilio's TwiML)
-//   • /media-stream-vobiz WS → maps Vobiz frames into createDeepgramConnection
+// Vobiz streams G.711 mu-law 8kHz over a bidirectional WebSocket, so the Gemini
+// Live engine runs UNCHANGED. This module only adapts the TRANSPORT:
+//   • /answer  webhook → returns Vobiz <Stream> XML
+//   • /media-stream-vobiz WS → feeds Vobiz frames into the Gemini Live engine
 //   • outbound audio → Vobiz 'playAudio' frames (re-chunked to 20ms/160 bytes)
-//
-// Twilio keeps working in parallel (different routes + WS path); the active
-// provider is chosen by which webhook a given number points at.
 //
 // ⚠️ CONFIRM-ON-FIRST-CALL: the exact field names in Vobiz's 'start' event and how
 // extraHeaders are delivered aren't fully documented. We log the raw 'start' frame
 // and resolve the tenant defensively (extraHeaders key → number fields). Once you
 // see a real start payload in the logs, tighten resolveTenantFromStart().
 
-import { createDeepgramConnection } from '../services/deepgram.js'
+import { createGeminiLiveConnection } from '../services/gemini-live.js'
 import { clearHistory, getHistory } from '../services/llm.js'
+
+// Live calls run on Gemini Live speech-to-speech (the only engine).
+const createVoiceConnection = createGeminiLiveConnection
 import { extractLead, saveLead } from '../services/leads.js'
+import { CallRecorder, uploadRecording } from '../services/recording.js'
 import { supabase } from '../api/db.js'
+import telemetry from '../services/telemetry.js'
 import 'dotenv/config'
 
 // Extract an E.164-ish number from "+1234", "sip:+1234@domain", etc.
@@ -54,25 +54,55 @@ const pendingCalls = new Map()
 // Vobiz POSTs here when a call hits one of our numbers. We resolve the tenant by
 // the called number, open a call row, and return <Stream> pointing at our WS.
 export async function vobizAnswer(req, res) {
+  // Telemetry: the webhook is the FIRST event of a call's lifecycle. We capture
+  // the timings here (callSid isn't known until the WS 'start' frame) and replay
+  // them as spans once the trace exists, so the waterfall opens with webhook →
+  // tenant_resolution → call_row_insert. webhookAt is the timeline origin.
+  const webhookAt = Date.now()
   const calledNumber = normalize(req.body.To || req.body.to || req.body.called_number || req.body.destination)
   const callerNumber = normalize(req.body.From || req.body.from || req.body.caller_number || req.body.source)
-  console.log(`[VOBIZ] Incoming call to: ${calledNumber} from: ${callerNumber}`)
+  // Vobiz's per-call REST control handle (Plivo-style CallUUID). Needed later to
+  // transfer this LIVE call to a human (see handoff.js). Captured defensively —
+  // confirm the exact field from the /answer body log after the first real call.
+  const providerCallId =
+    req.body.CallUUID || req.body.call_uuid || req.body.callUuid ||
+    req.body.CallSid || req.body.call_sid || req.body.uuid || null
+  console.log(`[VOBIZ] Incoming call to: ${calledNumber} from: ${callerNumber} callUuid: ${providerCallId || 'n/a'}`)
 
+  telemetry.incr('calls_incoming')
+  const tResolve0 = Date.now()
   const tenant = await findTenantByNumber(calledNumber)
+  const tenantResolveMs = Date.now() - tResolve0
+  telemetry.recordLatency('tenant_resolution', tenantResolveMs)
 
   if (!tenant) {
     console.error('[VOBIZ] No tenant for number:', calledNumber)
+    telemetry.incr('calls_rejected')
+    telemetry.recordServiceEvent({ component: 'telephony', severity: 'warning', kind: 'no_tenant', detail: { calledNumber } })
     res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
     return
   }
 
+  const tInsert0 = Date.now()
   const { data: call } = await supabase
     .from('calls')
     .insert({ tenant_id: tenant.id, caller_number: callerNumber, status: 'active' })
     .select().single()
+  const callInsertMs = Date.now() - tInsert0
 
   const callkey = call?.id || `${callerNumber}-${Date.now()}`
-  pendingCalls.set(callkey, { tenant, callId: call?.id || null, callerNumber })
+  pendingCalls.set(callkey, {
+    tenant, callId: call?.id || null, callerNumber, providerCallId,
+    // Webhook-phase telemetry, replayed as spans when the WS trace starts.
+    telemetry: {
+      webhookAt,
+      webhookMs: Date.now() - webhookAt,
+      tenantResolveMs, tenantResolveRel: tResolve0 - webhookAt,
+      callInsertMs, callInsertRel: tInsert0 - webhookAt,
+      calledNumber,
+    },
+  })
+  telemetry.recordLatency('webhook', Date.now() - webhookAt)
 
   const wsUrl = `wss://${process.env.NGROK_URL}/media-stream-vobiz`
   res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
@@ -88,12 +118,36 @@ export function vobizHangup(_req, res) {
   res.sendStatus(200)
 }
 
+// ─── /vobiz/transfer — the XML Vobiz fetches when we transfer a live call ───────
+// handoff.js redirects the caller leg here (aleg_url) with ?to=<human number> and
+// ?callerId=<business DID>. We return <Dial> XML so the caller is connected to the
+// human agent. The media stream ends automatically when the leg is redirected.
+export function vobizTransferXml(req, res) {
+  const to = String(req.query.to || req.body?.to || '').trim()
+  const callerId = String(req.query.callerId || req.body?.callerId || '').trim()
+  res.type('text/xml')
+  if (!to) {
+    console.error('[VOBIZ] transfer XML requested without a destination number')
+    return res.send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
+  }
+  const callerAttr = callerId ? ` callerId="${callerId}"` : ''
+  return res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Speak>Please hold while I connect you to a team member.</Speak>
+  <Dial${callerAttr} timeout="30">
+    <Number>${to}</Number>
+  </Dial>
+  <Speak>Sorry, no one is available right now. Please try again later. Goodbye.</Speak>
+  <Hangup/>
+</Response>`)
+}
+
 // ─── Outbound sink ───────────────────────────────────────────────────────────
 // Mimics the Twilio ws interface that streamTTSToTwilio expects, so deepgram.js
 // stays Twilio-shaped. It translates the outbound frames:
 //   {event:'media', media:{payload}}  → Vobiz 'playAudio' (re-chunked to 160B/20ms)
 //   {event:'clear'}                    → Vobiz 'clearAudio' (barge-in)
-function makeVobizSink(ws, getStreamId) {
+function makeVobizSink(ws, getStreamId, recorder, trace) {
   return {
     get readyState() { return ws.readyState },
     send(str) {
@@ -104,13 +158,17 @@ function makeVobizSink(ws, getStreamId) {
         // Re-frame to 20ms / 160-byte mulaw chunks — Vobiz ingress expects 20ms
         // framing; larger chunks cause jitter/robotic audio.
         const buf = Buffer.from(m.media.payload, 'base64')
+        recorder?.addOutbound(buf)   // capture the agent's audio for the recording
+        let frames = 0
         for (let off = 0; off < buf.length; off += 160) {
           const piece = buf.subarray(off, off + 160)
           ws.send(JSON.stringify({
             event: 'playAudio',
             media: { contentType: 'audio/x-mulaw', sampleRate: 8000, payload: piece.toString('base64') },
           }))
+          frames++
         }
+        trace?.packet('out', frames)   // count outbound audio frames (non-emitting)
         return
       }
 
@@ -180,6 +238,8 @@ export function handleVobizConnection(ws) {
   let transcriptBuffer = []
   let callStart = null
   let finalized = false
+  let recorder = null
+  let trace = null
 
   const getStreamId = () => streamId
 
@@ -196,19 +256,62 @@ export function handleVobizConnection(ws) {
       const resolved = await resolveTenantFromStart(msg)
       if (!resolved?.tenant) {
         console.error('[VOBIZ] Could not resolve tenant for stream — closing')
+        telemetry.incr('media_stream_failures')
+        telemetry.recordServiceEvent({ component: 'telephony', severity: 'error', kind: 'media_stream_unresolved', detail: { streamId } })
         ws.close()
         return
       }
+      telemetry.incr('calls_answered')
       tenant = resolved.tenant
       callId = resolved.callId
       callerNumber = resolved.callerNumber || callerNumber
       callSid = streamId || callId || `vobiz-${Date.now()}`
       callStart = Date.now()
 
-      const tenantConfig = { ...(tenant.config || {}), tenant_id: tenant.id }
-      const sink = makeVobizSink(ws, getStreamId)
+      // ── Telemetry: open the trace for this call. Engines (gemini-live) look it
+      // up by callSid via telemetry.getTrace(), so it MUST exist before the engine
+      // is created. The webhook phase (captured in pendingCalls) is replayed as
+      // spans so the waterfall starts at the webhook, not the WS connect.
+      const tm = resolved.telemetry || {}
+      trace = telemetry.startTrace({
+        callSid,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        callerNumber,
+        businessNumber: tm.calledNumber || null,
+        engine: 'gemini',
+        startedAt: tm.webhookAt || callStart,
+      })
+      if (tm.webhookAt) {
+        trace.addSpan('webhook', { startRel: 0, durationMs: tm.webhookMs || 0 })
+        trace.addSpan('tenant_resolution', { startRel: tm.tenantResolveRel || 0, durationMs: tm.tenantResolveMs || 0 })
+        trace.addSpan('db_call_insert', { startRel: tm.callInsertRel || 0, durationMs: tm.callInsertMs || 0, latencyOp: 'supabase' })
+      }
+      trace.addSpan('websocket_connected', { startRel: callStart - (tm.webhookAt || callStart), durationMs: 0 })
+      trace.set('conversationState', 'active')
 
-      dg = createDeepgramConnection(
+      // Let the Ops Center terminate this live call (Live Calls Console action).
+      telemetry.registerControl(callSid, {
+        terminate: () => { try { ws.close() } catch {} ; finalize() },
+      })
+
+      // Per-call transport info so the engine's human-handoff transfers over Vobiz
+      // (not Twilio): provider + the Vobiz CallUUID (REST control handle) + the DID
+      // to use as caller ID when dialing the human. provider_call_id falls back to
+      // fields on the 'start' frame if the /answer webhook didn't carry it.
+      const tenantConfig = {
+        ...(tenant.config || {}),
+        tenant_id: tenant.id,
+        provider: 'vobiz',
+        provider_call_id:
+          resolved.providerCallId ||
+          msg.start?.callUuid || msg.start?.CallUUID || msg.callUuid || msg.CallUUID || null,
+        business_number: tm.calledNumber || null,
+      }
+      recorder = new CallRecorder()
+      const sink = makeVobizSink(ws, getStreamId, recorder, trace)
+
+      dg = createVoiceConnection(
         callSid,
         tenantConfig,
         sink,                       // outbound audio → playAudio frames
@@ -221,12 +324,14 @@ export function handleVobizConnection(ws) {
         },
         callerNumber,
       )
-      console.log(`[VOBIZ] Pipeline started for tenant: ${tenant.name}`)
+      console.log(`[VOBIZ] Pipeline started for tenant: ${tenant.name} (engine: gemini)`)
       return
     }
 
     if (msg.event === 'media' && msg.media?.payload) {
       const chunk = Buffer.from(msg.media.payload, 'base64')
+      recorder?.addInbound(chunk)   // capture the caller's audio for the recording
+      trace?.packet('in')           // count inbound audio frames (non-emitting)
       if (!dg) return
       if (!dgReady) audioBuffer.push(chunk)
       else dg.send(chunk)
@@ -249,25 +354,57 @@ export function handleVobizConnection(ws) {
   async function finalize() {
     if (finalized) return
     finalized = true
+    trace?.set('conversationState', 'finalizing')
     if (dg) dg.finish()
 
+    const finSpan = trace?.span('finalize')
     if (callId) {
-      const transcript = transcriptBuffer.map(t => `${t.role}: ${t.text}`).join('\n')
+      // We show clients the RECORDING + an English summary, not the noisy live
+      // transcript — so we store the raw transcript only for internal reference
+      // (no LLM cleanup) and upload the call audio for playback.
+      const transcript = transcriptBuffer
+        .map(t => `${t.role === 'assistant' ? 'Agent' : 'Caller'}: ${t.text}`)
+        .join('\n')
       const durationSeconds = callStart ? Math.round((Date.now() - callStart) / 1000) : 0
+
+      let recordingPath = null
+      if (recorder && !recorder.isEmpty()) {
+        const recSpan = trace?.span('recording_upload')
+        try {
+          const wav = recorder.toWav()
+          if (wav) recordingPath = await uploadRecording(tenant?.id, callId, wav)
+          recSpan?.end({ payloadBytes: wav?.length || 0 })
+        } catch (e) {
+          console.error('[VOBIZ] recording upload failed:', e.message)
+          recSpan?.end({ error: e })
+          telemetry.recordServiceEvent({ component: 'storage', severity: 'error', kind: 'recording_upload', detail: { error: e.message, callSid } })
+        }
+      }
+
+      const updSpan = trace?.span('db_call_update', { latencyOp: 'supabase' })
       await supabase.from('calls')
-        .update({ status: 'completed', transcript, duration_seconds: durationSeconds })
+        .update({ status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath })
         .eq('id', callId)
+      updSpan?.end()
 
       if (tenant) {
         const history = getHistory(callSid)
         if (history && history.length > 0) {
-          const lead = await extractLead(history, tenant.config || {})
-          if (lead) await saveLead(supabase, { tenantId: tenant.id, callId, callerNumber, lead })
+          const leadSpan = trace?.span('lead_extraction')
+          try {
+            const lead = await extractLead(history, tenant.config || {})
+            if (lead) await saveLead(supabase, { tenantId: tenant.id, callId, callerNumber, lead })
+            leadSpan?.end({ attrs: { extracted: !!lead, intent: lead?.intent || null } })
+          } catch (e) {
+            leadSpan?.end({ error: e })
+          }
         }
       }
     }
+    finSpan?.end()
 
     if (callSid) clearHistory(callSid)
+    if (callSid) { telemetry.unregisterControl(callSid); telemetry.endTrace(callSid, { status: 'completed' }) }
     console.log('[VOBIZ] Call finalized')
   }
 }

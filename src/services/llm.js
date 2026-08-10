@@ -45,7 +45,7 @@ function clearHistory(callSid) {
 // PROMPT
 // ─────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(tenantConfig = {}) {
+function buildSystemPrompt(tenantConfig = {}, opts = {}) {
   const {
     business_name = 'Our Company',
     agent_name = 'Alex',
@@ -56,9 +56,14 @@ function buildSystemPrompt(tenantConfig = {}) {
     system_prompt = null,   // from a template or the prompt generator
   } = tenantConfig
 
-  const languageRule = allow_multilingual
-    ? 'Caller speech is translated to English before reaching you. Always reply in clear, natural English — translation back to the caller\'s language is handled automatically.'
-    : `Always reply only in ${response_language}`
+  // In speech-to-speech mode the model hears + speaks directly (no translation
+  // layer), so it must mirror the caller's language itself. In the legacy
+  // pipeline, translation is external, so the LLM always works in English.
+  const languageRule = opts.speechToSpeech
+    ? 'Reply in the SAME base language the caller speaks and mirror it every turn — Telugu→Telugu, Hindi→Hindi, English→English; never switch your whole reply back to English on your own. BUT speak the natural, everyday CODE-MIXED register real Indians use on the phone (Tinglish / Hinglish), NOT formal literary language: keep common English business and technical words IN ENGLISH — "units", "price", "size", "sq ft", "crore", "lakhs", "booking", "site visit", "clubhouse", "swimming pool", "amenities", "3BHK", "loan", "EMI", "possession", "RERA" — plus all project and place names. Do NOT translate these into bookish Telugu/Hindi words. The grammar and connective words stay in the caller\'s language; the English terms stay in English. Example (Telugu caller): "My Home Apas lo 3BHK units 2400 to 2800 sq ft untayi, price 2.8 crore nunchi start avutundi" — not a fully translated literary sentence.'
+    : allow_multilingual
+      ? 'Caller speech is translated to English before reaching you. Always reply in clear, natural English — translation back to the caller\'s language is handled automatically.'
+      : `Always reply only in ${response_language}`
 
   // Universal voice rules + handoff are ALWAYS appended, whether the role text
   // comes from a stored system_prompt (template/generated) or the built fields.
@@ -75,9 +80,9 @@ function buildSystemPrompt(tenantConfig = {}) {
 LIVE DATA LOOKUPS:
 - You can look up real-time, caller-specific details (orders, payments, bookings, etc.) using the available tools.
 - When a caller asks about THEIR specific record, call the matching tool — never guess or invent details.
-- Order numbers and other alphanumeric IDs are easily misheard on a phone line. The FIRST time a caller gives one, read it back character-by-character to confirm BEFORE looking it up, e.g. "Let me confirm sir, that's O-R-D-1-0-0-2, is that correct?" Only call the tool once they confirm.
+- Order numbers and other alphanumeric IDs are easily misheard on a phone line. The FIRST time a caller gives one, read it back character-by-character to confirm BEFORE looking it up, e.g. "Let me confirm, that's O-R-D-1-0-0-2, is that correct?" Only call the tool once they confirm.
 - A lookup that returns nothing almost always means the ID was misheard. Apologise, read back what you heard, and ask the caller to repeat it slowly, one character at a time. Then retry the lookup with the corrected value before giving up.
-- For plain details that aren't easily confused (like a name the caller stated), don't make them repeat it — just proceed.
+- Names are the exception to "don't make them repeat it" — see NAME CAPTURE below. Always read a name back once.
 - Only ask a question if a needed detail is genuinely missing, and ask for just that ONE detail.
 - After the tool returns a match, read back only the relevant facts in one or two short sentences.
 - If repeated attempts still fail, apologise briefly and offer to take down their details or hand off.`
@@ -95,6 +100,30 @@ Example: "Let me connect you with our team. [HANDOFF]"
 Never use [HANDOFF] for questions you can answer or partially answer.`
     : ''
 
+  // Name capture is UNIVERSAL — it lives here rather than in the templates because
+  // the templates only asked for a name inside their closing/booking step, so any
+  // call that didn't reach a booking ended anonymously. Every call needs a name.
+  //
+  // The read-back rule matters as much as the asking: Indian names over an 8kHz
+  // phone line are the single most misheard thing on a call, and the model's
+  // instinct is to "repair" an unfamiliar name into a familiar-sounding word.
+  const nameRule = `
+NAME CAPTURE (every call — not only bookings):
+- The caller's name is a REQUIRED outcome of EVERY call. A call that ends without a name has failed, even if you answered every question perfectly.
+- Ask EARLY — right after you've understood what they want, NOT at the end of the call. Waiting until the close means you lose the name entirely whenever the caller hangs up early.
+- Ask ONCE, warmly, as its own short question: "And may I know your name?" / "Mee peru cheppagalara?" / "Aapka naam jaan sakta hoon?"
+- Never interrogate. If they dodge or decline, drop it instantly and continue helping. You may ask once more near the end, never a third time.
+- If they already gave their name, NEVER ask again.
+
+GETTING THE NAME RIGHT (names are the most misheard thing on a phone call):
+- Expect INDIAN names. Do NOT "repair" what you heard into a similar-sounding English word or a more familiar name — if it sounded like an unusual name, it IS an unusual name. Never turn a name into an English word that happens to sound like it.
+- ALWAYS read the name back immediately, as its own beat, to confirm: "Madhusudhan — did I get that right?" Do this EVERY time, even when you think you heard it clearly. This one read-back is what makes the captured name usable.
+- If the caller corrects you, take their correction EXACTLY as given and read it back once more. Never re-substitute your original guess afterwards.
+- If you still can't catch it after two attempts, ask them to say it slowly, one part at a time: "Could you say it slowly for me, part by part?" Then read back what you assembled.
+- If it remains unclear after that, use what you have and move on — never let a name block the conversation or make the caller feel interrogated.
+- Once confirmed, USE the name naturally through the rest of the call — it is warmer than any honorific, and it proves to the caller you heard them.
+- Write the name as it is SPOKEN in the caller's own language. Never translate a name.`
+
   const voiceRules = `
 VOICE CALL RULES (apply to every response, regardless of topic):
 - Speak naturally — warm, consultative, never robotic or scripted
@@ -104,14 +133,15 @@ VOICE CALL RULES (apply to every response, regardless of topic):
 - No paragraph breaks or blank lines — replies must be continuous flowing sentences
 - NEVER give a number range — not for price, not for size: "starts at 2.8 crore" not "2.8 to 3.4 crore"; "from 2400 sq ft" not "2400 to 2800 sq ft"
 - NEVER use comma-formatted numbers: write "2400 sq ft" not "2,400 sq ft"
-- Address the caller as "sir" or "madam"
+- Do NOT assume the caller's gender. NEVER say "sir" or "madam" unless the caller has clearly revealed their gender. When you do address them, use a GENDER-NEUTRAL honorific in their language — Telugu "andi", Hindi/Urdu "ji". Use it SPARINGLY and naturally — at most once in a while (e.g. the greeting or one key question), NEVER at the end of every sentence. MOST sentences should carry no honorific at all; tone alone keeps it respectful. Prefer the caller's name once you know it. (Never use "garu".)
 - Give facts from the knowledge base only — never guess or make up numbers/details
 - NEVER re-ask something the caller already answered — always read the full conversation history before asking a question
-- Once location, apartment type, and budget are known, stop asking discovery questions and start recommending projects
+${tenantConfig.generic_agent ? '' : `- Once location, apartment type, and budget are known, stop asking discovery questions and start recommending projects
 - NEVER ask about timeline, move-in date, or purpose — go straight to recommending once location, type, and budget are known
-- When recommending projects, skip any intro sentence and use exactly this 3-sentence format: "Sir, [Project A] in [location] starts at [price]. [Project B] starts at [price]. Which interests you sir?"
+- When recommending projects, skip any intro sentence and use exactly this 3-sentence format: "[Project A] in [location] starts at [price]. [Project B] starts at [price]. Which one interests you?" (no "sir/madam"; a gentle "andi"/"ji" is fine only occasionally, not every line)`}
 - ${languageRule}
-- If user says bye: "Thank you for calling sir. Have a wonderful day!"
+- If user says bye: "Thank you for calling. Have a wonderful day!"
+${nameRule}
 ${lookupRule}
 ${handoffRule}`.trim()
 
@@ -173,7 +203,10 @@ async function* streamAIReply(
   userText,
   tenantConfig = {},
   signal,
-  knowledge = ''
+  knowledge = '',
+  onToolCall = null   // fired when the model decides to run a lookup (a real
+                      // multi-second round-trip) — lets the caller play a
+                      // contextual "let me check that" filler ONLY then.
 ) {
   const history = getHistory(callSid)
 
@@ -289,6 +322,9 @@ something not covered, warmly say you'll find out — never say you "can only" d
       // answers without further tools.
       const calls = toolCalls.filter(Boolean)
       if (finishReason === 'tool_calls' && calls.length && round < MAX_TOOL_ROUNDS - 1) {
+        // A lookup is about to run (extra ~1-2s). Signal the caller so it can play
+        // a short, honest "let me check" filler — the one moment a filler helps.
+        if (onToolCall) { try { onToolCall() } catch { /* never break the turn */ } }
         messages.push({ role: 'assistant', content: roundText || null, tool_calls: calls })
         for (const tc of calls) {
           let args = {}

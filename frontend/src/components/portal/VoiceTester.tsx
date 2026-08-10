@@ -1,63 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Phone, PhoneOff, Loader2 } from "lucide-react";
 import { WS_BASE, getToken } from "@/lib/api";
-
-// ─── G.711 µ-law codec + resampling (Twilio uses mulaw 8kHz) ─────────────────
-
-function muLawEncode(sample: number): number {
-  const BIAS = 0x84;
-  const CLIP = 32635;
-  let sign = (sample >> 8) & 0x80;
-  if (sign) sample = -sample;
-  if (sample > CLIP) sample = CLIP;
-  sample += BIAS;
-  let exponent = 7;
-  for (let mask = 0x4000; (sample & mask) === 0 && exponent > 0; exponent--, mask >>= 1) {}
-  const mantissa = (sample >> (exponent + 3)) & 0x0f;
-  return ~(sign | (exponent << 4) | mantissa) & 0xff;
-}
-
-function muLawDecode(u: number): number {
-  u = ~u & 0xff;
-  let t = ((u & 0x0f) << 3) + 0x84;
-  t <<= (u & 0x70) >> 4;
-  return u & 0x80 ? 0x84 - t : t - 0x84;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
-  }
-  return btoa(bin);
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-// Float32 PCM @ srcRate → base64 µ-law @ 8kHz (nearest-sample downsample).
-function floatToMulawBase64(input: Float32Array, srcRate: number): string {
-  const ratio = srcRate / 8000;
-  const outLen = Math.floor(input.length / ratio);
-  const out = new Uint8Array(outLen);
-  for (let i = 0; i < outLen; i++) {
-    let s = input[Math.floor(i * ratio)];
-    s = Math.max(-1, Math.min(1, s));
-    const i16 = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
-    out[i] = muLawEncode(i16);
-  }
-  return bytesToBase64(out);
-}
+import { floatToPcm16Base64, StreamPlayer } from "@/lib/webcall";
 
 type Status = "idle" | "connecting" | "live";
 
-// Real web-call agent test: the browser is the audio transport (like Twilio), and
-// the backend runs the SAME pipeline a phone call uses. No telephony involved.
+// Real web-call agent test: the browser is the audio transport, and the backend
+// runs the SAME Gemini Live engine a phone call uses. Hi-fi audio (24kHz PCM out /
+// 16kHz PCM in), so the client hears their agent at full quality.
 export function VoiceTester({ config }: { config: any }) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +16,7 @@ export function VoiceTester({ config }: { config: any }) {
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const nodesRef = useRef<{ source?: MediaStreamAudioSourceNode; proc?: ScriptProcessorNode; sink?: GainNode }>({});
-  const playTimeRef = useRef(0);
+  const playerRef = useRef<StreamPlayer | null>(null);
 
   useEffect(() => () => teardown(), []); // cleanup on unmount
 
@@ -77,10 +27,12 @@ export function VoiceTester({ config }: { config: any }) {
     try { nodesRef.current.source?.disconnect(); } catch { /* ignore */ }
     try { nodesRef.current.sink?.disconnect(); } catch { /* ignore */ }
     try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+    try { playerRef.current?.stop(); } catch { /* ignore */ }
     try { ctxRef.current?.close(); } catch { /* ignore */ }
     wsRef.current = null;
     ctxRef.current = null;
     streamRef.current = null;
+    playerRef.current = null;
     nodesRef.current = {};
   }
 
@@ -102,24 +54,26 @@ export function VoiceTester({ config }: { config: any }) {
       const ctx: AudioContext = new Ctx();
       ctxRef.current = ctx;
       await ctx.resume();
-      playTimeRef.current = ctx.currentTime;
+      // Continuous player ready before the first audio frame. Gemini outputs 24kHz.
+      playerRef.current = await StreamPlayer.create(ctx, 24000);
 
       const ws = new WebSocket(`${WS_BASE}/test-stream`);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        // Authenticate + start the pipeline with the (possibly unsaved) draft config.
+        // Authenticate + start the engine with the (possibly unsaved) draft config.
         ws.send(JSON.stringify({ event: "start", start: { token: getToken(), streamSid: "web", config } }));
 
-        // Capture mic → mulaw frames. ScriptProcessor must be connected to the
-        // graph to run, so route it through a muted gain node (no mic loopback).
+        // Capture mic → 16kHz PCM16 frames (Gemini's native input). ScriptProcessor
+        // must be connected to the graph to run, so route it through a muted gain
+        // node (no mic loopback).
         const source = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(2048, 1, 1);
         const sink = ctx.createGain();
         sink.gain.value = 0;
         proc.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
-          const payload = floatToMulawBase64(e.inputBuffer.getChannelData(0), ctx.sampleRate);
+          const payload = floatToPcm16Base64(e.inputBuffer.getChannelData(0), ctx.sampleRate, 16000);
           ws.send(JSON.stringify({ event: "media", media: { payload } }));
         };
         source.connect(proc);
@@ -133,7 +87,10 @@ export function VoiceTester({ config }: { config: any }) {
         let msg: any;
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.event === "media" && msg.media?.payload) {
-          schedulePlayback(msg.media.payload, ctx);
+          playerRef.current?.push(msg.media.payload);
+        } else if (msg.event === "clear") {
+          // Barge-in: drop the agent's queued audio so it stops when you speak.
+          playerRef.current?.clear();
         } else if (msg.event === "error") {
           setError(msg.error === "unauthorized" ? "Session expired — please sign in again." : "Test failed");
           stop();
@@ -147,21 +104,6 @@ export function VoiceTester({ config }: { config: any }) {
       teardown();
       setStatus("idle");
     }
-  }
-
-  function schedulePlayback(b64: string, ctx: AudioContext) {
-    const bytes = base64ToBytes(b64);
-    const pcm = new Float32Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) pcm[i] = muLawDecode(bytes[i]) / 32768;
-    const buf = ctx.createBuffer(1, pcm.length, 8000);
-    buf.getChannelData(0).set(pcm);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    const now = ctx.currentTime;
-    if (playTimeRef.current < now) playTimeRef.current = now + 0.05;
-    src.start(playTimeRef.current);
-    playTimeRef.current += buf.duration;
   }
 
   const live = status === "live";
@@ -185,7 +127,7 @@ export function VoiceTester({ config }: { config: any }) {
         <p className="text-sm text-muted-foreground mt-1 max-w-sm">
           {live
             ? "Your agent will greet you, then listen and reply in its real voice — exactly like a phone call."
-            : "Starts a live voice session using your real STT, language, and voice pipeline. No phone call is made."}
+            : "Starts a live voice session with your agent — same voice and language it uses on calls. No phone call is made."}
         </p>
         {error && <p className="text-sm text-destructive mt-2">{error}</p>}
       </div>

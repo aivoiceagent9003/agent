@@ -1,20 +1,18 @@
-import { Globe, BookOpen, UserPlus, Headphones, LineChart, Languages } from "lucide-react";
+import { BookOpen, UserPlus, Headphones, Languages } from "lucide-react";
 
 const features = [
-  { icon: Languages, title: "Multilingual", desc: "Speak naturally in 30+ languages — English, Hindi, Spanish, and more." },
-  { icon: BookOpen, title: "Knowledge base", desc: "Answers grounded in your docs, FAQs, and policies." },
-  { icon: UserPlus, title: "Lead capture", desc: "Auto-extract name, intent, contact info, and key details." },
-  { icon: Headphones, title: "Human handoff", desc: "Seamlessly transfer hot calls to your team." },
-  { icon: LineChart, title: "Analytics", desc: "Calls, minutes, leads, sentiment — at a glance." },
-  { icon: Globe, title: "24/7 coverage", desc: "Never miss a call, even outside business hours." },
+  { icon: Languages, title: "Speaks their language", desc: "English, Hindi, Telugu, Tamil, and every major Indian language." },
+  { icon: BookOpen, title: "Answers from your info", desc: "Grounded in your own docs, FAQs, and pricing." },
+  { icon: UserPlus, title: "Captures every lead", desc: "Name, intent, and contact — pulled straight from the call." },
+  { icon: Headphones, title: "Hands off to your team", desc: "Transfers hot calls to a human the moment they matter." },
 ];
 
 export function Features() {
   return (
     <section id="features" className="py-24 bg-card/30">
       <div className="mx-auto max-w-7xl px-6">
-        <h2 className="text-4xl md:text-5xl font-bold text-center">Built for businesses that pick up</h2>
-        <div className="mt-16 grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <h2 className="text-3xl md:text-4xl font-bold text-center">Everything a great receptionist does — on every call</h2>
+        <div className="mt-14 grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((f, i) => (
             <div key={i} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition shadow-card">
               <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-gradient-primary transition">
@@ -32,9 +30,9 @@ export function Features() {
 
 export function Pricing() {
   const tiers = [
-    { name: "Starter", price: "—", desc: "For pilots and small teams.", features: ["Up to 200 min/mo", "1 agent", "Email support"] },
-    { name: "Growth", price: "—", desc: "Most popular for scaling.", features: ["Up to 2,000 min/mo", "Unlimited agents", "Lead exports", "Priority support"], featured: true },
-    { name: "Enterprise", price: "Custom", desc: "For large operations.", features: ["Unlimited minutes", "Custom integrations", "Dedicated CSM", "SSO & SLA"] },
+    { name: "Starter", price: "—", desc: "For pilots and small teams.", features: ["1 voice agent", "Knowledge base + lead capture", "Human handoff", "Email support"] },
+    { name: "Growth", price: "—", desc: "Most popular for scaling.", features: ["Multiple agents", "Outbound campaigns", "WhatsApp follow-ups", "Lead exports + priority support"], featured: true },
+    { name: "Enterprise", price: "Custom", desc: "For large operations.", features: ["Custom integrations", "Dedicated support", "SSO & SLA"] },
   ];
   return (
     <section id="pricing" className="py-24 mx-auto max-w-7xl px-6">

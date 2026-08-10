@@ -1,0 +1,810 @@
+<style>
+  :root {
+    --bg: #f7f8fa; --surface: #ffffff; --surface-2: #f0f2f6; --surface-3: #e9ecf2;
+    --border: #e2e5ec; --border-strong: #d3d8e2;
+    --ink: #14161d; --muted: #59626f; --faint: #8b94a3;
+    --accent: #6d5cf5; --accent-ink: #5646d8; --accent-2: #0d9488;
+    --m-get: #0f9d6b; --m-post: #2563eb; --m-patch: #b45309;
+    --m-put: #7c3aed; --m-delete: #dc2626; --m-ws: #c026a3;
+    --good: #0f9d6b; --warn: #b45309; --bad: #dc2626;
+    --shadow: 0 1px 2px rgba(20,22,29,.04), 0 8px 24px -12px rgba(20,22,29,.14);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0f14; --surface: #14171f; --surface-2: #191d27; --surface-3: #212634;
+      --border: #262b38; --border-strong: #333a4b;
+      --ink: #e8ebf2; --muted: #9aa4b4; --faint: #6b7486;
+      --accent: #8b7cff; --accent-ink: #a99cff; --accent-2: #2dd4bf;
+      --m-get: #34d399; --m-post: #60a5fa; --m-patch: #fbbf24;
+      --m-put: #a78bfa; --m-delete: #f87171; --m-ws: #e879c9;
+      --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f8fa; --surface: #ffffff; --surface-2: #f0f2f6; --surface-3: #e9ecf2;
+    --border: #e2e5ec; --border-strong: #d3d8e2;
+    --ink: #14161d; --muted: #59626f; --faint: #8b94a3;
+    --accent: #6d5cf5; --accent-ink: #5646d8; --accent-2: #0d9488;
+    --m-get: #0f9d6b; --m-post: #2563eb; --m-patch: #b45309;
+    --m-put: #7c3aed; --m-delete: #dc2626; --m-ws: #c026a3;
+    --good: #0f9d6b; --warn: #b45309; --bad: #dc2626;
+    --shadow: 0 1px 2px rgba(20,22,29,.04), 0 8px 24px -12px rgba(20,22,29,.14);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0f14; --surface: #14171f; --surface-2: #191d27; --surface-3: #212634;
+    --border: #262b38; --border-strong: #333a4b;
+    --ink: #e8ebf2; --muted: #9aa4b4; --faint: #6b7486;
+    --accent: #8b7cff; --accent-ink: #a99cff; --accent-2: #2dd4bf;
+    --m-get: #34d399; --m-post: #60a5fa; --m-patch: #fbbf24;
+    --m-put: #a78bfa; --m-delete: #f87171; --m-ws: #e879c9;
+    --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+    line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent-ink); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: .86em; }
+
+  /* ── Top bar ── */
+  .topbar { position: sticky; top: 0; z-index: 30; background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px; padding: 12px 22px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 640; letter-spacing: -.01em; }
+  .brand .orb { width: 22px; height: 22px; border-radius: 7px;
+    background: radial-gradient(120% 120% at 30% 25%, var(--accent) 0%, var(--accent-2) 78%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 4px 14px -4px var(--accent); }
+  .brand small { color: var(--muted); font-weight: 500; }
+  .ver { margin-left: auto; font-family: var(--mono); font-size: .72rem; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; background: var(--surface); }
+  .toggle { border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+    width: 34px; height: 30px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+  .toggle:hover { border-color: var(--border-strong); }
+
+  /* ── Shell ── */
+  .shell { display: grid; grid-template-columns: 264px minmax(0,1fr); gap: 0;
+    max-width: 1240px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 55px; align-self: start; height: calc(100vh - 55px);
+    overflow-y: auto; padding: 24px 14px 60px 22px; border-right: 1px solid var(--border);
+    font-size: .82rem; }
+  nav.toc .grp { text-transform: uppercase; letter-spacing: .09em; font-size: .66rem;
+    color: var(--faint); font-weight: 700; margin: 18px 8px 6px; }
+  nav.toc a { display: block; color: var(--muted); padding: 5px 10px; border-radius: 7px;
+    border-left: 2px solid transparent; }
+  nav.toc a:hover { color: var(--ink); background: var(--surface-2); text-decoration: none; }
+  nav.toc a .n { font-family: var(--mono); font-size: .78em; color: var(--faint); margin-right: 7px; }
+
+  main { padding: 40px 42px 120px; min-width: 0; }
+  section { scroll-margin-top: 70px; padding-top: 8px; }
+  section + section { margin-top: 46px; padding-top: 46px; border-top: 1px solid var(--border); }
+
+  h1 { font-size: 2.05rem; letter-spacing: -.025em; line-height: 1.1; margin: 0 0 6px;
+    text-wrap: balance; font-weight: 680; }
+  h2 { font-size: 1.32rem; letter-spacing: -.02em; margin: 0 0 14px; font-weight: 660;
+    display: flex; align-items: baseline; gap: 12px; text-wrap: balance; }
+  h2 .num { font-family: var(--mono); font-size: .8rem; color: var(--accent-ink);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 7px;
+    padding: 2px 8px; font-weight: 600; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  h3 { font-size: 1.02rem; letter-spacing: -.01em; margin: 26px 0 10px; font-weight: 640; }
+  p { margin: 10px 0; color: var(--ink); max-width: 72ch; }
+  .lead { font-size: 1.06rem; color: var(--muted); max-width: 70ch; }
+  ul, ol { max-width: 72ch; padding-left: 20px; }
+  li { margin: 5px 0; }
+  strong { font-weight: 640; }
+  .muted { color: var(--muted); }
+
+  /* ── Meta line under H1 ── */
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
+  .tag { font-size: .74rem; font-family: var(--mono); color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; }
+  .tag b { color: var(--ink); font-weight: 600; }
+
+  /* ── Callout ── */
+  .note { border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    background: var(--surface); border-radius: 10px; padding: 14px 16px; margin: 16px 0;
+    box-shadow: var(--shadow); max-width: 74ch; }
+  .note.scope { border-left-color: var(--warn); }
+  .note p { margin: 6px 0; }
+  .note .k { font-weight: 640; }
+
+  /* ── Endpoint rows ── */
+  .ep { display: flex; align-items: center; gap: 11px; padding: 8px 12px; margin: 6px 0;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    font-family: var(--mono); font-size: .84rem; overflow-x: auto; }
+  .ep code { color: var(--ink); font-size: .84rem; white-space: nowrap; }
+  .ep .cm { color: var(--faint); white-space: nowrap; }
+  .m { font-family: var(--mono); font-weight: 700; font-size: .68rem; letter-spacing: .04em;
+    padding: 3px 8px; border-radius: 6px; flex: none; min-width: 52px; text-align: center; }
+  .m-get { color: var(--m-get); background: color-mix(in srgb, var(--m-get) 13%, transparent); }
+  .m-post { color: var(--m-post); background: color-mix(in srgb, var(--m-post) 13%, transparent); }
+  .m-patch { color: var(--m-patch); background: color-mix(in srgb, var(--m-patch) 15%, transparent); }
+  .m-put { color: var(--m-put); background: color-mix(in srgb, var(--m-put) 14%, transparent); }
+  .m-delete { color: var(--m-delete); background: color-mix(in srgb, var(--m-delete) 13%, transparent); }
+  .m-ws { color: var(--m-ws); background: color-mix(in srgb, var(--m-ws) 14%, transparent); }
+
+  /* ── Code block ── */
+  pre { font-family: var(--mono); font-size: .82rem; line-height: 1.55; margin: 12px 0;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; color: var(--ink); }
+  pre .c { color: var(--faint); }
+
+  /* ── Tables ── */
+  .tw { overflow-x: auto; margin: 14px 0; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: .87rem; min-width: 520px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border);
+    vertical-align: top; }
+  thead th { background: var(--surface-2); font-weight: 620; font-size: .74rem;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+  td code { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 9%, transparent);
+    padding: 1px 5px; border-radius: 4px; }
+  td.mono { font-family: var(--mono); font-size: .8rem; }
+
+  /* ── Status pills ── */
+  .pill { font-size: .72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+    font-family: var(--mono); white-space: nowrap; }
+  .pill.new { color: #fff; background: var(--accent); }
+  @media (prefers-color-scheme: dark) { .pill.new { color: #0d0f14; } }
+  :root[data-theme="dark"] .pill.new { color: #0d0f14; }
+  :root[data-theme="light"] .pill.new { color: #fff; }
+  .pill.now { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+  .pill.old { color: var(--muted); background: var(--surface-3); text-decoration: line-through; }
+
+  hr.soft { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { display: none; }
+    main { padding: 28px 20px 90px; }
+    h1 { font-size: 1.7rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="topbar">
+  <div class="brand"><span class="orb"></span> Vocera <small>· Frontend Spec</small></div>
+  <span class="ver">v3 · live &amp; tested</span>
+  <button class="toggle" id="themeBtn" aria-label="Toggle theme" title="Toggle light/dark">◐</button>
+</div>
+
+<div class="shell">
+  <nav class="toc" aria-label="Contents">
+    <div class="grp">Start here</div>
+    <a href="#changed"><span class="n">0</span>What changed since v2</a>
+    <a href="#build"><span class="n">1</span>What you're building</a>
+    <a href="#stack"><span class="n">2</span>Tech stack</a>
+    <a href="#backend"><span class="n">3</span>Talking to the backend</a>
+    <a href="#auth"><span class="n">4</span>Authentication</a>
+    <a href="#public"><span class="n">5</span>Public site (out of scope)</a>
+    <div class="grp">Client dashboard</div>
+    <a href="#dashboard"><span class="n">6</span>Dashboard pages</a>
+    <a href="#builder"><span class="n">7</span>Agent builder</a>
+    <a href="#campaigns"><span class="n">8</span>Campaigns</a>
+    <a href="#instant"><span class="n">9</span>Instant Calls</a>
+    <a href="#whatsapp"><span class="n">10</span>WhatsApp</a>
+    <div class="grp">Admin</div>
+    <a href="#admin"><span class="n">11</span>Admin panel</a>
+    <a href="#ops"><span class="n">12</span>Operations Center</a>
+    <div class="grp">Reference</div>
+    <a href="#endpoints"><span class="n">13</span>Endpoint reference</a>
+    <a href="#shapes"><span class="n">14</span>Data shapes</a>
+    <a href="#order"><span class="n">15</span>Build order</a>
+    <a href="#ux"><span class="n">16</span>UX notes</a>
+    <a href="#own"><span class="n">17</span>What you own</a>
+  </nav>
+
+  <main>
+    <header>
+      <h1>Voice Agent Platform — Frontend Specification</h1>
+      <p class="lead">The single reference you build the Vocera web app from. Every endpoint below is
+      live and tested — treat it as ready to call. You build the UI and wire it up; the backend is done.</p>
+      <div class="meta">
+        <span class="tag"><b>For</b> Frontend Developer</span>
+        <span class="tag"><b>Version</b> 3 — supersedes the v2 PDF</span>
+        <span class="tag"><b>Scope</b> Client dashboard · Agent builder · Admin</span>
+      </div>
+      <div class="note scope">
+        <p><span class="k">Your scope this round:</span> the <strong>Client dashboard (<code>/app</code>)</strong>,
+        the <strong>Agent builder (<code>/onboarding</code>)</strong>, and the <strong>Admin panel
+        (<code>/admin</code>)</strong> — including the new Campaigns, Instant Calls, WhatsApp and
+        Operations Center areas.</p>
+        <p><span class="k">Out of scope:</span> the <strong>public marketing site / landing page
+        (<code>/</code>)</strong>. It's owned separately and already built — described only for context.</p>
+      </div>
+    </header>
+
+    <!-- 0 ─────────────────────────────────────────────── -->
+    <section id="changed">
+      <h2><span class="num">00</span>What changed since v2 <span class="muted" style="font-size:.8rem;font-weight:400">— read this first</span></h2>
+      <p>If you built against the v2 PDF, here's everything that's different now. The rest of the doc is the full updated reference.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Area</th><th><span class="pill old">v2</span></th><th><span class="pill now">v3 now</span></th></tr></thead>
+          <tbody>
+            <tr><td><strong>Voice engine</strong></td><td>TTS voices ("Priya", "Sameera")</td><td><strong>Gemini Live speech-to-speech.</strong> <code>config.voice</code> is a Gemini voice id: <code>Aoede, Kore, Leda, Charon, Orus, Puck</code>. All voices are multilingual. You pick a voice for <strong>tone</strong>, not language.</td></tr>
+            <tr><td><strong>Voice picker</strong></td><td><code>gender</code> + label</td><td>Same shape, but show the <strong>gender word</strong> ("Female"/"Male") as a label — <strong>no gender icon</strong>. 3 female + 3 male.</td></tr>
+            <tr><td><strong>Agent builder route</strong></td><td><code>/app/agent</code></td><td><strong><code>/onboarding</code></strong> (nav: "Agent settings"). New clients land here first.</td></tr>
+            <tr><td><strong>Test the call</strong></td><td>text chat box only</td><td><strong>Real browser voice call</strong> over a WebSocket (hi-fi Gemini Live). Text-chat test still exists as a fallback.</td></tr>
+            <tr><td><strong>Knowledge base</strong></td><td>paste text / .txt</td><td><strong>Document-based</strong>: upload PDF / DOCX / images (OCR) / txt, or paste. Files listed &amp; individually deletable.</td></tr>
+            <tr><td><strong>Leads</strong></td><td>every call → a lead</td><td>Only calls with <strong>genuine interest</strong> become leads. Calls carry a <code>has_lead</code> flag.</td></tr>
+            <tr><td><strong>Calls</strong></td><td>single list</td><td>Calls have a <strong><code>direction</code></strong> — show <strong>Inbound / Outbound</strong> tabs. Detail includes a <strong>recording</strong> (signed URL).</td></tr>
+            <tr><td><strong>Auth</strong></td><td>email/password</td><td><strong>Google Sign-In added.</strong> Public signup is Google-only; login keeps Google + password.</td></tr>
+            <tr><td><strong>New client areas</strong></td><td>—</td><td><span class="pill new">NEW</span> Campaigns, Instant Calls, WhatsApp, live-data lookups.</td></tr>
+            <tr><td><strong>New admin area</strong></td><td>—</td><td><span class="pill new">NEW</span> Operations Center — 15 sections + a live <code>/ops-stream</code> WebSocket.</td></tr>
+            <tr><td><strong>Telephony</strong></td><td>Twilio</td><td><strong>Vobiz</strong> (backend only — for you it just means phone numbers must be full E.164, e.g. <code>+918071583556</code>).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 1 -->
+    <section id="build">
+      <h2><span class="num">01</span>What you're building</h2>
+      <p>A web app with three separate portals:</p>
+      <div class="tw"><table>
+        <thead><tr><th>Portal</th><th>Who</th><th>Route</th><th>Login?</th><th>Your scope</th></tr></thead>
+        <tbody>
+          <tr><td>Public site</td><td>Anyone</td><td class="mono">/</td><td>No</td><td class="muted">Out of scope</td></tr>
+          <tr><td>Client dashboard</td><td>Paying clients</td><td class="mono">/app</td><td>Yes</td><td><strong>Yes</strong></td></tr>
+          <tr><td>Agent builder</td><td>New + returning clients</td><td class="mono">/onboarding</td><td>Yes</td><td><strong>Yes</strong></td></tr>
+          <tr><td>Admin panel</td><td>Platform owner (us)</td><td class="mono">/admin</td><td>Yes</td><td><strong>Yes</strong></td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Product in one line:</strong> businesses get an AI voice agent that answers their phone calls
+      in English/Hindi/Hinglish (and other Indic languages), answers from their own knowledge base, captures
+      qualified leads, hands off to a human when needed, runs outbound calling campaigns, and can send
+      WhatsApp brochures/confirmations.</p>
+    </section>
+
+    <!-- 2 -->
+    <section id="stack">
+      <h2><span class="num">02</span>Tech stack</h2>
+      <ul>
+        <li><strong>React</strong> + <strong>TanStack Router</strong> — file-based routes in <code>frontend/src/routes</code></li>
+        <li><strong>Tailwind CSS</strong></li>
+        <li><strong>Recharts</strong> for charts</li>
+        <li><strong>fetch</strong> for API calls (a thin <code>lib/api</code> wrapper handles the token + 401)</li>
+        <li><strong>Supabase JS SDK</strong> for auth (Section 4)</li>
+        <li><strong>Web Audio API</strong> (<code>AudioContext</code> + <code>AudioWorklet</code>) for the browser voice test call — plumbing already exists in <code>lib/webcall.ts</code> + <code>useVoiceCall.ts</code>; reuse it.</li>
+      </ul>
+    </section>
+
+    <!-- 3 -->
+    <section id="backend">
+      <h2><span class="num">03</span>Talking to the backend</h2>
+      <ul>
+        <li>Dev base URL: <code>http://localhost:3000</code> (the UI runs on <code>:8080</code> and calls the API).</li>
+        <li>All responses JSON. Authenticated requests send <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+        <li>Errors: <code>{ "error": "message" }</code> with HTTP <code>400 / 401 / 403 / 404 / 500</code>.</li>
+        <li>Handle <code>401</code> by clearing the token and redirecting to the right login page.</li>
+        <li>Phone numbers are <strong>E.164</strong> (<code>+918071583556</code>). A national <code>08071583556</code> fails at the carrier — validate on input.</li>
+      </ul>
+    </section>
+
+    <!-- 4 -->
+    <section id="auth">
+      <h2><span class="num">04</span>Authentication</h2>
+      <p>Use the <strong>Supabase JS SDK</strong> for login — it handles tokens. Two methods:</p>
+      <h3>Password login</h3>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/auth/login</code><span class="cm">{ email, password } → { token, role, tenant_id }</span></div>
+      <h3>Google Sign-In</h3>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/auth/google</code><span class="cm">{ credential } → { token, role, tenant_id, is_new }</span></div>
+      <ul>
+        <li><code>is_new: true</code> → first login; <strong>route to <code>/onboarding</code></strong> to set up the business.</li>
+        <li><code>is_new: false</code> → existing user; route by <code>role</code>.</li>
+        <li>A <code>&lt;GoogleSignInButton /&gt;</code> component already exists — reuse it.</li>
+      </ul>
+      <p><strong>Routing after auth:</strong> <code>role === "admin"</code> → <code>/admin</code>; otherwise → <code>/app</code>
+      (or <code>/onboarding</code> if <code>is_new</code>). Store the token, attach it to every call, and on
+      <code>401</code> clear + redirect. You never pass user/tenant IDs — the token encodes them.</p>
+      <p><strong>Two login pages:</strong> <code>/login</code> (clients — Google + password) · <code>/admin-login</code> (admin — password).</p>
+      <p><strong>Signup</strong> is public and <strong>Google-only</strong> (<code>/signup</code>). A legacy email/password endpoint still exists if ever needed:</p>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/signup</code><span class="cm">{ email, password, business_name } → { success, tenant_id, message }</span></div>
+    </section>
+
+    <!-- 5 -->
+    <section id="public">
+      <h2><span class="num">05</span>Public site <span class="muted" style="font-size:.8rem;font-weight:400">— out of scope</span></h2>
+      <p>Already built by another owner. For context only: the marketing site (hero, features, pricing, contact
+      form) plus a <strong>live voice demo</strong> — visitors actually <strong>talk to a real AI agent in the
+      browser</strong> ("Talk to Priya" + per-industry demos). The old scripted/animated chat demo is gone. You
+      don't build or change this. Its two public endpoints are in Section 13 for completeness.</p>
+    </section>
+
+    <!-- 6 -->
+    <section id="dashboard">
+      <h2><span class="num">06</span>Client dashboard <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/app</code></span></h2>
+      <p>Sidebar nav (already in <code>PortalShell.tsx → clientNav</code>):</p>
+      <p class="mono muted" style="font-family:var(--mono);font-size:.86rem">Overview · Calls · Campaigns · Instant Calls · Leads · Knowledge · WhatsApp · Agent settings</p>
+      <p><strong>First-login flow:</strong> a brand-new client lands in the Agent builder (<code>/onboarding</code>)
+      first. Once they publish, they use the dashboard. Show a "Set up your agent" banner anywhere
+      <code>config.status !== 'published'</code>.</p>
+
+      <h3>Page: Overview <code>/app</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/overview</code></div>
+      <pre>→ { total_calls, total_minutes, total_leads, handoff_count,
+    avg_call_duration_seconds,
+    calls_last_7_days: [ { date, count } ] }</pre>
+      <p>Cards: <strong>Total Minutes</strong> (hero card — biggest), Total Calls, Total Leads, Handoffs, Avg Duration. Chart: calls over last 7 days.</p>
+
+      <h3>Page: Calls <code>/app/calls</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/calls?page=1&amp;limit=20&amp;direction=inbound|outbound</code></div>
+      <pre>→ { calls: [ { id, caller_number, status, duration_seconds, created_at,
+               direction, campaign_id, has_lead } ], total, page, limit }</pre>
+      <ul>
+        <li><strong>Two tabs: Inbound / Outbound</strong> (pass <code>direction</code>). Legacy rows with no direction count as inbound.</li>
+        <li>Paginated table: caller number, date/time, duration, status, <strong>lead badge</strong> (<code>has_lead</code>). Outbound rows may show <code>campaign_id</code>. Click row → detail.</li>
+      </ul>
+
+      <h3>Page: Call detail <code>/app/calls/:id</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/calls/:id</code></div>
+      <pre>→ { id, caller_number, status, duration_seconds, created_at,
+    transcript, recording_url, lead }</pre>
+      <ul>
+        <li>Transcript as chat bubbles (<strong>Caller left, Agent right</strong>).</li>
+        <li><strong>Audio player</strong> for <code>recording_url</code> (short-lived signed URL; may be <code>null</code>).</li>
+        <li>Show the extracted <code>lead</code> below if present (shape in Section 14).</li>
+      </ul>
+
+      <h3>Page: Leads <code>/app/leads</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/leads?page=1&amp;limit=20&amp;intent=&amp;sentiment=&amp;follow_up=</code></div>
+      <pre>→ { leads: [ { id, name, intent, summary, sentiment, language,
+               key_details[], follow_up_needed, handed_off,
+               contact_info, caller_number, created_at, transcript } ],
+    total, page, limit }</pre>
+      <ul>
+        <li>Filterable by <code>intent</code>, <code>sentiment</code>, <code>follow_up=true</code>.</li>
+        <li>Sentiment color-coded: <span style="color:var(--good)">positive</span> · <span class="muted">neutral</span> · <span style="color:var(--warn)">frustrated</span> · <span style="color:var(--bad)">angry</span>.</li>
+        <li>Each lead carries its call <code>transcript</code> (no extra fetch).</li>
+      </ul>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/leads/export</code><span class="cm">→ CSV download</span></div>
+    </section>
+
+    <!-- 7 -->
+    <section id="builder">
+      <h2><span class="num">07</span>Agent builder <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/onboarding</code></span></h2>
+      <p>Where clients set up their AI agent. <strong>New clients land here first.</strong> Flow:</p>
+      <pre>Choose path
+ ├─ Pre-Built   → pick a sector template → config pre-filled → edit → test → publish
+ └─ Custom
+     ├─ "Our Recommendations" → Auto Build form → generate prompt → edit → test → publish
+     └─ "From Scratch"        → blank form → fill everything → test → publish</pre>
+
+      <h3>Step 0 — Load current agent</h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent</code><span class="cm">→ { id, name, phone_number, config }</span></div>
+      <p><code>config.status</code> is <code>"draft"</code> or <code>"published"</code>. Show a "Draft — not live yet" badge when draft.</p>
+
+      <h3>Step 1A — Pre-Built: template picker</h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/templates</code><span class="cm">→ [ { id, label, description, icon, suggested_kb_topics } ]</span></div>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/templates/:id</code><span class="cm">→ { …, config }</span></div>
+      <p>Template ids: <code>real_estate_sales, lead_qualification, customer_support, front_desk, reminder_collections, order_confirmation</code>. Show as cards; on click, pre-fill the config form with the returned <code>config</code>.</p>
+
+      <h3>Step 1B — Custom "Our Recommendations" (Auto Build)</h3>
+      <p>Form: <code>agent_name</code> (req), <code>languages</code> (checkboxes English/Hindi — req), <code>goal</code> (req), <code>next_steps</code> (req), <code>faqs</code> (opt), <code>sample_transcript</code> (opt).</p>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/generate-prompt</code><span class="cm">→ { system_prompt, config }</span></div>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/recommendations?sector=real_estate</code><span class="cm">→ { suggested_kb_topics[], tip }</span></div>
+      <p>Show <code>system_prompt</code> in an <strong>editable textarea</strong> ("you can always modify &amp; edit it later").</p>
+
+      <h3>Step 2 — Edit config (all paths converge)</h3>
+      <div class="tw"><table>
+        <thead><tr><th>Field</th><th>UI control</th><th>Saved as</th></tr></thead>
+        <tbody>
+          <tr><td>Agent name</td><td>text input</td><td><code>config.agent_name</code></td></tr>
+          <tr><td>Prompt / Role</td><td>editable textarea</td><td><code>config.system_prompt</code></td></tr>
+          <tr><td>Voice</td><td>picker (below)</td><td><code>config.voice</code></td></tr>
+          <tr><td>Mobile number to automate</td><td>phone input (E.164)</td><td><code>phone_number</code> (top-level)</td></tr>
+          <tr><td>Handoff number</td><td>phone input (E.164)</td><td><code>config.handoff_number</code></td></tr>
+          <tr><td>Enable handoff</td><td>toggle</td><td><code>config.enable_handoff</code></td></tr>
+          <tr><td>Enable knowledge base</td><td>toggle</td><td><code>config.enable_kb</code></td></tr>
+          <tr><td>Filler phrases</td><td>add/remove list</td><td><code>config.filler_phrases</code></td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Voice picker</strong>:</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/voices</code><span class="cm">→ [ { id, label, gender, note } ]</span></div>
+      <p>3 female + 3 male Gemini Live voices. <strong>Show gender as a word ("Female"/"Male") — no icon.</strong> Show <code>note</code> as the tone hint. Every voice speaks every language; there's no per-language voice.</p>
+      <p><strong>Save draft</strong> (auto-save on blur or explicit Save):</p>
+      <div class="ep"><span class="m m-patch">PATCH</span><code>/api/client/agent</code><span class="cm">{ config, phone_number? } → { id, phone_number, config }</span></div>
+      <div class="note"><p><span class="k">Note:</span> <code>PATCH</code> merges into the existing config and forces <code>status:"draft"</code>. If <code>config.business_name</code> is set it also syncs the tenant's display name.</p></div>
+
+      <h3>Step 3 — Knowledge base (document-based)</h3>
+      <p>Upload files (PDF, DOCX, images w/ OCR, txt) <strong>or</strong> paste text. Files are listed and individually deletable. Show <code>suggested_kb_topics</code> as hints.</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/documents</code><span class="cm">→ [ { id, filename, source, chunk_count, size_bytes, created_at } ]</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/knowledge</code><span class="cm">{ text, source? } → { chunks_added, document_id } · paste</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/knowledge/upload</code><span class="cm">multipart file → { document_id, filename, chunks_added, chars }</span></div>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/documents/:id/url</code><span class="cm">→ { url } · signed link</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/client/agent/documents/:id</code><span class="cm">→ { success }</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/client/agent/knowledge</code><span class="cm">→ { success } · Clear all</span></div>
+      <p class="muted" style="font-size:.9rem">(Chunk-level <code>GET/DELETE /knowledge[/:chunkId]</code> also exist for inspection — optional.)</p>
+
+      <h3>Step 3.5 — Live data lookups (optional, advanced)</h3>
+      <p>Per-caller data the agent fetches <strong>at call time</strong> (order status, dues, booking). Backed by the client's REST API (<code>http</code>) or a data sheet uploaded here (<code>table</code>). A <code>LiveDataSetup.tsx</code> component already exists.</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/agent/lookups</code><span class="cm">→ { enable_lookups, lookups[], datasets[] }</span></div>
+      <div class="ep"><span class="m m-patch">PATCH</span><code>/api/client/agent/lookups</code><span class="cm">{ lookups[], enable_lookups? }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/lookups/dataset</code><span class="cm">multipart csv OR { dataset, csv } → { dataset, rows_added, columns }</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/client/agent/lookups/dataset/:dataset</code></div>
+
+      <h3>Step 4 — Test the call (browser — no phone)</h3>
+      <div class="note"><p><span class="k">This is the showpiece of the builder — make it feel like a real phone call.</span> The client <strong>talks</strong> and <strong>hears</strong> the agent, running the exact same Gemini Live engine + knowledge base as a real call.</p></div>
+      <p><strong>Real voice test (primary)</strong> — over a WebSocket:</p>
+      <div class="ep"><span class="m m-ws">WS</span><code>ws://&lt;host&gt;/test-stream</code></div>
+      <pre>→ send  { event:"start", start:{ token:&lt;bearer&gt;, config?:&lt;draft config&gt;, streamSid? } }
+→ send  { event:"media", media:{ payload:&lt;base64 PCM audio&gt; } }   <span class="c">// mic, continuously</span>
+← recv  audio frames (agent speech) + { event:"started" } / { event:"clear" } (barge-in) / { event:"error" }
+→ send  { event:"stop" }</pre>
+      <ul>
+        <li>Pass the <strong>draft <code>config</code></strong> to test unsaved changes; omit to test the saved config.</li>
+        <li>Mic→PCM, <code>AudioWorklet</code> playback and barge-in already exist in <code>webcall.ts</code> + <code>useVoiceCall.ts</code> + <code>VoiceTester.tsx</code>. <strong>Reuse the <code>VoiceTester</code> component</strong> — a phone-style UI with a talk button + live status.</li>
+      </ul>
+      <p><strong>Text-chat test (fallback)</strong> — same AI + KB pipeline, typed:</p>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/test</code><span class="cm">{ message, session_id, config? } → { reply, used_knowledge }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/test/reset</code><span class="cm">{ session_id } → { success }</span></div>
+      <p>Show a small badge when <code>used_knowledge: true</code> (proves the KB works). "Reset conversation" clears memory.</p>
+
+      <h3>Step 5 — Publish</h3>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/agent/publish</code><span class="cm">→ { success, status:"published" }</span></div>
+      <p>After publish: success state ("Your agent is live! Calls to your number will now be handled by your AI agent.") and flip the badge Draft → Live.</p>
+    </section>
+
+    <!-- 8 -->
+    <section id="campaigns">
+      <h2><span class="num">08</span>Campaigns <span class="pill new">NEW</span> <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/app/campaigns</code></span></h2>
+      <p>Outbound calling. A campaign dials a list of contacts with either an <strong>AI agent</strong>
+      (<code>type: "ai_sales"</code> — full Gemini conversation) or a <strong>fixed spoken message</strong>
+      (<code>type: "template"</code>). Contacts come from: file upload, paste, Google Sheet, database query,
+      or a real-time webhook (CRM / Meta &amp; Google Lead Ads).</p>
+      <div class="note"><p>Campaigns require Redis on the backend. If it's off, <code>start</code> returns <code>503</code> — surface that gracefully.</p></div>
+
+      <h3>List + create <code>/app/campaigns</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns</code><span class="cm">→ { campaigns:[ { …, contacts:{ total, completed } } ] }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns</code><span class="cm">{ name, type?, config?, schedule?, retry_policy?, compliance?, from_number? }</span></div>
+      <p><code>status</code>: <code>draft → scheduled → running → paused → completed</code>. Show status pills + a progress bar from <code>completed / total</code>.</p>
+
+      <h3>Campaign detail <code>/app/campaigns/:id</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/:id</code></div>
+      <div class="ep"><span class="m m-patch">PATCH</span><code>/api/client/campaigns/:id</code></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/client/campaigns/:id</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/duplicate</code></div>
+      <p><strong>Lifecycle:</strong></p>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/start</code><span class="cm">{ start_at? } → { ok, queued|scheduled, delayMs? }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>…/unschedule · …/pause · …/resume · …/stop</code></div>
+      <p><strong>Contacts:</strong></p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/:id/contacts?page=1&amp;limit=50</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/contacts</code><span class="cm">{ contacts:[{name?,phone}] }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/contacts/paste</code><span class="cm">{ text }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/contacts/import</code><span class="cm">multipart csv|xlsx|txt|pdf|docx</span></div>
+      <p><strong>Data sources</strong> (Google Sheet / Database — pulled by the worker):</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/:id/sources</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/sources</code><span class="cm">{ kind:"google_sheet"|"database", name?, config }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/sources/:sourceId/sync</code><span class="cm">pull now</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/client/campaigns/:id/sources/:sourceId</code></div>
+      <p class="muted" style="font-size:.9rem">google_sheet: <code>config.url</code> required · database: <code>config.query</code> required · optional <code>config.poll_seconds</code> (≥30 keeps it fresh).</p>
+      <p><strong>Real-time trigger</strong> (webhook ingress URL + token for CRMs / lead ads):</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/:id/trigger</code><span class="cm">→ { url, token, header:"X-Campaign-Token", presets[], active_preset }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/:id/trigger/rotate</code><span class="cm">→ { token }</span></div>
+      <div class="ep"><span class="m m-put">PUT</span><code>/api/client/campaigns/:id/trigger/preset</code><span class="cm">{ preset }</span></div>
+      <p>Show URL + token as copy-to-clipboard with a rotate button and a preset dropdown.</p>
+      <p><strong>Schedule / retry:</strong></p>
+      <div class="ep"><span class="m m-put">PUT</span><code>/api/client/campaigns/:id/schedule</code><span class="cm">{ mode:"once"|"recurring", start_at?, cron?, every_ms? }</span></div>
+      <div class="ep"><span class="m m-put">PUT</span><code>/api/client/campaigns/:id/retry</code></div>
+      <p><strong>Analytics / runs / logs</strong> (detail tabs):</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/:id/analytics · /runs · /logs</code></div>
+
+      <h3>Monitor <code>/app/campaigns/monitor</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/monitor</code><span class="cm">→ { redis, running[], queues, liveCalls[] }</span></div>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/dialer</code><span class="cm">→ concurrency / provider info</span></div>
+      <p><strong>Suppression list (compliance):</strong></p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/suppression</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/suppression</code><span class="cm">{ phone, reason? }</span></div>
+      <p><strong>Campaign templates (reusable presets):</strong></p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/campaigns/templates</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/campaigns/templates</code><span class="cm">{ name, type?, config? }</span></div>
+      <p class="muted" style="font-size:.9rem">New campaign wizard lives at <code>/app/campaigns/new</code>.</p>
+    </section>
+
+    <!-- 9 -->
+    <section id="instant">
+      <h2><span class="num">09</span>Instant Calls <span class="pill new">NEW</span> <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/app/instant</code></span></h2>
+      <p>A standalone "CRM entry → immediate AI call" webhook (not a campaign). The moment a new lead lands in
+      the client's CRM, they POST it to their ingress URL and we dial within seconds.</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/instant-call</code><span class="cm">→ { enabled, url, token, header, presets[], active_preset, from_number, skip_recent_days, skip_statuses[] }</span></div>
+      <div class="ep"><span class="m m-put">PUT</span><code>/api/client/instant-call</code><span class="cm">{ enabled?, preset?, from_number?, skip_recent_days?, skip_statuses? }</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/instant-call/rotate</code><span class="cm">→ new token</span></div>
+      <p>UI: on/off toggle · the ingress <strong>URL + token</strong> (copy + rotate) · a <strong>preset</strong>
+      dropdown · a <strong>caller-ID</strong> (<code>from_number</code>, E.164) · de-dup guards:
+      <strong>skip_recent_days</strong> (don't re-call within N days) + <strong>skip_statuses</strong> (lead
+      statuses that mean "already worked" — a tag/multiselect).</p>
+    </section>
+
+    <!-- 10 -->
+    <section id="whatsapp">
+      <h2><span class="num">10</span>WhatsApp <span class="pill new">NEW</span> <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/app/whatsapp</code></span></h2>
+      <p>The agent can send a <strong>brochure</strong> or a <strong>booking confirmation</strong> over WhatsApp.
+      Messages send from the <strong>platform's</strong> shared WhatsApp number — the client sets <strong>no API
+      credentials</strong>, only what shows in the message (their contact number) and which files to send.</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/whatsapp</code><span class="cm">→ { platform_enabled, enabled, display_phone, own_number, provider, phone_number, phone_number_id, token_set, templates }</span></div>
+      <div class="ep"><span class="m m-put">PUT</span><code>/api/client/whatsapp</code><span class="cm">{ enabled?, display_phone?, /* advanced BYO-number… */ }</span></div>
+      <ul>
+        <li><code>platform_enabled</code> tells you the shared sender is live (show a "ready" state). If <code>false</code>, show "WhatsApp not yet configured by Vocera".</li>
+        <li>Main UI: enable toggle + <strong>contact number to display</strong>. Put BYO-number fields (provider, phone number id, token, template names) behind an "Advanced" disclosure. <strong>Never</strong> display the token back (<code>token_set</code> just says one is saved).</li>
+      </ul>
+      <p><strong>Sendable documents</strong> (brochures/menus — own store, separate from the knowledge base):</p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/client/whatsapp/documents</code><span class="cm">→ [ { id, topic, filename, mime_type, size_bytes, created_at } ]</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/client/whatsapp/documents</code><span class="cm">multipart file + topic</span></div>
+      <div class="ep"><span class="m m-put">PUT</span><code>/api/client/whatsapp/documents/:id</code><span class="cm">{ topic }</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/client/whatsapp/documents/:id</code></div>
+      <p>UI: upload a file + a <code>topic</code> label (e.g. "3BHK brochure", "menu"), list them, edit topic, delete.</p>
+    </section>
+
+    <!-- 11 -->
+    <section id="admin">
+      <h2><span class="num">11</span>Admin panel <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/admin</code></span></h2>
+      <p>Internal tool for the platform owner. Sidebar (<code>adminNav</code>):</p>
+      <p class="muted" style="font-family:var(--mono);font-size:.86rem">Dashboard · Clients · Operations · Live Calls · Latency · Services · Errors · Alerts · AI Quality · Business · Settings</p>
+
+      <h3>Page: Dashboard <code>/admin</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/admin/overview</code><span class="cm">→ { total_tenants, total_calls, total_minutes, total_leads, calls_last_7_days[], recent_calls[] }</span></div>
+      <p>Platform-wide stat cards + chart + recent-calls table.</p>
+
+      <h3>Page: Clients list <code>/admin/clients</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/admin/tenants</code><span class="cm">→ [ { id, name, phone_number, config, created_at, stats } ]</span></div>
+      <p>Table with name, number, call count, minutes, leads. "Add Client" button (<code>/admin/clients/new</code>).</p>
+
+      <h3>Page: Add / Edit client <code>/admin/clients/:id</code></h3>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/admin/tenants/:id</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/admin/tenants</code><span class="cm">{ name, phone_number, config }</span></div>
+      <div class="ep"><span class="m m-patch">PATCH</span><code>/api/admin/tenants/:id</code><span class="cm">{ name?, phone_number?, config? }</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/admin/tenants/:id</code></div>
+      <p>Same config fields as the client agent builder (Section 7 Step 2), but admin can edit any client.</p>
+      <p><strong>Knowledge base (within the edit page):</strong></p>
+      <div class="ep"><span class="m m-get">GET</span><code>/api/admin/tenants/:id/knowledge</code></div>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/admin/tenants/:id/knowledge</code><span class="cm">{ text, source?, replace? }</span></div>
+      <div class="ep"><span class="m m-delete">DELETE</span><code>/api/admin/tenants/:id/knowledge/:chunkId · …/knowledge (clear all)</code></div>
+    </section>
+
+    <!-- 12 -->
+    <section id="ops">
+      <h2><span class="num">12</span>Operations Center <span class="pill new">NEW</span> <span class="muted" style="font-size:.8rem;font-weight:400">— <code>/admin/ops/*</code></span></h2>
+      <p>A real-time observability console for the voice platform. <strong>15 sections.</strong> Every REST
+      endpoint is the initial snapshot / polling fallback; live deltas stream over a WebSocket.</p>
+      <p><strong>Live feed WebSocket:</strong></p>
+      <div class="ep"><span class="m m-ws">WS</span><code>ws://&lt;host&gt;/ops-stream?token=&lt;admin bearer&gt;</code></div>
+      <pre>← { type:"snapshot", snapshot, calls }   <span class="c">// on connect + every 5s heartbeat</span>
+← { type:"event", event, payload }        <span class="c">// live deltas</span>
+← { type:"error", error:"unauthorized" }  <span class="c">// then closes</span></pre>
+      <p class="muted" style="font-size:.9rem">The browser can't set headers on a WS handshake, so the admin token is passed as <code>?token=</code>.</p>
+      <p><strong>REST endpoints</strong> (all under <code>/api/admin/ops</code>, all admin-only):</p>
+      <div class="tw"><table>
+        <thead><tr><th>Section</th><th>Route</th><th>Returns</th></tr></thead>
+        <tbody>
+          <tr><td>1 · Executive overview</td><td class="mono">GET /overview</td><td>snapshot + live series</td></tr>
+          <tr><td>— time-series</td><td class="mono">GET /series?limit=180</td><td>samples</td></tr>
+          <tr><td>2 · Live calls</td><td class="mono">GET /calls/live</td><td>{ calls[] }</td></tr>
+          <tr><td>— recent</td><td class="mono">GET /calls/recent?limit=100</td><td>{ calls[] }</td></tr>
+          <tr><td>3 · Distributed trace</td><td class="mono">GET /calls/:callSid/trace</td><td>per-call trace (404 if aged out)</td></tr>
+          <tr><td>4 · Latency</td><td class="mono">GET /latency?op=</td><td>p50/p95/p99 per op</td></tr>
+          <tr><td>— history</td><td class="mono">GET /metrics/history?metric=&amp;op=&amp;sinceMs=</td><td>{ rows }</td></tr>
+          <tr><td>— service events</td><td class="mono">GET /events?limit=200</td><td>{ events[] }</td></tr>
+          <tr><td>5 · Language analytics</td><td class="mono">GET /language</td><td>detection sources, per-language, confidence</td></tr>
+          <tr><td>6 · Gemini</td><td class="mono">GET /gemini</td><td>sessions, reconnects, close codes, latency</td></tr>
+          <tr><td>7 · Telephony</td><td class="mono">GET /telephony</td><td>incoming/answered/rejected, webhook latency</td></tr>
+          <tr><td>8 · Knowledge / RAG</td><td class="mono">GET /rag</td><td>cache hit rate, no-match, retrieval latency</td></tr>
+          <tr><td>9 · Tools</td><td class="mono">GET /tools</td><td>per-tool ok/error + lookup hit/miss</td></tr>
+          <tr><td>10 · Infrastructure</td><td class="mono">GET /infra</td><td>cpu, mem, heap, event-loop delay + series</td></tr>
+          <tr><td>11 · Errors</td><td class="mono">GET /errors</td><td>{ byComponent, recent }</td></tr>
+          <tr><td>12 · Downtime</td><td class="mono">GET /downtime</td><td>{ incidents[] }</td></tr>
+          <tr><td>13 · Business analytics</td><td class="mono">GET /business</td><td>{ tenants[cost,revenue,profit…], totals }</td></tr>
+          <tr><td>14 · AI quality</td><td class="mono">GET /quality</td><td>qualityScore 0-100 + failure breakdown</td></tr>
+          <tr><td>15 · Alerts</td><td class="mono">GET /alerts</td><td>{ active, history, rules }</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Actions:</strong></p>
+      <div class="ep"><span class="m m-post">POST</span><code>/api/admin/ops/calls/:callSid/terminate</code><span class="cm">→ { ok } · end a live call</span></div>
+      <div class="ep"><span class="m m-post">POST</span><code>…/calls/:callSid/{listen|replay|transfer}</code><span class="cm">→ 501 · show "coming soon"</span></div>
+      <div class="note"><p>Some endpoints tell you honestly which metrics aren't wired yet (<code>/quality</code> → <code>needsLlmJudge</code>, <code>/gemini</code> → <code>tokenUsageAvailable:false</code>, the <code>501</code> actions). <strong>Render those as "not available yet" — don't fake them.</strong></p></div>
+    </section>
+
+    <!-- 13 -->
+    <section id="endpoints">
+      <h2><span class="num">13</span>Complete endpoint reference</h2>
+      <pre><span class="c">PUBLIC (no auth)</span>
+  POST  /api/public/contact                 { name, email, company?, message? }
+  GET   /api/public/demo/sectors            (marketing live-demo sectors)
+  POST  /api/signup                         { email, password, business_name }   (legacy; signup is Google-only)
+
+<span class="c">AUTH</span>
+  POST  /api/auth/login                     { email, password } → { token, role, tenant_id }
+  POST  /api/auth/google                    { credential } → { token, role, tenant_id, is_new }
+
+<span class="c">CLIENT — Dashboard (Bearer)</span>
+  GET   /api/client/overview
+  GET   /api/client/calls?page=&amp;limit=&amp;direction=
+  GET   /api/client/calls/:id
+  GET   /api/client/leads?page=&amp;limit=&amp;intent=&amp;sentiment=&amp;follow_up=
+  GET   /api/client/leads/export            (CSV)
+
+<span class="c">CLIENT — Agent Builder (Bearer)</span>
+  GET   /api/client/agent
+  PATCH /api/client/agent                   { config, phone_number? }
+  POST  /api/client/agent/publish
+  GET   /api/client/agent/templates[/:id]
+  GET   /api/client/agent/voices
+  GET   /api/client/agent/recommendations?sector=
+  POST  /api/client/agent/generate-prompt
+  POST  /api/client/agent/test    ·   POST /api/client/agent/test/reset
+  GET   /api/client/agent/documents        ·  GET  /api/client/agent/documents/:id/url
+  DELETE/api/client/agent/documents/:id
+  POST  /api/client/agent/knowledge         { text, source? }
+  POST  /api/client/agent/knowledge/upload  (multipart file)
+  GET   /api/client/agent/knowledge         ·  DELETE /api/client/agent/knowledge[/:chunkId]
+  GET   /api/client/agent/lookups           ·  PATCH  /api/client/agent/lookups
+  POST  /api/client/agent/lookups/dataset   ·  DELETE /api/client/agent/lookups/dataset/:dataset
+
+<span class="c">CLIENT — Campaigns (Bearer)</span>
+  GET/POST                 /api/client/campaigns
+  GET                      /api/client/campaigns/monitor · /dialer
+  GET/POST                 /api/client/campaigns/suppression · /templates
+  GET/PATCH/DELETE         /api/client/campaigns/:id
+  POST                     /api/client/campaigns/:id/start|unschedule|pause|resume|stop|duplicate
+  GET/POST                 /api/client/campaigns/:id/contacts
+  POST                     /api/client/campaigns/:id/contacts/paste · /contacts/import
+  PUT                      /api/client/campaigns/:id/schedule · /retry
+  GET/POST                 /api/client/campaigns/:id/sources
+  POST                     /api/client/campaigns/:id/sources/:sourceId/sync
+  DELETE                   /api/client/campaigns/:id/sources/:sourceId
+  GET                      /api/client/campaigns/:id/trigger
+  POST                     /api/client/campaigns/:id/trigger/rotate
+  PUT                      /api/client/campaigns/:id/trigger/preset
+  GET                      /api/client/campaigns/:id/analytics|runs|logs
+
+<span class="c">CLIENT — Instant Calls / WhatsApp (Bearer)</span>
+  GET/PUT   /api/client/instant-call   ·  POST /api/client/instant-call/rotate
+  GET/PUT   /api/client/whatsapp
+  GET/POST  /api/client/whatsapp/documents   ·  PUT/DELETE /api/client/whatsapp/documents/:id
+
+<span class="c">ADMIN (Bearer, admin role)</span>
+  GET   /api/admin/overview
+  GET   /api/admin/tenants
+  GET/POST/PATCH/DELETE    /api/admin/tenants[/:id]
+  GET/POST/DELETE          /api/admin/tenants/:id/knowledge[/:chunkId]
+  GET   /api/admin/ops/*                    (15 sections — see Section 12)
+  POST  /api/admin/ops/calls/:callSid/terminate
+
+<span class="c">WEBSOCKETS</span>
+  ws /test-stream          (client browser voice test — Bearer token in start payload)
+  ws /ops-stream?token=    (admin ops live feed)</pre>
+    </section>
+
+    <!-- 14 -->
+    <section id="shapes">
+      <h2><span class="num">14</span>Data shapes</h2>
+      <h3>Tenant config <span class="muted" style="font-weight:400;font-size:.85rem">(lives inside <code>tenant.config</code>)</span></h3>
+      <pre>{
+  "agent_name": "Priya",
+  "system_prompt": "You are a real estate sales agent...",
+  "voice": "Aoede",
+  "handoff_number": "+91XXXXXXXXXX",
+  "enable_handoff": true,
+  "enable_kb": true,
+  "enable_lookups": true,
+  "lookups": [],
+  "filler_phrases": ["Let me check that for you.", "One moment, please."],
+  "business_name": "My Home Constructions",
+  "whatsapp": { "enabled": true, "display_phone": "+91..." },
+  "instant_call": { "enabled": true, "token": "...", "preset": "generic" },
+  "status": "draft | published"
+}</pre>
+      <h3>Call</h3>
+      <pre>{ "id":"uuid", "caller_number":"+91...", "status":"completed",
+  "duration_seconds":87, "direction":"inbound|outbound", "campaign_id":null,
+  "transcript":"Caller: ...\nAgent: ...",
+  "recording_url":"https://… (signed, nullable)",
+  "created_at":"ISO", "has_lead":true }</pre>
+      <h3>Lead</h3>
+      <pre>{ "id":"uuid", "name":"Madhusudan", "intent":"product_inquiry",
+  "summary":"Caller is looking for a 3BHK in Kokapet.",
+  "sentiment":"positive | neutral | frustrated | angry",
+  "language":"en | hi | te",
+  "key_details":["Looking for 3BHK","Budget 2.8 crore"],
+  "follow_up_needed":true, "handed_off":false,
+  "contact_info":"+91...", "caller_number":"+91...", "created_at":"ISO" }</pre>
+      <h3>Voice &nbsp;·&nbsp; Template &nbsp;·&nbsp; Campaign</h3>
+      <pre>Voice     { "id":"Aoede", "label":"Aoede", "gender":"female", "note":"Breezy, warm (default)" }
+Template  { "id":"real_estate_sales", "label":"Real Estate Sales Agent",
+            "description":"…", "icon":"building",
+            "suggested_kb_topics":["List of projects","Pricing","Amenities"],
+            "config":{ …ready-made config with system_prompt } }
+Campaign  { "id":"uuid", "name":"Diwali Offer", "type":"ai_sales | template",
+            "status":"draft|scheduled|running|paused|completed", "direction":"outbound",
+            "from_number":"+91...", "contacts":{ "total":500, "completed":210 } }</pre>
+    </section>
+
+    <!-- 15 -->
+    <section id="order">
+      <h2><span class="num">15</span>Build order</h2>
+      <ol>
+        <li><strong>Auth + shell</strong> — Google + password login, token handling, protected routes, the two sidebars.</li>
+        <li><strong>Agent builder (<code>/onboarding</code>)</strong> — the client's first experience. <strong>Highest priority.</strong> Nail the voice test call (Step 4).</li>
+        <li><strong>Client dashboard</strong> — Overview → Calls (inbound/outbound) → Call detail → Leads.</li>
+        <li><strong>Campaigns</strong> → <strong>Instant Calls</strong> → <strong>WhatsApp</strong>.</li>
+        <li><strong>Admin panel</strong> — CRUD + knowledge.</li>
+        <li><strong>Operations Center</strong> — snapshot pages first, then the <code>/ops-stream</code> live feed.</li>
+      </ol>
+    </section>
+
+    <!-- 16 -->
+    <section id="ux">
+      <h2><span class="num">16</span>UX notes</h2>
+      <ul>
+        <li>New client after signup → land on the <strong>agent builder</strong> (<code>/onboarding</code>), not the dashboard.</li>
+        <li>Show the <code>config.status</code> ("Draft" / "Live") badge on the builder at all times.</li>
+        <li>The <strong>voice test call</strong> is the showpiece — phone-style UI, talk button, live "listening/speaking" state, barge-in works.</li>
+        <li><code>total_minutes</code> is the headline metric on the client dashboard — biggest card.</li>
+        <li>Voice picker: gender as a <strong>word</strong>, no icon. Show <code>note</code> as the tone hint.</li>
+        <li>Calls: <strong>Inbound / Outbound tabs</strong>. Sentiment on leads: green/grey/orange/red. Transcript bubbles: Caller left, Agent right; audio player on detail.</li>
+        <li>Phone inputs: enforce <strong>E.164</strong> (<code>+91…</code>).</li>
+        <li>Copy-to-clipboard + rotate for every webhook URL/token (Campaigns trigger, Instant Calls).</li>
+        <li>Ops Center: render "not available yet" honestly where the API says so.</li>
+      </ul>
+    </section>
+
+    <!-- 17 -->
+    <section id="own">
+      <h2><span class="num">17</span>What you own / don't</h2>
+      <p><strong>You build:</strong> all UI for the client dashboard, agent builder, and admin panel; Supabase
+      auth (Google + password, token handling, protected routes); calling every endpoint above and rendering it;
+      the agent builder wizard incl. the <strong>browser voice test call</strong>; charts, pagination, filters,
+      CSV download; Campaigns / Instant Calls / WhatsApp UIs; the Operations Center (15 sections + live WS feed);
+      loading / error / empty states.</p>
+      <p><strong>You do NOT build:</strong> the public marketing site / landing page; APIs, database, AI pipeline,
+      phone system, auth backend.</p>
+      <div class="note"><p>Every endpoint listed here is live and tested. If a screen needs data not listed, flag it — the backend will be extended to match.</p></div>
+    </section>
+  </main>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('themeBtn');
+    function apply(t) {
+      if (t) root.setAttribute('data-theme', t);
+      btn.textContent = current() === 'dark' ? '☀' : '☾';
+    }
+    function current() {
+      var set = root.getAttribute('data-theme');
+      if (set) return set;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    btn.addEventListener('click', function () {
+      apply(current() === 'dark' ? 'light' : 'dark');
+    });
+    apply(null);
+
+    // Scroll-spy: highlight the current section in the TOC.
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+    var map = {};
+    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var spy = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (l) { l.style.background = ''; l.style.color = ''; l.style.borderLeftColor = 'transparent'; });
+          var a = map[e.target.id];
+          if (a) {
+            a.style.background = 'var(--surface-2)';
+            a.style.color = 'var(--ink)';
+            a.style.borderLeftColor = 'var(--accent)';
+          }
+        }
+      });
+    }, { rootMargin: '-10% 0px -75% 0px', threshold: 0 });
+    document.querySelectorAll('section[id]').forEach(function (s) { spy.observe(s); });
+  })();
+</script>

@@ -36,6 +36,23 @@ export async function login(
   return body;
 }
 
+// Sign in with Google. `credential` is the Google ID token from Google Identity
+// Services. The backend verifies it, creates-or-returns the Supabase user, and
+// provisions a tenant on first login — so the response shape matches password
+// login, plus `is_new` so we can route first-time users into onboarding.
+export async function loginWithGoogle(
+  credential: string,
+): Promise<{ token: string; role: string; tenant_id: string | null; is_new: boolean }> {
+  const res = await fetch(`${BASE_URL}/api/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Google sign-in failed");
+  return body;
+}
+
 // Self-serve client signup. Provisions auth user + tenant + profile server-side
 // (POST /api/signup), then the caller can log in with the same credentials.
 export async function signup(
@@ -189,6 +206,50 @@ export async function uploadKnowledgeFile(
   return body;
 }
 
+// ─── Documents (file-level knowledge management, client self-serve) ─────────
+// A document = one uploaded file (or pasted block). Deleting it removes its
+// chunks (FK cascade) and its stored file in one step.
+
+export interface ClientDocument {
+  id: string;
+  filename: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  source: string;
+  char_count: number;
+  chunk_count: number;
+  status: string;
+  created_at: string;
+}
+
+export function useClientDocuments() {
+  return useQuery({
+    queryKey: ["client", "documents"],
+    enabled: isBrowser,
+    queryFn: async (): Promise<ClientDocument[]> =>
+      (await apiFetch("/api/client/agent/documents")) || [],
+  });
+}
+
+export function useDeleteDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/client/agent/documents/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client", "documents"] });
+      qc.invalidateQueries({ queryKey: ["client", "knowledge"] });
+    },
+  });
+}
+
+// Fetch a short-lived signed URL for the original file (view/download).
+export async function getDocumentDownloadUrl(id: string): Promise<string> {
+  const body = await apiFetch(`/api/client/agent/documents/${id}/url`);
+  if (!body?.url) throw new Error("No file available for this document");
+  return body.url as string;
+}
+
 // ─── Live data lookups (orders, dues, bookings…) ────────────────────────────
 // Dynamic, per-caller data the agent fetches at call time — backed by either the
 // client's own API ('http') or a data sheet they upload here ('table').
@@ -295,12 +356,17 @@ export function useClientOverview() {
   });
 }
 
-export function useClientCalls(page: number, limit: number) {
+export function useClientCalls(
+  page: number,
+  limit: number,
+  direction?: "inbound" | "outbound",
+) {
   return useQuery({
-    queryKey: ["client", "calls", page, limit],
+    queryKey: ["client", "calls", page, limit, direction ?? "all"],
     enabled: isBrowser,
     queryFn: async (): Promise<{ calls: Call[]; total: number }> => {
-      const r = await apiFetch(`/api/client/calls?page=${page}&limit=${limit}`);
+      const dir = direction ? `&direction=${direction}` : "";
+      const r = await apiFetch(`/api/client/calls?page=${page}&limit=${limit}${dir}`);
       return { calls: r.calls || [], total: r.total || 0 };
     },
   });
@@ -311,29 +377,48 @@ export interface CallDetail {
   lead: Lead | null;
 }
 
-// Convert a stored transcript into the "[Agent]/[Caller]" prefixed format the
-// call-detail view already parses, regardless of how the backend labelled rows.
-function formatTranscript(raw: string): string {
-  if (!raw) return "";
+// One transcript turn for the dashboard: the line in the language actually spoken
+// (`native`) plus an English translation (`en`) when available.
+export interface TranscriptTurn {
+  who: "agent" | "caller";
+  native: string;
+  en?: string;
+}
+
+// Parse a stored transcript into bilingual turns. Handles BOTH the new structured
+// form ({ v:2, turns:[{role, native, english}] }, written post-call) and the
+// legacy "Caller:/Agent:" (or "[Agent]"-prefixed) text, so old calls still render.
+export function parseTranscript(raw: string | null | undefined): TranscriptTurn[] {
+  if (!raw || !raw.trim()) return [];
+  // New structured (bilingual) form.
+  try {
+    const obj = JSON.parse(raw);
+    const turns = Array.isArray(obj) ? obj : obj?.turns;
+    if (Array.isArray(turns)) {
+      return turns
+        .map((t) => ({
+          who: (t.role === "agent" || t.role === "assistant" ? "agent" : "caller") as "agent" | "caller",
+          native: String(t.native ?? t.text ?? "").trim(),
+          en: String(t.english ?? t.en ?? "").trim() || undefined,
+        }))
+        .filter((t) => t.native || t.en);
+    }
+  } catch {
+    /* not JSON — fall through to legacy text parsing */
+  }
+  // Legacy plain-text form.
   return raw
     .split("\n")
-    .map((line) => {
-      const t = line.trim();
-      if (!t) return "";
-      if (t.startsWith("[")) return t; // already prefixed — leave as-is
-      const m = t.match(
-        /^(user|caller|customer|assistant|agent|bot|system)\s*:\s*(.*)$/i,
-      );
-      if (!m) return `[Caller] ${t}`;
-      const role = m[1].toLowerCase();
-      const who =
-        role === "assistant" || role === "agent" || role === "bot" || role === "system"
-          ? "Agent"
-          : "Caller";
-      return `[${who}] ${m[2]}`;
-    })
+    .map((line) => line.trim())
     .filter(Boolean)
-    .join("\n");
+    .map((t) => {
+      const stripped = t.replace(/^\[(Agent|Caller)\]\s*/i, "");
+      const m = stripped.match(/^(user|caller|customer|assistant|agent|bot|system)\s*:\s*(.*)$/i);
+      const isAgent = /^\[Agent\]/i.test(t) || (m && ["assistant", "agent", "bot", "system"].includes(m[1].toLowerCase()));
+      const native = (m ? m[2] : stripped).trim();
+      return { who: (isAgent ? "agent" : "caller") as "agent" | "caller", native };
+    })
+    .filter((t) => t.native);
 }
 
 export function useClientCall(id: string) {
@@ -343,7 +428,8 @@ export function useClientCall(id: string) {
     queryFn: async (): Promise<CallDetail> => {
       const c = await apiFetch(`/api/client/calls/${id}`);
       return {
-        call: { ...c, transcript: formatTranscript(c.transcript), has_lead: !!c.lead },
+        // Pass the raw transcript through; views parse it with parseTranscript().
+        call: { ...c, has_lead: !!c.lead },
         lead: c.lead || null,
       };
     },

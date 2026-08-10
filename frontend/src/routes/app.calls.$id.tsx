@@ -25,17 +25,8 @@ function CallDetail() {
     );
   }
 
-  const lines = call.transcript
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((l) => {
-      const isAgent = l.startsWith("[Agent]");
-      return { who: isAgent ? "agent" : "caller", text: l.replace(/^\[(Agent|Caller)\]\s*/, "") };
-    });
-
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-8 max-w-3xl mx-auto">
       <Link to="/app/calls" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
         <ArrowLeft className="w-4 h-4" /> Back to calls
       </Link>
@@ -56,54 +47,66 @@ function CallDetail() {
         </div>
       </div>
 
-      <div className="mt-6 grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6 shadow-card">
-          <h2 className="font-semibold mb-4">Transcript</h2>
-          <div className="space-y-3">
-            {lines.map((l, i) => (
-              <div key={i} className={`flex ${l.who === "agent" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                  l.who === "agent" ? "bg-gradient-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm"
-                }`}>
-                  {l.text}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Call recording — the ground-truth audio of the conversation. */}
+      <div className="mt-6 bg-card border border-border rounded-xl p-6 shadow-card">
+        <h2 className="font-semibold mb-3">Recording</h2>
+        {call.recording_url ? (
+          <audio controls preload="none" src={call.recording_url} className="w-full">
+            Your browser does not support audio playback.
+          </audio>
+        ) : (
+          <p className="text-sm text-muted-foreground">Recording not available for this call.</p>
+        )}
+      </div>
 
-        <div className="space-y-6">
-          {lead ? (
-            <div className="bg-card border border-border rounded-xl p-6 shadow-card">
-              <h2 className="font-semibold mb-3">Lead captured</h2>
-              <dl className="space-y-2 text-sm">
-                <Info label="Name" value={lead.name ?? "—"} />
-                <Info label="Intent" value={lead.intent} />
-                <Info label="Sentiment" value={<SentimentBadge s={lead.sentiment} />} />
-                <Info label="Language" value={lead.language} />
-                <Info label="Contact" value={lead.contact_info ?? "—"} />
-                <Info label="Follow up" value={lead.follow_up_needed ? "Yes" : "No"} />
-              </dl>
-              <div className="mt-4">
-                <div className="text-xs text-muted-foreground uppercase mb-1">Summary</div>
-                <p className="text-sm">{lead.summary}</p>
-              </div>
-              <div className="mt-4">
-                <div className="text-xs text-muted-foreground uppercase mb-1">Key details</div>
-                <ul className="text-sm space-y-1 list-disc list-inside">
+      {/* Summary & highlights — what the client needs to act on, in English. */}
+      <div className="mt-6 bg-card border border-border rounded-xl p-6 shadow-card">
+        {lead ? (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold">Summary &amp; highlights</h2>
+              {lead.sentiment ? <SentimentBadge s={lead.sentiment} /> : null}
+            </div>
+
+            <p className="text-base leading-relaxed">{lead.summary}</p>
+
+            <dl className="mt-5 grid sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <Info label="Name" value={lead.name ?? "—"} />
+              <Info label="Intent" value={prettyIntent(lead.intent)} />
+              <Info label="Language" value={prettyLang(lead.language)} />
+              <Info label="Contact" value={lead.contact_info ?? "—"} />
+              <Info label="Follow-up" value={lead.follow_up_needed ? "Needed" : "No"} />
+              <Info label="Handed off" value={lead.handed_off ? "Yes" : "No"} />
+            </dl>
+
+            {lead.key_details?.length ? (
+              <div className="mt-5">
+                <div className="text-xs text-muted-foreground uppercase mb-2">Highlights</div>
+                <ul className="text-sm space-y-1.5 list-disc list-inside marker:text-primary">
                   {lead.key_details.map((d, i) => <li key={i}>{d}</li>)}
                 </ul>
               </div>
-            </div>
-          ) : (
-            <div className="bg-card border border-border rounded-xl p-6 shadow-card text-sm text-muted-foreground">
-              No lead extracted from this call.
-            </div>
-          )}
-        </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="text-sm text-muted-foreground">No summary was extracted from this call.</div>
+        )}
       </div>
     </div>
   );
+}
+
+function prettyIntent(intent?: string | null) {
+  if (!intent) return "—";
+  return intent.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const LANG_NAMES: Record<string, string> = {
+  en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada",
+};
+function prettyLang(lang?: string | null) {
+  if (!lang) return "—";
+  return LANG_NAMES[lang.toLowerCase()] ?? lang;
 }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {

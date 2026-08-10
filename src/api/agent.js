@@ -9,10 +9,19 @@ import OpenAI from 'openai'
 import multer from 'multer'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
+import { requirePermission } from './permissions.js'
 import { TEMPLATES, getTemplate } from './templates.js'
 import { buildSystemPrompt, streamAIReply, clearHistory } from '../services/llm.js'
 import { retrieveKnowledge } from '../services/rag.js'
+import { listGeminiVoices } from '../services/gemini-voices.js'
 import { ingestText } from '../ingest.js'
+import {
+  createDocument,
+  listDocuments,
+  deleteDocument,
+  getDocumentUrl,
+  clearAllDocuments,
+} from '../services/documents.js'
 import {
   ingestDataset,
   listDatasets,
@@ -31,6 +40,36 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
 })
+
+// ─── Authorization ───────────────────────────────────────────────────────────
+// Every route in this router is covered by the matrix below. It lives in ONE place
+// on purpose: this file mixes two very different sensitivities — the agent's
+// identity/persona (owner-only; changing it changes what customers hear on every
+// call) and the knowledge base (any manager should be able to keep it current) —
+// and a per-route annotation scattered across 22 handlers is far easier to get
+// wrong than a table you can read in one screen.
+//
+// GET is a read, anything else is a write. Unmatched paths FAIL CLOSED to
+// agent:write (owner-only), so a route added later can never silently be public.
+const ROUTE_PERMISSIONS = [
+  // Knowledge base, uploaded documents, and live-data lookup tables.
+  { match: /^\/(knowledge|documents|lookups)(\/|$)/, read: 'knowledge:read', write: 'knowledge:write' },
+  // Read-only catalogues used to render the builder.
+  { match: /^\/(templates|voices|recommendations)(\/|$)/, read: 'agent:read', write: 'agent:write' },
+  // The agent config itself.
+  { match: /^\/$/, read: 'agent:read', write: 'agent:write' },
+]
+
+function permissionForRequest(req) {
+  const isRead = req.method === 'GET'
+  for (const rule of ROUTE_PERMISSIONS) {
+    if (rule.match.test(req.path)) return isRead ? rule.read : rule.write
+  }
+  return 'agent:write'   // /publish, /test, /generate-prompt — owner only
+}
+
+router.use(requireClient())
+router.use((req, res, next) => requirePermission(permissionForRequest(req))(req, res, next))
 
 // Extract plain text from an uploaded file based on its type:
 //   PDF   → pdf-parse        DOCX → mammoth
@@ -76,7 +115,7 @@ async function extractTextFromFile(file) {
 }
 
 // ─── Templates are public-ish (any logged-in client can browse them) ──────────
-router.get('/templates', requireClient(), (req, res) => {
+router.get('/templates', (req, res) => {
   // Return lightweight list (no need to send full prompts for the picker)
   res.json(TEMPLATES.map(t => ({
     id: t.id,
@@ -87,60 +126,23 @@ router.get('/templates', requireClient(), (req, res) => {
   })))
 })
 
-router.get('/templates/:id', requireClient(), (req, res) => {
+router.get('/templates/:id', (req, res) => {
   const t = getTemplate(req.params.id)
   if (!t) return res.status(404).json({ error: 'Template not found' })
   res.json(t)  // full template incl. config + system_prompt
 })
 
 // ─── Available voices (for the "Choose what voice to speak" picker) ───────────
-// Provider-aware: the voice IDs differ between Sarvam and Smallest AI, so return
-// the set that matches the active TTS_PROVIDER. Each voice's `label` is a human
-// name the UI also uses as the suggested agent name when that voice is picked.
-router.get('/voices', requireClient(), (req, res) => {
-  const provider = (process.env.TTS_PROVIDER || 'sarvam').toLowerCase()
-
-  if (provider === 'smallest') {
-    // Smallest AI (Waves) voices we ship by default, plus any extra IDs added via
-    // SMALLEST_VOICES_AVAILABLE (comma-separated) so the catalog can grow without
-    // a code change. Label = capitalized id (e.g. sameera → Sameera).
-    const known = [
-      { id: 'sameera', gender: 'female', note: 'Indian English (default)' },
-      { id: 'padmaja', gender: 'female', note: 'Telugu' },
-    ]
-    const extra = (process.env.SMALLEST_VOICES_AVAILABLE || '')
-      .split(',').map(s => s.trim()).filter(Boolean)
-      .map(id => ({ id, gender: 'unknown', note: 'Smallest AI voice' }))
-
-    const byId = new Map()
-    for (const v of [...known, ...extra]) {
-      if (!byId.has(v.id)) {
-        byId.set(v.id, { ...v, label: v.id.charAt(0).toUpperCase() + v.id.slice(1) })
-      }
-    }
-    return res.json([...byId.values()])
-  }
-
-  res.json([
-    { id: 'priya',  label: 'Priya',  gender: 'female', note: 'Warm, natural (default)' },
-    { id: 'ritu',   label: 'Ritu',   gender: 'female', note: 'Clear, professional' },
-    { id: 'neha',   label: 'Neha',   gender: 'female', note: 'Friendly' },
-    { id: 'kavya',  label: 'Kavya',  gender: 'female', note: 'Soft' },
-    { id: 'shreya', label: 'Shreya', gender: 'female', note: 'Energetic' },
-    { id: 'simran', label: 'Simran', gender: 'female', note: 'Calm' },
-    { id: 'pooja',  label: 'Pooja',  gender: 'female', note: 'Bright' },
-    { id: 'aditya', label: 'Aditya', gender: 'male',   note: 'Confident' },
-    { id: 'rohan',  label: 'Rohan',  gender: 'male',   note: 'Friendly' },
-    { id: 'kabir',  label: 'Kabir',  gender: 'male',   note: 'Professional' },
-    { id: 'dev',    label: 'Dev',    gender: 'male',   note: 'Warm' },
-    { id: 'rahul',  label: 'Rahul',  gender: 'male',   note: 'Clear' },
-  ])
+// Live calls run on Gemini Live, so the caller hears a Gemini prebuilt voice. All
+// Gemini voices speak Indic languages natively; they differ in tone.
+router.get('/voices', (_req, res) => {
+  res.json(listGeminiVoices())
 })
 
 // ─── Auto Build: generate a system prompt from a plain-English description ─────
 // Body mirrors the "Auto Build Agent" form:
 // { agent_name, languages: ['English','Hindi'], goal, next_steps, faqs, sample_transcript }
-router.post('/generate-prompt', requireClient(), async (req, res) => {
+router.post('/generate-prompt', async (req, res) => {
   const { agent_name, languages, goal, next_steps, faqs, sample_transcript } = req.body || {}
   if (!goal?.trim()) {
     return res.status(400).json({ error: 'Please describe what the agent should achieve (goal).' })
@@ -192,7 +194,7 @@ Output ONLY the system prompt text, nothing else.`
 })
 
 // ─── Recommendations for the custom builder (sector-aware hints) ──────────────
-router.get('/recommendations', requireClient(), (req, res) => {
+router.get('/recommendations', (req, res) => {
   const sector = (req.query.sector || '').toLowerCase()
   const match = TEMPLATES.find(t => t.id.includes(sector) || t.label.toLowerCase().includes(sector))
   res.json({
@@ -209,7 +211,7 @@ router.get('/recommendations', requireClient(), (req, res) => {
 })
 
 // ─── Get the client's current agent (to populate the builder) ─────────────────
-router.get('/', requireClient(), async (req, res) => {
+router.get('/', async (req, res) => {
   const t = req.auth.tenantId
   const { data, error } = await supabase
     .from('tenants').select('id, name, phone_number, config').eq('id', t).single()
@@ -221,7 +223,7 @@ router.get('/', requireClient(), async (req, res) => {
 // Stores config into tenants.config (handoff_number, voice, system_prompt, etc.
 // all live inside config). phone_number is a top-level tenant column — the
 // "mobile number they want to automate" — so it's handled separately here.
-router.patch('/', requireClient(), async (req, res) => {
+router.patch('/', async (req, res) => {
   const t = req.auth.tenantId
   const { config, phone_number } = req.body || {}
   if ((!config || typeof config !== 'object') && phone_number === undefined) {
@@ -235,6 +237,12 @@ router.patch('/', requireClient(), async (req, res) => {
 
   const patch = { config: merged }
   if (phone_number !== undefined) patch.phone_number = phone_number  // number to automate
+  // Keep the top-level tenant name in sync with the business name they type in
+  // onboarding (this column, not config, is what admin views show). Overwrites the
+  // "New Business" placeholder seeded for Google signups.
+  if (typeof merged.business_name === 'string' && merged.business_name.trim()) {
+    patch.name = merged.business_name.trim()
+  }
 
   const { data, error } = await supabase
     .from('tenants').update(patch).eq('id', t)
@@ -247,7 +255,7 @@ router.patch('/', requireClient(), async (req, res) => {
 })
 
 // ─── Publish (make the agent live for real calls) ─────────────────────────────
-router.post('/publish', requireClient(), async (req, res) => {
+router.post('/publish', async (req, res) => {
   const t = req.auth.tenantId
   const { data: tenant } = await supabase
     .from('tenants').select('config').eq('id', t).single()
@@ -261,7 +269,7 @@ router.post('/publish', requireClient(), async (req, res) => {
 // Body: { message, session_id, config? }
 // If config is passed (unsaved draft), test against it; else use the saved config.
 // Uses the SAME llm + RAG pipeline as a real call, so the test matches live behaviour.
-router.post('/test', requireClient(), async (req, res) => {
+router.post('/test', async (req, res) => {
   const t = req.auth.tenantId
   const { message, session_id, config } = req.body || {}
   if (!message?.trim()) return res.status(400).json({ error: 'message required' })
@@ -300,7 +308,7 @@ router.post('/test', requireClient(), async (req, res) => {
 })
 
 // Reset a test conversation (clears multi-turn memory)
-router.post('/test/reset', requireClient(), (req, res) => {
+router.post('/test/reset', (req, res) => {
   const t = req.auth.tenantId
   const { session_id } = req.body || {}
   clearHistory(`test-${t}-${session_id || 'default'}`)
@@ -311,36 +319,29 @@ router.post('/test/reset', requireClient(), (req, res) => {
 // All scoped to the client's OWN tenant (from the token) — a client can only
 // ever touch their own knowledge.
 
-// List the client's knowledge chunks
-router.get('/knowledge', requireClient(), async (req, res) => {
+// Add knowledge by pasting text. Stored as a 'paste' document (no raw file) so
+// it shows up in the documents list and can be deleted like any other.
+// Body: { text, source? }
+router.post('/knowledge', async (req, res) => {
   const t = req.auth.tenantId
-  const { data, error } = await supabase
-    .from('knowledge_base')
-    .select('id, content, source, created_at')
-    .eq('tenant_id', t)
-    .order('created_at', { ascending: false })
-  if (error) return res.status(500).json({ error: 'Could not load knowledge' })
-  res.json(data || [])
-})
-
-// Add knowledge (paste text or send file contents as text)
-// Body: { text, source?, replace? }
-router.post('/knowledge', requireClient(), async (req, res) => {
-  const t = req.auth.tenantId
-  const { text, source, replace } = req.body || {}
+  const { text, source } = req.body || {}
   if (!text?.trim()) return res.status(400).json({ error: 'text is required' })
   try {
-    const result = await ingestText(t, text, source || 'client-upload', { replace: !!replace })
-    res.json(result)  // { chunks_added }
+    const doc = await createDocument(t, {
+      filename: source || 'Pasted text',
+      text,
+      source: 'paste',
+    })
+    res.json({ chunks_added: doc.chunk_count, document_id: doc.id })
   } catch (e) {
     console.error('[AGENT] client ingest error:', e.message)
     res.status(500).json({ error: 'Could not save knowledge' })
   }
 })
 
-// Upload a file (pdf/txt/docx/image/…) → extract text → ingest into this
-// client's knowledge base. Field name: "file".
-router.post('/knowledge/upload', requireClient(), upload.single('file'), async (req, res) => {
+// Upload a file (pdf/txt/docx/image/…) → store the raw file → extract text →
+// ingest into this client's knowledge base as a document. Field name: "file".
+router.post('/knowledge/upload', upload.single('file'), async (req, res) => {
   const t = req.auth.tenantId
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
   try {
@@ -348,16 +349,72 @@ router.post('/knowledge/upload', requireClient(), upload.single('file'), async (
     if (!text || !text.trim()) {
       return res.status(422).json({ error: 'Could not extract any text from this file' })
     }
-    const result = await ingestText(t, text, req.file.originalname || 'upload', { replace: false })
-    res.json({ ...result, filename: req.file.originalname || 'upload', chars: text.length })
+    const doc = await createDocument(t, {
+      filename: req.file.originalname || 'upload',
+      mimeType: req.file.mimetype,
+      buffer: req.file.buffer,
+      text,
+      source: 'upload',
+    })
+    res.json({
+      document_id: doc.id,
+      filename: doc.filename,
+      chunks_added: doc.chunk_count,
+      chars: text.length,
+    })
   } catch (e) {
     console.error('[AGENT] kb upload error:', e.message)
     res.status(500).json({ error: 'Could not process file' })
   }
 })
 
+// ── Documents (file-level management) ────────────────────────────────────────
+
+// List the client's uploaded documents (files + pastes).
+router.get('/documents', async (req, res) => {
+  try {
+    res.json(await listDocuments(req.auth.tenantId))
+  } catch (e) {
+    console.error('[AGENT] list documents error:', e.message)
+    res.status(500).json({ error: 'Could not load documents' })
+  }
+})
+
+// Short-lived signed URL to view/download the original file.
+router.get('/documents/:id/url', async (req, res) => {
+  const url = await getDocumentUrl(req.auth.tenantId, req.params.id)
+  if (!url) return res.status(404).json({ error: 'No file for this document' })
+  res.json({ url })
+})
+
+// Delete a document — cascades to its chunks and removes the Storage file.
+router.delete('/documents/:id', async (req, res) => {
+  try {
+    const result = await deleteDocument(req.auth.tenantId, req.params.id)
+    if (!result.success) return res.status(404).json({ error: 'Document not found' })
+    res.json({ success: true })
+  } catch (e) {
+    console.error('[AGENT] delete document error:', e.message)
+    res.status(500).json({ error: 'Could not delete document' })
+  }
+})
+
+// ── Chunk-level (kept for inspection / backward compatibility) ───────────────
+
+// List the client's knowledge chunks
+router.get('/knowledge', async (req, res) => {
+  const t = req.auth.tenantId
+  const { data, error } = await supabase
+    .from('knowledge_base')
+    .select('id, content, source, created_at, document_id')
+    .eq('tenant_id', t)
+    .order('created_at', { ascending: false })
+  if (error) return res.status(500).json({ error: 'Could not load knowledge' })
+  res.json(data || [])
+})
+
 // Delete one chunk (must belong to this tenant)
-router.delete('/knowledge/:chunkId', requireClient(), async (req, res) => {
+router.delete('/knowledge/:chunkId', async (req, res) => {
   const t = req.auth.tenantId
   const { error } = await supabase
     .from('knowledge_base').delete()
@@ -366,13 +423,15 @@ router.delete('/knowledge/:chunkId', requireClient(), async (req, res) => {
   res.json({ success: true })
 })
 
-// Clear all of the client's knowledge
-router.delete('/knowledge', requireClient(), async (req, res) => {
-  const t = req.auth.tenantId
-  const { error } = await supabase
-    .from('knowledge_base').delete().eq('tenant_id', t)
-  if (error) return res.status(500).json({ error: 'Could not clear knowledge' })
-  res.json({ success: true })
+// Clear all of the client's knowledge (documents + chunks + Storage files)
+router.delete('/knowledge', async (req, res) => {
+  try {
+    await clearAllDocuments(req.auth.tenantId)
+    res.json({ success: true })
+  } catch (e) {
+    console.error('[AGENT] clear knowledge error:', e.message)
+    res.status(500).json({ error: 'Could not clear knowledge' })
+  }
 })
 
 // ─── Live data lookups (orders, dues, bookings…) ─────────────────────────────
@@ -382,7 +441,7 @@ router.delete('/knowledge', requireClient(), async (req, res) => {
 // uploaded sheets live in the lookup_rows table.
 
 // Get the client's lookup config + a summary of any uploaded datasets.
-router.get('/lookups', requireClient(), async (req, res) => {
+router.get('/lookups', async (req, res) => {
   const t = req.auth.tenantId
   const { data: tenant } = await supabase
     .from('tenants').select('config').eq('id', t).single()
@@ -397,7 +456,7 @@ router.get('/lookups', requireClient(), async (req, res) => {
 
 // Save the client's lookup config (the array of lookups + the on/off toggle).
 // Body: { lookups: [...], enable_lookups?: boolean }
-router.patch('/lookups', requireClient(), async (req, res) => {
+router.patch('/lookups', async (req, res) => {
   const t = req.auth.tenantId
   const { lookups, enable_lookups } = req.body || {}
   if (!Array.isArray(lookups)) {
@@ -431,7 +490,7 @@ router.patch('/lookups', requireClient(), async (req, res) => {
 // Upload a data sheet for the 'table' backend. Accepts either a CSV file
 // (multipart field "file") or pasted CSV text in the JSON body.
 // Body/Query: { dataset } — the dataset name the table lookups reference.
-router.post('/lookups/dataset', requireClient(), upload.single('file'), async (req, res) => {
+router.post('/lookups/dataset', upload.single('file'), async (req, res) => {
   const t = req.auth.tenantId
   const dataset = (req.body?.dataset || req.query?.dataset || '').toString().trim()
   if (!dataset) return res.status(400).json({ error: 'dataset name is required' })
@@ -456,7 +515,7 @@ router.post('/lookups/dataset', requireClient(), upload.single('file'), async (r
 })
 
 // Delete an uploaded dataset.
-router.delete('/lookups/dataset/:dataset', requireClient(), async (req, res) => {
+router.delete('/lookups/dataset/:dataset', async (req, res) => {
   const t = req.auth.tenantId
   await deleteDataset(t, req.params.dataset)
   res.json({ success: true })

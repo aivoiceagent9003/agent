@@ -8,6 +8,7 @@
 
 import { Router } from 'express'
 import { supabaseAdmin } from './db.js'
+import { sendWelcomeEmail } from '../services/email.js'
 import 'dotenv/config'
 
 // Service-role client (full access) — used ONLY for provisioning new accounts.
@@ -61,6 +62,9 @@ router.post('/', async (req, res) => {
       .from('profiles')
       .insert({ id: userId, role: 'client', tenant_id: tenantId, email })
     if (pErr) throw new Error(pErr.message)
+
+    // Welcome email — fire-and-forget (never throws, never delays the response).
+    sendWelcomeEmail({ to: email })
 
     res.status(201).json({
       success: true,

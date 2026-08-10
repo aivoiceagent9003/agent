@@ -3,6 +3,9 @@ import { Router } from 'express'
 import { supabase } from './db.js'
 import { requireAdmin } from './auth.js'
 import { ingestText } from '../ingest.js'
+import { listMessages, recipientsOf } from '../services/conversations.js'
+import { notify } from '../services/notifications.js'
+import hub from '../services/realtime-hub.js'
 const router = Router()
 
 router.use(requireAdmin())
@@ -165,6 +168,122 @@ router.delete('/tenants/:id/knowledge', async (req, res) => {
     .from('knowledge_base').delete().eq('tenant_id', req.params.id)
   if (error) return res.status(500).json({ error: 'Could not clear knowledge' })
   res.json({ success: true })
+})
+
+// ─── Support inbox ────────────────────────────────────────────────────────────
+// The other end of the "Vocera Support" thread every business sees in Messages.
+// Without this, that thread would be a box customers shout into.
+//
+// Admins are not conversation_members (they belong to no tenant), so these routes
+// address support threads by TENANT rather than by membership.
+
+// GET /api/admin/support — every support thread, most recently active first
+router.get('/support', async (_req, res) => {
+  try {
+    const { data: convos } = await supabase
+      .from('conversations')
+      .select('id, tenant_id, last_message_at, tenants(name)')
+      .eq('kind', 'support')
+      .order('last_message_at', { ascending: false })
+      .limit(100)
+
+    if (!convos?.length) return res.json({ threads: [] })
+
+    // Latest message per thread, for the preview line.
+    const ids = convos.map(c => c.id)
+    const { data: recent } = await supabase
+      .from('messages')
+      .select('conversation_id, body, created_at, is_system, sender_id')
+      .in('conversation_id', ids)
+      .order('created_at', { ascending: false })
+      .limit(300)
+
+    const lastByConvo = new Map()
+    for (const m of recent || []) {
+      if (!lastByConvo.has(m.conversation_id)) lastByConvo.set(m.conversation_id, m)
+    }
+
+    res.json({
+      threads: convos.map(c => {
+        const last = lastByConvo.get(c.id)
+        return {
+          conversation_id: c.id,
+          tenant_id: c.tenant_id,
+          business_name: c.tenants?.name || 'Unknown business',
+          last_message_at: c.last_message_at,
+          last_message: last?.body || null,
+          // A customer message that nobody has replied to yet is what an admin
+          // actually needs to see — surface it as the queue signal.
+          awaiting_reply: !!last && !last.is_system,
+        }
+      }),
+    })
+  } catch (e) {
+    console.error('[ADMIN] support list error:', e.message)
+    res.status(500).json({ error: 'Could not load support threads' })
+  }
+})
+
+// GET /api/admin/support/:conversationId — full thread
+router.get('/support/:conversationId', async (req, res) => {
+  try {
+    const { data: convo } = await supabase
+      .from('conversations').select('id, tenant_id, kind, tenants(name)')
+      .eq('id', req.params.conversationId).maybeSingle()
+    if (!convo || convo.kind !== 'support') {
+      return res.status(404).json({ error: 'Support thread not found' })
+    }
+    const messages = await listMessages(convo.id, { limit: 200 })
+    res.json({ business_name: convo.tenants?.name || null, tenant_id: convo.tenant_id, messages })
+  } catch (e) {
+    console.error('[ADMIN] support thread error:', e.message)
+    res.status(500).json({ error: 'Could not load that thread' })
+  }
+})
+
+// POST /api/admin/support/:conversationId { body } — reply as Vocera Support
+router.post('/support/:conversationId', async (req, res) => {
+  const body = String(req.body?.body || '').trim()
+  if (!body) return res.status(400).json({ error: 'Message cannot be empty' })
+
+  try {
+    const { data: convo } = await supabase
+      .from('conversations').select('id, tenant_id, kind')
+      .eq('id', req.params.conversationId).maybeSingle()
+    if (!convo || convo.kind !== 'support') {
+      return res.status(404).json({ error: 'Support thread not found' })
+    }
+
+    // is_system marks it as "Vocera Support" rather than a named person, so the
+    // customer sees a consistent identity no matter which admin replies.
+    const { data: message, error } = await supabase.from('messages').insert({
+      conversation_id: convo.id,
+      tenant_id: convo.tenant_id,
+      is_system: true,
+      body,
+    }).select('id, sender_id, is_system, body, created_at').single()
+    if (error) throw error
+
+    const enriched = { ...message, sender_name: 'Vocera Support', conversation_id: convo.id }
+    const recipients = await recipientsOf(convo.id, null)
+    hub.publishMany(recipients, { type: 'message', message: enriched })
+
+    const offline = recipients.filter(id => !hub.isOnline(id))
+    if (offline.length) {
+      await notify(offline, {
+        tenantId: convo.tenant_id,
+        kind: 'message',
+        title: 'Vocera Support replied',
+        body: body.slice(0, 140),
+        link: `/messages?c=${convo.id}`,
+      })
+    }
+
+    res.status(201).json({ message: enriched })
+  } catch (e) {
+    console.error('[ADMIN] support reply error:', e.message)
+    res.status(500).json({ error: 'Could not send your reply' })
+  }
 })
 
 export default router

@@ -9,26 +9,64 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkRouteImport } from './routes/work'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as JoinRouteImport } from './routes/join'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as EmployeeLoginRouteImport } from './routes/employee-login'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as AdminLoginRouteImport } from './routes/admin-login'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as WorkSettingsRouteImport } from './routes/work.settings'
+import { Route as WorkMessagesRouteImport } from './routes/work.messages'
+import { Route as WorkCallsRouteImport } from './routes/work.calls'
+import { Route as AppWhatsappRouteImport } from './routes/app.whatsapp'
+import { Route as AppTeamRouteImport } from './routes/app.team'
+import { Route as AppMessagesRouteImport } from './routes/app.messages'
 import { Route as AppLeadsRouteImport } from './routes/app.leads'
+import { Route as AppKnowledgeRouteImport } from './routes/app.knowledge'
+import { Route as AppInstantRouteImport } from './routes/app.instant'
+import { Route as AppCampaignsRouteImport } from './routes/app.campaigns'
 import { Route as AppCallsRouteImport } from './routes/app.calls'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as AdminOpsRouteImport } from './routes/admin.ops'
 import { Route as AdminClientsRouteImport } from './routes/admin.clients'
+import { Route as WorkLeadsIndexRouteImport } from './routes/work.leads.index'
+import { Route as WorkLeadsIdRouteImport } from './routes/work.leads.$id'
+import { Route as AppCampaignsNewRouteImport } from './routes/app.campaigns.new'
+import { Route as AppCampaignsMonitorRouteImport } from './routes/app.campaigns.monitor'
+import { Route as AppCampaignsIdRouteImport } from './routes/app.campaigns.$id'
 import { Route as AppCallsIdRouteImport } from './routes/app.calls.$id'
+import { Route as AdminOpsServicesRouteImport } from './routes/admin.ops.services'
+import { Route as AdminOpsQualityRouteImport } from './routes/admin.ops.quality'
+import { Route as AdminOpsLiveRouteImport } from './routes/admin.ops.live'
+import { Route as AdminOpsLatencyRouteImport } from './routes/admin.ops.latency'
+import { Route as AdminOpsErrorsRouteImport } from './routes/admin.ops.errors'
+import { Route as AdminOpsBusinessRouteImport } from './routes/admin.ops.business'
+import { Route as AdminOpsAlertsRouteImport } from './routes/admin.ops.alerts'
 import { Route as AdminClientsNewRouteImport } from './routes/admin.clients.new'
 import { Route as AdminClientsIdRouteImport } from './routes/admin.clients.$id'
+import { Route as AdminOpsTraceCallSidRouteImport } from './routes/admin.ops.trace.$callSid'
 
+const WorkRoute = WorkRouteImport.update({
+  id: '/work',
+  path: '/work',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -39,6 +77,21 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinRoute = JoinRouteImport.update({
+  id: '/join',
+  path: '/join',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmployeeLoginRoute = EmployeeLoginRouteImport.update({
+  id: '/employee-login',
+  path: '/employee-login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -71,9 +124,54 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const WorkSettingsRoute = WorkSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WorkRoute,
+} as any)
+const WorkMessagesRoute = WorkMessagesRouteImport.update({
+  id: '/messages',
+  path: '/messages',
+  getParentRoute: () => WorkRoute,
+} as any)
+const WorkCallsRoute = WorkCallsRouteImport.update({
+  id: '/calls',
+  path: '/calls',
+  getParentRoute: () => WorkRoute,
+} as any)
+const AppWhatsappRoute = AppWhatsappRouteImport.update({
+  id: '/whatsapp',
+  path: '/whatsapp',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTeamRoute = AppTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMessagesRoute = AppMessagesRouteImport.update({
+  id: '/messages',
+  path: '/messages',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppLeadsRoute = AppLeadsRouteImport.update({
   id: '/leads',
   path: '/leads',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppKnowledgeRoute = AppKnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInstantRoute = AppInstantRouteImport.update({
+  id: '/instant',
+  path: '/instant',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsRoute = AppCampaignsRouteImport.update({
+  id: '/campaigns',
+  path: '/campaigns',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCallsRoute = AppCallsRouteImport.update({
@@ -86,15 +184,80 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminOpsRoute = AdminOpsRouteImport.update({
+  id: '/ops',
+  path: '/ops',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminClientsRoute = AdminClientsRouteImport.update({
   id: '/clients',
   path: '/clients',
   getParentRoute: () => AdminRoute,
 } as any)
+const WorkLeadsIndexRoute = WorkLeadsIndexRouteImport.update({
+  id: '/leads/',
+  path: '/leads/',
+  getParentRoute: () => WorkRoute,
+} as any)
+const WorkLeadsIdRoute = WorkLeadsIdRouteImport.update({
+  id: '/leads/$id',
+  path: '/leads/$id',
+  getParentRoute: () => WorkRoute,
+} as any)
+const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppCampaignsRoute,
+} as any)
+const AppCampaignsMonitorRoute = AppCampaignsMonitorRouteImport.update({
+  id: '/monitor',
+  path: '/monitor',
+  getParentRoute: () => AppCampaignsRoute,
+} as any)
+const AppCampaignsIdRoute = AppCampaignsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppCampaignsRoute,
+} as any)
 const AppCallsIdRoute = AppCallsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => AppCallsRoute,
+} as any)
+const AdminOpsServicesRoute = AdminOpsServicesRouteImport.update({
+  id: '/services',
+  path: '/services',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
+const AdminOpsQualityRoute = AdminOpsQualityRouteImport.update({
+  id: '/quality',
+  path: '/quality',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
+const AdminOpsLiveRoute = AdminOpsLiveRouteImport.update({
+  id: '/live',
+  path: '/live',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
+const AdminOpsLatencyRoute = AdminOpsLatencyRouteImport.update({
+  id: '/latency',
+  path: '/latency',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
+const AdminOpsErrorsRoute = AdminOpsErrorsRouteImport.update({
+  id: '/errors',
+  path: '/errors',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
+const AdminOpsBusinessRoute = AdminOpsBusinessRouteImport.update({
+  id: '/business',
+  path: '/business',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
+const AdminOpsAlertsRoute = AdminOpsAlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => AdminOpsRoute,
 } as any)
 const AdminClientsNewRoute = AdminClientsNewRouteImport.update({
   id: '/new',
@@ -106,40 +269,101 @@ const AdminClientsIdRoute = AdminClientsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AdminClientsRoute,
 } as any)
+const AdminOpsTraceCallSidRoute = AdminOpsTraceCallSidRouteImport.update({
+  id: '/trace/$callSid',
+  path: '/trace/$callSid',
+  getParentRoute: () => AdminOpsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/admin-login': typeof AdminLoginRoute
   '/app': typeof AppRouteWithChildren
+  '/employee-login': typeof EmployeeLoginRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/join': typeof JoinRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/work': typeof WorkRouteWithChildren
   '/admin/clients': typeof AdminClientsRouteWithChildren
+  '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
+  '/app/campaigns': typeof AppCampaignsRouteWithChildren
+  '/app/instant': typeof AppInstantRoute
+  '/app/knowledge': typeof AppKnowledgeRoute
   '/app/leads': typeof AppLeadsRoute
+  '/app/messages': typeof AppMessagesRoute
+  '/app/team': typeof AppTeamRoute
+  '/app/whatsapp': typeof AppWhatsappRoute
+  '/work/calls': typeof WorkCallsRoute
+  '/work/messages': typeof WorkMessagesRoute
+  '/work/settings': typeof WorkSettingsRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/admin/clients/$id': typeof AdminClientsIdRoute
   '/admin/clients/new': typeof AdminClientsNewRoute
+  '/admin/ops/alerts': typeof AdminOpsAlertsRoute
+  '/admin/ops/business': typeof AdminOpsBusinessRoute
+  '/admin/ops/errors': typeof AdminOpsErrorsRoute
+  '/admin/ops/latency': typeof AdminOpsLatencyRoute
+  '/admin/ops/live': typeof AdminOpsLiveRoute
+  '/admin/ops/quality': typeof AdminOpsQualityRoute
+  '/admin/ops/services': typeof AdminOpsServicesRoute
   '/app/calls/$id': typeof AppCallsIdRoute
+  '/app/campaigns/$id': typeof AppCampaignsIdRoute
+  '/app/campaigns/monitor': typeof AppCampaignsMonitorRoute
+  '/app/campaigns/new': typeof AppCampaignsNewRoute
+  '/work/leads/$id': typeof WorkLeadsIdRoute
+  '/work/leads/': typeof WorkLeadsIndexRoute
+  '/admin/ops/trace/$callSid': typeof AdminOpsTraceCallSidRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-login': typeof AdminLoginRoute
+  '/employee-login': typeof EmployeeLoginRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/join': typeof JoinRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/work': typeof WorkRouteWithChildren
   '/admin/clients': typeof AdminClientsRouteWithChildren
+  '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
+  '/app/campaigns': typeof AppCampaignsRouteWithChildren
+  '/app/instant': typeof AppInstantRoute
+  '/app/knowledge': typeof AppKnowledgeRoute
   '/app/leads': typeof AppLeadsRoute
+  '/app/messages': typeof AppMessagesRoute
+  '/app/team': typeof AppTeamRoute
+  '/app/whatsapp': typeof AppWhatsappRoute
+  '/work/calls': typeof WorkCallsRoute
+  '/work/messages': typeof WorkMessagesRoute
+  '/work/settings': typeof WorkSettingsRoute
   '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
   '/admin/clients/$id': typeof AdminClientsIdRoute
   '/admin/clients/new': typeof AdminClientsNewRoute
+  '/admin/ops/alerts': typeof AdminOpsAlertsRoute
+  '/admin/ops/business': typeof AdminOpsBusinessRoute
+  '/admin/ops/errors': typeof AdminOpsErrorsRoute
+  '/admin/ops/latency': typeof AdminOpsLatencyRoute
+  '/admin/ops/live': typeof AdminOpsLiveRoute
+  '/admin/ops/quality': typeof AdminOpsQualityRoute
+  '/admin/ops/services': typeof AdminOpsServicesRoute
   '/app/calls/$id': typeof AppCallsIdRoute
+  '/app/campaigns/$id': typeof AppCampaignsIdRoute
+  '/app/campaigns/monitor': typeof AppCampaignsMonitorRoute
+  '/app/campaigns/new': typeof AppCampaignsNewRoute
+  '/work/leads/$id': typeof WorkLeadsIdRoute
+  '/work/leads': typeof WorkLeadsIndexRoute
+  '/admin/ops/trace/$callSid': typeof AdminOpsTraceCallSidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -147,18 +371,46 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/admin-login': typeof AdminLoginRoute
   '/app': typeof AppRouteWithChildren
+  '/employee-login': typeof EmployeeLoginRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/join': typeof JoinRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/work': typeof WorkRouteWithChildren
   '/admin/clients': typeof AdminClientsRouteWithChildren
+  '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
+  '/app/campaigns': typeof AppCampaignsRouteWithChildren
+  '/app/instant': typeof AppInstantRoute
+  '/app/knowledge': typeof AppKnowledgeRoute
   '/app/leads': typeof AppLeadsRoute
+  '/app/messages': typeof AppMessagesRoute
+  '/app/team': typeof AppTeamRoute
+  '/app/whatsapp': typeof AppWhatsappRoute
+  '/work/calls': typeof WorkCallsRoute
+  '/work/messages': typeof WorkMessagesRoute
+  '/work/settings': typeof WorkSettingsRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/admin/clients/$id': typeof AdminClientsIdRoute
   '/admin/clients/new': typeof AdminClientsNewRoute
+  '/admin/ops/alerts': typeof AdminOpsAlertsRoute
+  '/admin/ops/business': typeof AdminOpsBusinessRoute
+  '/admin/ops/errors': typeof AdminOpsErrorsRoute
+  '/admin/ops/latency': typeof AdminOpsLatencyRoute
+  '/admin/ops/live': typeof AdminOpsLiveRoute
+  '/admin/ops/quality': typeof AdminOpsQualityRoute
+  '/admin/ops/services': typeof AdminOpsServicesRoute
   '/app/calls/$id': typeof AppCallsIdRoute
+  '/app/campaigns/$id': typeof AppCampaignsIdRoute
+  '/app/campaigns/monitor': typeof AppCampaignsMonitorRoute
+  '/app/campaigns/new': typeof AppCampaignsNewRoute
+  '/work/leads/$id': typeof WorkLeadsIdRoute
+  '/work/leads/': typeof WorkLeadsIndexRoute
+  '/admin/ops/trace/$callSid': typeof AdminOpsTraceCallSidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -167,52 +419,136 @@ export interface FileRouteTypes {
     | '/admin'
     | '/admin-login'
     | '/app'
+    | '/employee-login'
+    | '/forgot-password'
+    | '/join'
     | '/login'
     | '/onboarding'
+    | '/reset-password'
     | '/signup'
+    | '/work'
     | '/admin/clients'
+    | '/admin/ops'
     | '/admin/settings'
     | '/app/calls'
+    | '/app/campaigns'
+    | '/app/instant'
+    | '/app/knowledge'
     | '/app/leads'
+    | '/app/messages'
+    | '/app/team'
+    | '/app/whatsapp'
+    | '/work/calls'
+    | '/work/messages'
+    | '/work/settings'
     | '/admin/'
     | '/app/'
     | '/admin/clients/$id'
     | '/admin/clients/new'
+    | '/admin/ops/alerts'
+    | '/admin/ops/business'
+    | '/admin/ops/errors'
+    | '/admin/ops/latency'
+    | '/admin/ops/live'
+    | '/admin/ops/quality'
+    | '/admin/ops/services'
     | '/app/calls/$id'
+    | '/app/campaigns/$id'
+    | '/app/campaigns/monitor'
+    | '/app/campaigns/new'
+    | '/work/leads/$id'
+    | '/work/leads/'
+    | '/admin/ops/trace/$callSid'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/admin-login'
+    | '/employee-login'
+    | '/forgot-password'
+    | '/join'
     | '/login'
     | '/onboarding'
+    | '/reset-password'
     | '/signup'
+    | '/work'
     | '/admin/clients'
+    | '/admin/ops'
     | '/admin/settings'
     | '/app/calls'
+    | '/app/campaigns'
+    | '/app/instant'
+    | '/app/knowledge'
     | '/app/leads'
+    | '/app/messages'
+    | '/app/team'
+    | '/app/whatsapp'
+    | '/work/calls'
+    | '/work/messages'
+    | '/work/settings'
     | '/admin'
     | '/app'
     | '/admin/clients/$id'
     | '/admin/clients/new'
+    | '/admin/ops/alerts'
+    | '/admin/ops/business'
+    | '/admin/ops/errors'
+    | '/admin/ops/latency'
+    | '/admin/ops/live'
+    | '/admin/ops/quality'
+    | '/admin/ops/services'
     | '/app/calls/$id'
+    | '/app/campaigns/$id'
+    | '/app/campaigns/monitor'
+    | '/app/campaigns/new'
+    | '/work/leads/$id'
+    | '/work/leads'
+    | '/admin/ops/trace/$callSid'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/admin-login'
     | '/app'
+    | '/employee-login'
+    | '/forgot-password'
+    | '/join'
     | '/login'
     | '/onboarding'
+    | '/reset-password'
     | '/signup'
+    | '/work'
     | '/admin/clients'
+    | '/admin/ops'
     | '/admin/settings'
     | '/app/calls'
+    | '/app/campaigns'
+    | '/app/instant'
+    | '/app/knowledge'
     | '/app/leads'
+    | '/app/messages'
+    | '/app/team'
+    | '/app/whatsapp'
+    | '/work/calls'
+    | '/work/messages'
+    | '/work/settings'
     | '/admin/'
     | '/app/'
     | '/admin/clients/$id'
     | '/admin/clients/new'
+    | '/admin/ops/alerts'
+    | '/admin/ops/business'
+    | '/admin/ops/errors'
+    | '/admin/ops/latency'
+    | '/admin/ops/live'
+    | '/admin/ops/quality'
+    | '/admin/ops/services'
     | '/app/calls/$id'
+    | '/app/campaigns/$id'
+    | '/app/campaigns/monitor'
+    | '/app/campaigns/new'
+    | '/work/leads/$id'
+    | '/work/leads/'
+    | '/admin/ops/trace/$callSid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -220,18 +556,37 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   AdminLoginRoute: typeof AdminLoginRoute
   AppRoute: typeof AppRouteWithChildren
+  EmployeeLoginRoute: typeof EmployeeLoginRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  JoinRoute: typeof JoinRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
+  WorkRoute: typeof WorkRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/work': {
+      id: '/work'
+      path: '/work'
+      fullPath: '/work'
+      preLoaderRoute: typeof WorkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
       fullPath: '/signup'
       preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -246,6 +601,27 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join': {
+      id: '/join'
+      path: '/join'
+      fullPath: '/join'
+      preLoaderRoute: typeof JoinRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/employee-login': {
+      id: '/employee-login'
+      path: '/employee-login'
+      fullPath: '/employee-login'
+      preLoaderRoute: typeof EmployeeLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app': {
@@ -290,11 +666,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/work/settings': {
+      id: '/work/settings'
+      path: '/settings'
+      fullPath: '/work/settings'
+      preLoaderRoute: typeof WorkSettingsRouteImport
+      parentRoute: typeof WorkRoute
+    }
+    '/work/messages': {
+      id: '/work/messages'
+      path: '/messages'
+      fullPath: '/work/messages'
+      preLoaderRoute: typeof WorkMessagesRouteImport
+      parentRoute: typeof WorkRoute
+    }
+    '/work/calls': {
+      id: '/work/calls'
+      path: '/calls'
+      fullPath: '/work/calls'
+      preLoaderRoute: typeof WorkCallsRouteImport
+      parentRoute: typeof WorkRoute
+    }
+    '/app/whatsapp': {
+      id: '/app/whatsapp'
+      path: '/whatsapp'
+      fullPath: '/app/whatsapp'
+      preLoaderRoute: typeof AppWhatsappRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/team': {
+      id: '/app/team'
+      path: '/team'
+      fullPath: '/app/team'
+      preLoaderRoute: typeof AppTeamRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/messages': {
+      id: '/app/messages'
+      path: '/messages'
+      fullPath: '/app/messages'
+      preLoaderRoute: typeof AppMessagesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/leads': {
       id: '/app/leads'
       path: '/leads'
       fullPath: '/app/leads'
       preLoaderRoute: typeof AppLeadsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/knowledge': {
+      id: '/app/knowledge'
+      path: '/knowledge'
+      fullPath: '/app/knowledge'
+      preLoaderRoute: typeof AppKnowledgeRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/instant': {
+      id: '/app/instant'
+      path: '/instant'
+      fullPath: '/app/instant'
+      preLoaderRoute: typeof AppInstantRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/campaigns': {
+      id: '/app/campaigns'
+      path: '/campaigns'
+      fullPath: '/app/campaigns'
+      preLoaderRoute: typeof AppCampaignsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/calls': {
@@ -311,6 +750,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/ops': {
+      id: '/admin/ops'
+      path: '/ops'
+      fullPath: '/admin/ops'
+      preLoaderRoute: typeof AdminOpsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/clients': {
       id: '/admin/clients'
       path: '/clients'
@@ -318,12 +764,96 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminClientsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/work/leads/': {
+      id: '/work/leads/'
+      path: '/leads'
+      fullPath: '/work/leads/'
+      preLoaderRoute: typeof WorkLeadsIndexRouteImport
+      parentRoute: typeof WorkRoute
+    }
+    '/work/leads/$id': {
+      id: '/work/leads/$id'
+      path: '/leads/$id'
+      fullPath: '/work/leads/$id'
+      preLoaderRoute: typeof WorkLeadsIdRouteImport
+      parentRoute: typeof WorkRoute
+    }
+    '/app/campaigns/new': {
+      id: '/app/campaigns/new'
+      path: '/new'
+      fullPath: '/app/campaigns/new'
+      preLoaderRoute: typeof AppCampaignsNewRouteImport
+      parentRoute: typeof AppCampaignsRoute
+    }
+    '/app/campaigns/monitor': {
+      id: '/app/campaigns/monitor'
+      path: '/monitor'
+      fullPath: '/app/campaigns/monitor'
+      preLoaderRoute: typeof AppCampaignsMonitorRouteImport
+      parentRoute: typeof AppCampaignsRoute
+    }
+    '/app/campaigns/$id': {
+      id: '/app/campaigns/$id'
+      path: '/$id'
+      fullPath: '/app/campaigns/$id'
+      preLoaderRoute: typeof AppCampaignsIdRouteImport
+      parentRoute: typeof AppCampaignsRoute
+    }
     '/app/calls/$id': {
       id: '/app/calls/$id'
       path: '/$id'
       fullPath: '/app/calls/$id'
       preLoaderRoute: typeof AppCallsIdRouteImport
       parentRoute: typeof AppCallsRoute
+    }
+    '/admin/ops/services': {
+      id: '/admin/ops/services'
+      path: '/services'
+      fullPath: '/admin/ops/services'
+      preLoaderRoute: typeof AdminOpsServicesRouteImport
+      parentRoute: typeof AdminOpsRoute
+    }
+    '/admin/ops/quality': {
+      id: '/admin/ops/quality'
+      path: '/quality'
+      fullPath: '/admin/ops/quality'
+      preLoaderRoute: typeof AdminOpsQualityRouteImport
+      parentRoute: typeof AdminOpsRoute
+    }
+    '/admin/ops/live': {
+      id: '/admin/ops/live'
+      path: '/live'
+      fullPath: '/admin/ops/live'
+      preLoaderRoute: typeof AdminOpsLiveRouteImport
+      parentRoute: typeof AdminOpsRoute
+    }
+    '/admin/ops/latency': {
+      id: '/admin/ops/latency'
+      path: '/latency'
+      fullPath: '/admin/ops/latency'
+      preLoaderRoute: typeof AdminOpsLatencyRouteImport
+      parentRoute: typeof AdminOpsRoute
+    }
+    '/admin/ops/errors': {
+      id: '/admin/ops/errors'
+      path: '/errors'
+      fullPath: '/admin/ops/errors'
+      preLoaderRoute: typeof AdminOpsErrorsRouteImport
+      parentRoute: typeof AdminOpsRoute
+    }
+    '/admin/ops/business': {
+      id: '/admin/ops/business'
+      path: '/business'
+      fullPath: '/admin/ops/business'
+      preLoaderRoute: typeof AdminOpsBusinessRouteImport
+      parentRoute: typeof AdminOpsRoute
+    }
+    '/admin/ops/alerts': {
+      id: '/admin/ops/alerts'
+      path: '/alerts'
+      fullPath: '/admin/ops/alerts'
+      preLoaderRoute: typeof AdminOpsAlertsRouteImport
+      parentRoute: typeof AdminOpsRoute
     }
     '/admin/clients/new': {
       id: '/admin/clients/new'
@@ -338,6 +868,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/clients/$id'
       preLoaderRoute: typeof AdminClientsIdRouteImport
       parentRoute: typeof AdminClientsRoute
+    }
+    '/admin/ops/trace/$callSid': {
+      id: '/admin/ops/trace/$callSid'
+      path: '/trace/$callSid'
+      fullPath: '/admin/ops/trace/$callSid'
+      preLoaderRoute: typeof AdminOpsTraceCallSidRouteImport
+      parentRoute: typeof AdminOpsRoute
     }
   }
 }
@@ -356,14 +893,42 @@ const AdminClientsRouteWithChildren = AdminClientsRoute._addFileChildren(
   AdminClientsRouteChildren,
 )
 
+interface AdminOpsRouteChildren {
+  AdminOpsAlertsRoute: typeof AdminOpsAlertsRoute
+  AdminOpsBusinessRoute: typeof AdminOpsBusinessRoute
+  AdminOpsErrorsRoute: typeof AdminOpsErrorsRoute
+  AdminOpsLatencyRoute: typeof AdminOpsLatencyRoute
+  AdminOpsLiveRoute: typeof AdminOpsLiveRoute
+  AdminOpsQualityRoute: typeof AdminOpsQualityRoute
+  AdminOpsServicesRoute: typeof AdminOpsServicesRoute
+  AdminOpsTraceCallSidRoute: typeof AdminOpsTraceCallSidRoute
+}
+
+const AdminOpsRouteChildren: AdminOpsRouteChildren = {
+  AdminOpsAlertsRoute: AdminOpsAlertsRoute,
+  AdminOpsBusinessRoute: AdminOpsBusinessRoute,
+  AdminOpsErrorsRoute: AdminOpsErrorsRoute,
+  AdminOpsLatencyRoute: AdminOpsLatencyRoute,
+  AdminOpsLiveRoute: AdminOpsLiveRoute,
+  AdminOpsQualityRoute: AdminOpsQualityRoute,
+  AdminOpsServicesRoute: AdminOpsServicesRoute,
+  AdminOpsTraceCallSidRoute: AdminOpsTraceCallSidRoute,
+}
+
+const AdminOpsRouteWithChildren = AdminOpsRoute._addFileChildren(
+  AdminOpsRouteChildren,
+)
+
 interface AdminRouteChildren {
   AdminClientsRoute: typeof AdminClientsRouteWithChildren
+  AdminOpsRoute: typeof AdminOpsRouteWithChildren
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminClientsRoute: AdminClientsRouteWithChildren,
+  AdminOpsRoute: AdminOpsRouteWithChildren,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
@@ -382,28 +947,79 @@ const AppCallsRouteWithChildren = AppCallsRoute._addFileChildren(
   AppCallsRouteChildren,
 )
 
+interface AppCampaignsRouteChildren {
+  AppCampaignsIdRoute: typeof AppCampaignsIdRoute
+  AppCampaignsMonitorRoute: typeof AppCampaignsMonitorRoute
+  AppCampaignsNewRoute: typeof AppCampaignsNewRoute
+}
+
+const AppCampaignsRouteChildren: AppCampaignsRouteChildren = {
+  AppCampaignsIdRoute: AppCampaignsIdRoute,
+  AppCampaignsMonitorRoute: AppCampaignsMonitorRoute,
+  AppCampaignsNewRoute: AppCampaignsNewRoute,
+}
+
+const AppCampaignsRouteWithChildren = AppCampaignsRoute._addFileChildren(
+  AppCampaignsRouteChildren,
+)
+
 interface AppRouteChildren {
   AppCallsRoute: typeof AppCallsRouteWithChildren
+  AppCampaignsRoute: typeof AppCampaignsRouteWithChildren
+  AppInstantRoute: typeof AppInstantRoute
+  AppKnowledgeRoute: typeof AppKnowledgeRoute
   AppLeadsRoute: typeof AppLeadsRoute
+  AppMessagesRoute: typeof AppMessagesRoute
+  AppTeamRoute: typeof AppTeamRoute
+  AppWhatsappRoute: typeof AppWhatsappRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppCallsRoute: AppCallsRouteWithChildren,
+  AppCampaignsRoute: AppCampaignsRouteWithChildren,
+  AppInstantRoute: AppInstantRoute,
+  AppKnowledgeRoute: AppKnowledgeRoute,
   AppLeadsRoute: AppLeadsRoute,
+  AppMessagesRoute: AppMessagesRoute,
+  AppTeamRoute: AppTeamRoute,
+  AppWhatsappRoute: AppWhatsappRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
+interface WorkRouteChildren {
+  WorkCallsRoute: typeof WorkCallsRoute
+  WorkMessagesRoute: typeof WorkMessagesRoute
+  WorkSettingsRoute: typeof WorkSettingsRoute
+  WorkLeadsIdRoute: typeof WorkLeadsIdRoute
+  WorkLeadsIndexRoute: typeof WorkLeadsIndexRoute
+}
+
+const WorkRouteChildren: WorkRouteChildren = {
+  WorkCallsRoute: WorkCallsRoute,
+  WorkMessagesRoute: WorkMessagesRoute,
+  WorkSettingsRoute: WorkSettingsRoute,
+  WorkLeadsIdRoute: WorkLeadsIdRoute,
+  WorkLeadsIndexRoute: WorkLeadsIndexRoute,
+}
+
+const WorkRouteWithChildren = WorkRoute._addFileChildren(WorkRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   AdminLoginRoute: AdminLoginRoute,
   AppRoute: AppRouteWithChildren,
+  EmployeeLoginRoute: EmployeeLoginRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  JoinRoute: JoinRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
+  WorkRoute: WorkRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

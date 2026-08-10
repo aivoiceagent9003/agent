@@ -16,13 +16,19 @@ import {
   ArrowLeft,
   Upload,
   FileText,
+  Trash2,
+  Download,
 } from "lucide-react";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useMe } from "@/lib/team";
 import { VoiceTester } from "@/components/portal/VoiceTester";
+import { VoicePicker } from "@/components/portal/VoicePicker";
 import { LiveDataSetup } from "@/components/portal/LiveDataSetup";
 import {
   useAgentTemplates,
-  useClientKnowledge,
+  useClientDocuments,
+  useDeleteDocument,
+  getDocumentDownloadUrl,
   useAgent,
   useVoices,
   fetchTemplate,
@@ -55,8 +61,17 @@ function Onboarding() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  // Agent configuration is owner-only (the backend returns 403 for everyone else).
+  // Bounce employees back to the dashboard rather than showing them a form whose
+  // every save would fail.
+  const { data: me } = useMe();
+  useEffect(() => {
+    if (me && me.tenant_role !== "owner") navigate({ to: "/app" });
+  }, [me, navigate]);
+
   const { data: templates = [] } = useAgentTemplates();
-  const { data: kb = [] } = useClientKnowledge();
+  const { data: docs = [] } = useClientDocuments();
+  const deleteDocument = useDeleteDocument();
   const { data: agent } = useAgent();
   const { data: voices = [] } = useVoices();
   const saveAgent = useSaveAgent();
@@ -81,12 +96,38 @@ function Onboarding() {
   const [multilingual, setMultilingual] = useState(true);
   const [voice, setVoice] = useState("");
 
-  // Prefill the business name from the tenant created at signup.
+  // Hydrate the form from the saved agent (runs once when it loads).
+  // - First-run (no number/config yet): only prefill the business name and let
+  //   the wizard start at step 0 (Choose your agent).
+  // - Already set up (editing from "Agent settings"): load the full config and
+  //   jump past the template picker so the client can edit any section directly
+  //   instead of re-walking setup from scratch.
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (agent && !businessName) {
-      setBusinessName(agent.config?.business_name || agent.name || "");
+    if (!agent || hydrated.current) return;
+    hydrated.current = true;
+    const cfg: any = agent.config || {};
+    const configured = !!agent.phone_number || cfg.status === "published" || !!cfg.system_prompt;
+
+    if (!configured) {
+      // First-run wizard. Only prefill a business name the user actually gave us
+      // (email/password signups pass one). Google signups have none — leave it
+      // empty so they type it here rather than inheriting their Google name.
+      setBusinessName(cfg.business_name || "");
+      return;
     }
-  }, [agent, businessName]);
+
+    setBusinessName(cfg.business_name || agent.name || "");
+
+    setBuiltConfig(cfg);
+    setAgentName(cfg.agent_name || "Priya");
+    if (typeof cfg.allow_multilingual === "boolean") setMultilingual(cfg.allow_multilingual);
+    if (cfg.handoff_number) setHandoff(cfg.handoff_number);
+    if (cfg.voice) setVoice(cfg.voice);
+    if (Array.isArray(cfg.lookups)) setLookups(cfg.lookups);
+    if (agent.phone_number) setPhone(agent.phone_number);
+    setStep(1); // skip "Choose your agent" — they already have one
+  }, [agent]);
 
   // Step 3 — knowledge upload
   const fileRef = useRef<HTMLInputElement>(null);
@@ -160,10 +201,32 @@ function Onboarding() {
           toast.error(`${file.name}: ${e.message || "upload failed"}`);
         }
       }
-      if (total > 0) qc.invalidateQueries({ queryKey: ["client", "knowledge"] });
+      if (total > 0) {
+        qc.invalidateQueries({ queryKey: ["client", "documents"] });
+        qc.invalidateQueries({ queryKey: ["client", "knowledge"] });
+      }
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function removeDoc(id: string, filename: string) {
+    if (!confirm(`Delete "${filename}" and its knowledge? This cannot be undone.`)) return;
+    try {
+      await deleteDocument.mutateAsync(id);
+      toast.success("Document deleted");
+    } catch (e: any) {
+      toast.error(e.message || "Could not delete document");
+    }
+  }
+
+  async function downloadDoc(id: string) {
+    try {
+      const url = await getDocumentDownloadUrl(id);
+      window.open(url, "_blank");
+    } catch (e: any) {
+      toast.error(e.message || "No file to download");
     }
   }
 
@@ -203,7 +266,12 @@ function Onboarding() {
         <ol className="flex items-center gap-2 mb-8 flex-wrap">
           {STEPS.map((label, i) => (
             <li key={label} className="flex items-center gap-2">
-              <div className={`flex items-center gap-2 ${i === step ? "text-foreground" : "text-muted-foreground"}`}>
+              <button
+                type="button"
+                onClick={() => setStep(i)}
+                title={`Go to ${label}`}
+                className={`flex items-center gap-2 rounded-lg px-1 py-0.5 hover:opacity-80 transition ${i === step ? "text-foreground" : "text-muted-foreground"}`}
+              >
                 <span
                   className={`w-6 h-6 rounded-full grid place-items-center text-xs font-medium ${
                     i < step
@@ -216,7 +284,7 @@ function Onboarding() {
                   {i < step ? <Check className="w-3 h-3" /> : i + 1}
                 </span>
                 <span className="text-sm hidden sm:inline">{label}</span>
-              </div>
+              </button>
               {i < STEPS.length - 1 && <span className="w-6 h-px bg-border" />}
             </li>
           ))}
@@ -325,34 +393,9 @@ function Onboarding() {
               <div className="grid gap-2">
                 <label className="text-sm text-muted-foreground">Voice</label>
                 <p className="text-xs text-muted-foreground -mt-1">
-                  Pick how your agent should sound. Choosing a voice names the agent to match — edit the name below if you like.
+                  Pick how your agent should sound. Every voice speaks Indian languages (Telugu, Hindi, Tamil…) natively — they differ in tone.
                 </p>
-                <div className="grid sm:grid-cols-3 gap-2">
-                  {voices.map((v) => {
-                    const active = voice === v.id;
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => {
-                          setVoice(v.id);
-                          setAgentName(v.label);
-                        }}
-                        className={`text-left rounded-lg border px-3 py-2.5 transition ${
-                          active
-                            ? "border-primary bg-primary/5 ring-1 ring-primary"
-                            : "border-border hover:bg-muted/30"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{v.label}</span>
-                          {active && <Check className="w-4 h-4 text-primary" />}
-                        </div>
-                        <span className="text-xs text-muted-foreground">{v.note}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <VoicePicker voices={voices} value={voice} onChange={setVoice} />
                 {voices.length === 0 && (
                   <p className="text-xs text-muted-foreground">No voices available — check your TTS provider config.</p>
                 )}
@@ -365,7 +408,7 @@ function Onboarding() {
                   onChange={(e) => setAgentName(e.target.value)}
                   className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <p className="text-xs text-muted-foreground">Set from the voice you pick — change it here if you want a different name.</p>
+                <p className="text-xs text-muted-foreground">The name your agent introduces itself with on calls (e.g. "Priya here from…"). Independent of the voice.</p>
               </div>
 
               <div className="grid gap-1.5">
@@ -451,16 +494,39 @@ function Onboarding() {
 
               <div>
                 <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-                  {kb.length} knowledge chunks
+                  {docs.length} {docs.length === 1 ? "file" : "files"}
                 </div>
                 <div className="divide-y divide-border max-h-64 overflow-auto">
-                  {kb.length === 0 ? (
-                    <div className="py-6 text-center text-sm text-muted-foreground">No knowledge yet.</div>
+                  {docs.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-muted-foreground">No files yet.</div>
                   ) : (
-                    kb.map((c) => (
-                      <div key={c.id} className="flex items-start gap-3 py-3">
-                        <FileText className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                        <p className="flex-1 text-sm line-clamp-2">{c.text}</p>
+                    docs.map((d) => (
+                      <div key={d.id} className="flex items-center gap-3 py-3">
+                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate">{d.filename}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {d.chunk_count} {d.chunk_count === 1 ? "chunk" : "chunks"}
+                            {d.size_bytes ? ` · ${(d.size_bytes / 1024).toFixed(0)} KB` : ""}
+                            {d.status !== "ready" ? ` · ${d.status}` : ""}
+                          </p>
+                        </div>
+                        {d.source === "upload" && (
+                          <button
+                            onClick={() => downloadDoc(d.id)}
+                            title="Download original file"
+                            className="text-muted-foreground hover:text-foreground p-1 shrink-0"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => removeDoc(d.id, d.filename)}
+                          title="Delete file and its knowledge"
+                          className="text-muted-foreground hover:text-destructive p-1 shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     ))
                   )}
@@ -476,7 +542,7 @@ function Onboarding() {
                 onClick={() => setStep(3)}
                 className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground rounded-lg px-5 py-2.5 text-sm font-medium shadow-glow hover:opacity-90"
               >
-                {kb.length > 0 ? "Continue" : "Skip for now"} <ArrowRight className="w-4 h-4" />
+                {docs.length > 0 ? "Continue" : "Skip for now"} <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -552,7 +618,7 @@ function Onboarding() {
               <Row label="Number to automate" value={phone} />
               <Row label="Human handoff" value={handoff.trim() || "Not set"} />
               <Row label="Multilingual" value={multilingual ? "Yes" : "No"} />
-              <Row label="Knowledge chunks" value={String(kb.length)} />
+              <Row label="Knowledge files" value={String(docs.length)} />
               <Row label="Live data lookups" value={lookups.length ? `${lookups.length} configured` : "None"} />
             </div>
 

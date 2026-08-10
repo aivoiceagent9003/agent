@@ -194,7 +194,7 @@ export function HowItWorks() {
     { n: "04", title: "Your team takes over", desc: "Qualified conversations are handed to a human the moment they matter." },
   ];
   return (
-    <section id="how" className="py-24 border-t border-border">
+    <section id="how" className="py-24 border-t border-border bg-background">
       <div className="mx-auto max-w-7xl px-6">
         <p className="text-sm font-medium text-muted-foreground">How it works</p>
         <h2 className="mt-2 text-3xl md:text-4xl font-semibold tracking-tight max-w-2xl">

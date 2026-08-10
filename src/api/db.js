@@ -6,15 +6,35 @@
 import { createClient } from '@supabase/supabase-js'
 import 'dotenv/config'
 
-// Standard client (anon key) — for normal queries.
+// Primary server-side DB client for ALL table queries.
+//
+// It uses the SERVICE ROLE key when available so the backend acts as the single
+// trusted gateway: this lets us enable Row-Level Security to DENY all direct
+// anon/public access without breaking the API (the service role bypasses RLS).
+// Falls back to the anon key if the service key isn't set — but RLS must NOT be
+// enabled in that case or the backend loses DB access (see sql/rls.sql).
+//
+// Tenant isolation is still enforced in application code (requireClient /
+// requireAdmin + explicit tenant_id filters); RLS is defense-in-depth.
+const DB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+
 export const supabase = createClient(
+  process.env.SUPABASE_URL,
+  DB_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false } }
+)
+
+// Anon client — used ONLY for the user password sign-in (the gotrue password
+// grant is conventionally performed with the anon key). Never used for queries.
+export const supabaseAuth = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } }
 )
 
-// Admin client (service role) — for provisioning (signup). May be undefined if
-// the key isn't set; signup checks for it.
+// Explicit service-role client — for provisioning (signup) and Storage. Same
+// privileges as `supabase` when the service key is set; null otherwise so callers
+// can detect that provisioning isn't available (signup checks for it).
 export const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   ? createClient(
       process.env.SUPABASE_URL,

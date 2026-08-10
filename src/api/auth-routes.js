@@ -5,9 +5,73 @@
 // user's role + tenant so the frontend knows where to route them.
 
 import { Router } from 'express'
-import { supabase } from './db.js'
+import { supabase, supabaseAuth, supabaseAdmin } from './db.js'
+import { sendWelcomeEmail } from '../services/email.js'
+import 'dotenv/config'
 
 const router = Router()
+
+// ─── Password reset ──────────────────────────────────────────────────────────
+// Supabase sends the recovery email and hosts the token verification; we only
+// kick it off and then apply the new password. Two endpoints:
+//   POST /forgot { email }                    → email a recovery link
+//   POST /reset  { access_token, password }   → set the new password
+//
+// The recovery link lands on APP_URL/reset-password with the session in the URL
+// hash (implicit flow), which the frontend posts back here. Doing the update
+// server-side keeps supabase-js out of the browser bundle entirely.
+
+// POST /api/auth/forgot { email }
+router.post('/forgot', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase()
+  if (!email) return res.status(400).json({ error: 'Email is required' })
+
+  const appUrl = (process.env.APP_URL || 'http://localhost:8080').replace(/\/$/, '')
+  try {
+    await supabaseAuth.auth.resetPasswordForEmail(email, {
+      redirectTo: `${appUrl}/reset-password`,
+    })
+  } catch (e) {
+    // Deliberately swallowed — see below.
+    console.error('[AUTH] reset request failed:', e.message)
+  }
+
+  // ALWAYS the same response. Telling the caller whether an address is registered
+  // turns this endpoint into an account-enumeration oracle.
+  res.json({ ok: true })
+})
+
+// POST /api/auth/reset { access_token, password }
+router.post('/reset', async (req, res) => {
+  const { access_token: accessToken, password } = req.body || {}
+  if (!accessToken || !password) {
+    return res.status(400).json({ error: 'Missing reset token or password' })
+  }
+  if (String(password).length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' })
+  }
+  if (!supabaseAdmin) {
+    console.error('[AUTH] SUPABASE_SERVICE_ROLE_KEY not set — cannot reset passwords')
+    return res.status(500).json({ error: 'Password reset is not configured. Contact support.' })
+  }
+
+  try {
+    // The recovery access token IS the proof of identity — it only exists because
+    // the user opened a link sent to their address.
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken)
+    if (error || !user) {
+      return res.status(401).json({ error: 'This reset link has expired. Request a new one.' })
+    }
+
+    const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password })
+    if (updErr) throw new Error(updErr.message)
+
+    res.json({ ok: true, email: user.email })
+  } catch (e) {
+    console.error('[AUTH] reset error:', e.message)
+    res.status(500).json({ error: 'Could not reset your password. Please try again.' })
+  }
+})
 
 // POST /api/auth/login  { email, password } -> { token, role, tenant_id }
 router.post('/login', async (req, res) => {
@@ -19,7 +83,7 @@ router.post('/login', async (req, res) => {
   // Sign in against Supabase Auth. On success this returns a session whose
   // access_token is the same JWT the rest of the API expects in the
   // Authorization header.
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password })
   if (error || !data?.session) {
     return res.status(401).json({ error: 'Invalid email or password' })
   }
@@ -36,6 +100,98 @@ router.post('/login', async (req, res) => {
     role: profile?.role || 'client',
     tenant_id: profile?.tenant_id || null,
   })
+})
+
+// POST /api/auth/google  { credential } -> { token, role, tenant_id, is_new }
+//
+// "Sign in with Google". `credential` is the Google ID token from Google Identity
+// Services on the frontend. We hand it to Supabase's signInWithIdToken, which
+// verifies it with Google and creates-or-returns a Supabase auth user + session
+// (the session's access_token is the same JWT the rest of the API expects).
+//
+// Google users who are new to us have no profile/tenant yet, so on first login we
+// provision one (same shape as /api/signup) using their Google name as a
+// placeholder business name — they'll set the real one in onboarding.
+router.post('/google', async (req, res) => {
+  const { credential } = req.body || {}
+  if (!credential) {
+    return res.status(400).json({ error: 'Missing Google credential' })
+  }
+
+  // Verify the Google ID token and get/create the Supabase auth user + session.
+  const { data, error } = await supabaseAuth.auth.signInWithIdToken({
+    provider: 'google',
+    token: credential,
+  })
+  if (error || !data?.session || !data?.user) {
+    console.error('[GOOGLE AUTH] signInWithIdToken failed:', error?.message)
+    return res.status(401).json({ error: 'Google sign-in failed. Please try again.' })
+  }
+
+  const user = data.user
+
+  // Does this user already have a profile? If so, just return their token.
+  const { data: existing } = await supabase
+    .from('profiles')
+    .select('role, tenant_id')
+    .eq('id', user.id)
+    .single()
+
+  if (existing) {
+    return res.json({
+      token: data.session.access_token,
+      role: existing.role || 'client',
+      tenant_id: existing.tenant_id || null,
+      is_new: false,
+    })
+  }
+
+  // First Google login for this user — provision a tenant + client profile.
+  if (!supabaseAdmin) {
+    console.error('[GOOGLE AUTH] SUPABASE_SERVICE_ROLE_KEY not set — cannot provision')
+    return res.status(500).json({ error: 'Account provisioning is not configured. Contact support.' })
+  }
+
+  // Deliberately DON'T derive the business name from the Google account — the
+  // user types their real business name during onboarding. `name` is NOT NULL, so
+  // we seed a neutral placeholder that gets overwritten the moment they save
+  // their business name (see PATCH /api/client/agent), and we leave
+  // config.business_name unset so onboarding shows an empty field to fill in.
+  let tenantId = null
+  try {
+    const { data: tenant, error: tErr } = await supabaseAdmin
+      .from('tenants')
+      .insert({
+        name: 'New Business',
+        phone_number: null,
+        config: { status: 'draft' },
+      })
+      .select('id')
+      .single()
+    if (tErr || !tenant) throw new Error(tErr?.message || 'Could not create tenant')
+    tenantId = tenant.id
+
+    const { error: pErr } = await supabaseAdmin
+      .from('profiles')
+      .insert({ id: user.id, role: 'client', tenant_id: tenantId, email: user.email })
+    if (pErr) throw new Error(pErr.message)
+
+    // Welcome email — fire-and-forget. sendWelcomeEmail never throws, and we don't
+    // await it so a slow SMTP server can't delay the signup response (or break it).
+    const googleName = user.user_metadata?.full_name || user.user_metadata?.name || ''
+    sendWelcomeEmail({ to: user.email, name: googleName })
+
+    res.json({
+      token: data.session.access_token,
+      role: 'client',
+      tenant_id: tenantId,
+      is_new: true,
+    })
+  } catch (e) {
+    console.error('[GOOGLE AUTH] provisioning error:', e.message)
+    if (tenantId) await supabaseAdmin.from('tenants').delete().eq('id', tenantId)
+    res.status(500).json({ error: 'Could not finish setting up your account. Please try again.' })
+  }
 })
 
 export default router

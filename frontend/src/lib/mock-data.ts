@@ -24,6 +24,7 @@ export interface Call {
   status: "completed" | "active";
   duration_seconds: number;
   transcript: string;
+  recording_url?: string | null;
   created_at: string;
   has_lead: boolean;
 }
@@ -40,8 +41,22 @@ export interface Lead {
   handed_off: boolean;
   contact_info: string | null;
   caller_number: string;
+  call_id?: string | null;
   created_at: string;
   transcript?: string | null;
+  // Workflow fields — a lead is worked by a person, not just captured.
+  // See sql/team.sql and PATCH /api/client/leads/:id.
+  status?: "new" | "contacted" | "converted" | "lost";
+  assigned_to?: string | null;
+  notes?: string | null;
+  updated_at?: string | null;
+  // Full extraction JSON — includes the interest signals the extractor produces.
+  raw_data?: {
+    is_lead?: boolean;
+    interest_score?: number;
+    interest_reason?: string;
+    [k: string]: unknown;
+  } | null;
 }
 
 const now = Date.now();

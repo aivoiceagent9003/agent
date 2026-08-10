@@ -1,10 +1,8 @@
 import express from 'express'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { createDeepgramConnection } from './services/deepgram.js'
-import { clearHistory, streamAIReply, getHistory } from './services/llm.js'
-import { speakReply } from './services/tts.js'
-import { extractLead, saveLead } from './services/leads.js'
+import { createGeminiLiveConnection } from './services/gemini-live.js'
+import { clearHistory, streamAIReply } from './services/llm.js'
 import { supabase } from './api/db.js'
 import publicRoutes from './api/public.js'
 import clientRoutes from './api/client.js'
@@ -12,7 +10,19 @@ import adminRoutes from './api/admin.js'
 import agentRoutes from './api/agent.js'
 import authRoutes from './api/auth-routes.js'
 import signupRoutes from './api/signup.js'
-import { vobizAnswer, vobizHangup, handleVobizConnection } from './telephony/vobiz.js'
+import opsRoutes from './api/ops.js'
+import { vobizAnswer, vobizHangup, handleVobizConnection, vobizTransferXml } from './telephony/vobiz.js'
+import { handleDemoConnection } from './telephony/demo.js'
+import { answerCampaign, handleCampaignConnection } from './telephony/campaign.js'
+import campaignRoutes from './api/campaigns.js'
+import eventRoutes from './api/events.js'
+import instantRoutes from './api/instant.js'
+import whatsappRoutes from './api/whatsapp.js'
+import teamRoutes from './api/team.js'
+import messageRoutes from './api/messages.js'
+import notificationRoutes from './api/notifications.js'
+import hub from './services/realtime-hub.js'
+import telemetry from './services/telemetry.js'
 import 'dotenv/config'
 
 const app = express()
@@ -21,7 +31,7 @@ const app = express()
 // In production, replace '*' with your frontend domain.
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', process.env.FRONTEND_ORIGIN || '*')
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') return res.sendStatus(204)
   next()
@@ -29,95 +39,50 @@ app.use((req, res, next) => {
 
 app.use(express.urlencoded({ extended: false }))
 app.use(express.json())
+// Salesforce Outbound Messages POST SOAP XML — capture as a raw string so the
+// instant-call ingress can parse it (see src/api/events.js).
+app.use(express.text({ type: ['text/xml', 'application/xml', 'application/soap+xml'], limit: '1mb' }))
 
 // ─── Web API routes (for the frontend) ────────────────────────────────────────
 app.use('/api/public', publicRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api/signup', signupRoutes)
 app.use('/api/client/agent', agentRoutes)
+app.use('/api/client/campaigns', campaignRoutes)
+app.use('/api/client/instant-call', instantRoutes)
+app.use('/api/client/whatsapp', whatsappRoutes)
+app.use('/api/client/team', teamRoutes)
+app.use('/api/client/messages', messageRoutes)
+app.use('/api/client/notifications', notificationRoutes)
+app.use('/api/events', eventRoutes)   // public, token auth (campaign ingress + tenant instant calls)
 app.use('/api/client', clientRoutes)
+// Mount the Operations Center BEFORE the general admin router so /api/admin/ops/*
+// is handled by opsRoutes and not shadowed by adminRoutes' prefix.
+app.use('/api/admin/ops', opsRoutes)
 app.use('/api/admin', adminRoutes)
 
-const activeCalls = new Map()
-
-// ─── Vobiz telephony (Indian numbers) — additive, runs alongside Twilio ───────
+// ─── Vobiz telephony (Indian numbers) ─────────────────────────────────────────
 app.post('/answer', vobizAnswer)
 app.post('/hangup', vobizHangup)
+// Human-handoff transfer XML: Vobiz fetches this for the caller leg when the agent
+// hands off to a human (see transferViaVobiz in handoff.js). GET + POST since the
+// leg redirect method may be either.
+app.post('/vobiz/transfer', vobizTransferXml)
+app.get('/vobiz/transfer', vobizTransferXml)
 
-app.post('/incoming-call', async (req, res) => {
-  // Extract E.164 number from either "+1234" or "sip:+1234@domain"
-  const normalize = n => {
-    if (!n) return ''
-    const match = n.match(/(\+?\d[\d\s\-().]+)/)
-    return match ? match[1].replace(/\s/g, '') : n.trim()
-  }
-  const calledNumber = normalize(req.body.To)
-  const callerNumber = normalize(req.body.From)
-  console.log(`Incoming call to: ${calledNumber} from: ${callerNumber}`)
-
-  const { data: tenant, error } = await supabase
-    .from('tenants')
-    .select('*')
-    .eq('phone_number', calledNumber)
-    .single()
-
-  if (error || !tenant) {
-    console.error('No tenant found for number:', calledNumber)
-    res.type('text/xml')
-    res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response><Say>Sorry, this number is not configured.</Say></Response>`)
-    return
-  }
-
-  console.log('Tenant found:', tenant.name)
-
-  const { data: call, error: callError } = await supabase
-    .from('calls')
-    .insert({
-      tenant_id: tenant.id,
-      caller_number: callerNumber,
-      status: 'active'
-    })
-    .select()
-    .single()
-
-  if (callError || !call) {
-    console.error('Failed to insert call:', callError)
-    res.type('text/xml')
-    res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response><Say>Sorry, something went wrong.</Say></Response>`)
-    return
-  }
-
-  activeCalls.set(callerNumber, {
-    tenant,
-    callId: call.id,
-    transcript: []
-  })
-
-  const ngrokUrl = process.env.NGROK_URL
-
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <Stream url="wss://${ngrokUrl}/media-stream">
-      <Parameter name="caller_number" value="${callerNumber}"/>
-    </Stream>
-  </Connect>
-</Response>`
-
-  res.type('text/xml')
-  res.send(twiml)
-})
+// ─── Outbound campaign answer webhook (provider fetches on answer) ────────────
+app.post('/answer-campaign', answerCampaign)
 
 const server = createServer(app)
 
-// Two WebSocket endpoints share one HTTP server:
-//   /media-stream — Twilio phone calls (production)
-//   /test-stream  — browser "web call" agent testing (same pipeline, no phone)
-const wss = new WebSocketServer({ noServer: true })
+// WebSocket endpoints sharing one HTTP server: the browser agent tester, inbound
+// Vobiz calls, outbound campaign calls, the Ops live feed, and the public demo.
 const testWss = new WebSocketServer({ noServer: true })
 const vobizWss = new WebSocketServer({ noServer: true })
+const campaignWss = new WebSocketServer({ noServer: true })   // outbound campaign calls
+const opsWss = new WebSocketServer({ noServer: true })   // Operations Center live feed
+const demoWss = new WebSocketServer({ noServer: true })   // public "try it live" demo
+const msgWss = new WebSocketServer({ noServer: true })   // team messaging + notifications
 
 server.on('upgrade', (req, socket, head) => {
   let pathname
@@ -126,187 +91,129 @@ server.on('upgrade', (req, socket, head) => {
   } catch {
     pathname = req.url
   }
-  if (pathname === '/media-stream') {
-    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
-  } else if (pathname === '/test-stream') {
+  if (pathname === '/test-stream') {
     testWss.handleUpgrade(req, socket, head, ws => testWss.emit('connection', ws, req))
   } else if (pathname === '/media-stream-vobiz') {
     vobizWss.handleUpgrade(req, socket, head, ws => vobizWss.emit('connection', ws, req))
+  } else if (pathname === '/media-stream-campaign') {
+    campaignWss.handleUpgrade(req, socket, head, ws => campaignWss.emit('connection', ws, req))
+  } else if (pathname === '/ops-stream') {
+    opsWss.handleUpgrade(req, socket, head, ws => opsWss.emit('connection', ws, req))
+  } else if (pathname === '/demo-stream') {
+    demoWss.handleUpgrade(req, socket, head, ws => demoWss.emit('connection', ws, req))
+  } else if (pathname === '/messages-stream') {
+    msgWss.handleUpgrade(req, socket, head, ws => msgWss.emit('connection', ws, req))
   } else {
     socket.destroy()
   }
 })
 
-vobizWss.on('connection', handleVobizConnection)
+// Wrap the Vobiz handler to track active media websockets as a live gauge.
+vobizWss.on('connection', (ws, req) => {
+  telemetry.gaugeInc('websockets')
+  ws.on('close', () => telemetry.gaugeDec('websockets'))
+  handleVobizConnection(ws, req)
+})
 
-wss.on('connection', (ws) => {
-  console.log('WebSocket connected')
+// Outbound campaign media stream (tracked on the same websocket gauge).
+campaignWss.on('connection', (ws, req) => {
+  telemetry.gaugeInc('websockets')
+  ws.on('close', () => telemetry.gaugeDec('websockets'))
+  handleCampaignConnection(ws, req)
+})
 
-  let callSid = null
-  let callerNumber = null
-  let tenant = null
-  let callId = null
-  let deepgramConnection = null
-  let transcriptBuffer = []
-  let audioBuffer = []
-  let deepgramReady = false
-  let streamSid = null
-  let callStartTime = null  // for computing duration_seconds
+// ─── Operations Center live feed (/ops-stream) ────────────────────────────────
+// Admin-only WebSocket that pushes telemetry deltas in real time. The browser
+// can't set Authorization headers on a WS handshake, so the admin token is passed
+// as ?token=… and validated against Supabase (same check as requireAdmin).
+opsWss.on('connection', async (ws, req) => {
+  let token = ''
+  try { token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token') || '' } catch {}
 
-  ws.on('message', async (data) => {
-    const msg = JSON.parse(data)
-
-    if (msg.event === 'start') {
-      callSid = msg.start.callSid
-      streamSid = msg.start.streamSid
-      callerNumber = msg.start.customParameters?.caller_number
-      callStartTime = Date.now()  // mark call start for duration
-      console.log('Stream started for:', callerNumber)
-
-      const session = activeCalls.get(callerNumber)
-      if (session) {
-        tenant = session.tenant
-        callId = session.callId
-        console.log('Session loaded for tenant:', tenant.name)
-      } else {
-        console.log('No session found — creating test session')
-        const { data: testTenant } = await supabase
-          .from('tenants')
-          .select('*')
-          .eq('phone_number', '+14056497747')
-          .single()
-
-        if (testTenant) {
-          const { data: testCall, error: testCallError } = await supabase
-            .from('calls')
-            .insert({
-              tenant_id: testTenant.id,
-              caller_number: callerNumber,
-              status: 'active'
-            })
-            .select()
-            .single()
-
-          if (testCallError || !testCall) {
-            console.error('Failed to create test call record:', testCallError)
-          } else {
-            tenant = testTenant
-            callId = testCall.id
-            console.log('Test session created for tenant:', tenant.name)
-          }
-        }
-      }
-
-      const tenantConfig = { ...(tenant?.config || {}), tenant_id: tenant?.id }
-
-      deepgramConnection = createDeepgramConnection(
-        callSid,
-        tenantConfig,
-        ws,
-        streamSid,
-        (text, role = 'user') => {
-          // onTranscript hook — save turns for Supabase transcript. Role defaults
-          // to 'user' (caller); the agent's spoken lines come through with 'assistant'.
-          transcriptBuffer.push({
-            role,
-            text,
-            timestamp: new Date().toISOString()
-          })
-        },
-        () => {
-          // onReady — flush buffered audio
-          deepgramReady = true
-          console.log(`Flushing ${audioBuffer.length} buffered chunks to Deepgram`)
-          audioBuffer.forEach(chunk => deepgramConnection.send(chunk))
-          audioBuffer = []
-        },
-        callerNumber  // ← NEW: needed for human handoff warm transfer
-      )
-
-      console.log('Deepgram connection created')
+  let isAdmin = false
+  try {
+    const { data: { user } } = await supabase.auth.getUser(token)
+    if (user) {
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+      isAdmin = profile?.role === 'admin'
     }
+  } catch { /* fall through to reject */ }
 
-    if (msg.event === 'media') {
-      const audioChunk = Buffer.from(msg.media.payload, 'base64')
-      if (!deepgramReady) {
-        audioBuffer.push(audioChunk)
-      } else {
-        if (audioBuffer.length === 0 && !deepgramConnection._loggedFirstChunk) {
-          deepgramConnection._loggedFirstChunk = true
-          console.log('[AUDIO] First media chunk received from Twilio ✅')
-        }
-        deepgramConnection.send(audioChunk)
-      }
+  if (!isAdmin) {
+    try { ws.send(JSON.stringify({ type: 'error', error: 'unauthorized' })) } catch {}
+    ws.close()
+    return
+  }
+
+  const safeSend = (obj) => { try { if (ws.readyState === 1) ws.send(JSON.stringify(obj)) } catch {} }
+
+  // Initial snapshot so the client renders immediately, then live deltas.
+  safeSend({ type: 'snapshot', snapshot: telemetry.getSnapshot(), calls: telemetry.getActiveCalls() })
+
+  const forward = ({ event, payload }) => safeSend({ type: 'event', event, payload })
+  telemetry.bus.on('*', forward)
+
+  // Periodic snapshot heartbeat (covers anything not captured by deltas + keepalive).
+  const hb = setInterval(() => safeSend({ type: 'snapshot', snapshot: telemetry.getSnapshot(), calls: telemetry.getActiveCalls() }), 5000)
+
+  ws.on('close', () => { telemetry.bus.off('*', forward); clearInterval(hb) })
+  ws.on('error', () => { telemetry.bus.off('*', forward); clearInterval(hb) })
+})
+
+// Public demo call from the marketing site (anonymous, rate-limited).
+demoWss.on('connection', (ws, req) => handleDemoConnection(ws, req))
+
+// ─── Team messaging + notifications live feed (/messages-stream) ──────────────
+// Authenticated the same way as /ops-stream: a browser can't set an Authorization
+// header on a WS handshake, so the Supabase token arrives as ?token=… and is
+// validated here. The socket is then registered against the user's profile id so
+// src/services/realtime-hub.js can push messages and notifications to them.
+msgWss.on('connection', async (ws, req) => {
+  let token = ''
+  try { token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token') || '' } catch {}
+
+  let profileId = null
+  try {
+    const { data: { user } } = await supabase.auth.getUser(token)
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles').select('id, status').eq('id', user.id).single()
+      // Suspended employees lose their live feed too, not just their API access.
+      if (profile && profile.status !== 'suspended') profileId = profile.id
     }
+  } catch { /* fall through to reject */ }
 
-    if (msg.event === 'stop') {
-      console.log('Call ended:', callSid)
+  if (!profileId) {
+    try { ws.send(JSON.stringify({ type: 'error', error: 'unauthorized' })) } catch {}
+    ws.close()
+    return
+  }
 
-      if (deepgramConnection) deepgramConnection.finish()
+  const unregister = hub.register(profileId, ws)
+  try { ws.send(JSON.stringify({ type: 'ready' })) } catch {}
 
-      // ── Day 8: Lead extraction ──────────────────────────────────────────
-      // Grab the full conversation (user + agent) BEFORE clearing it.
-      // Extraction runs post-call so it never adds latency to the live call.
-      const history = getHistory(callSid)
-      const tenantConfig = tenant?.config || {}
+  // Keepalive: idle WebSockets are dropped by proxies after ~60s, and a silently
+  // dead socket means a user stops receiving messages without knowing it.
+  const ping = setInterval(() => {
+    try { if (ws.readyState === 1) ws.ping() } catch {}
+  }, 30000)
 
-      const fullTranscript = transcriptBuffer
-        .map(t => `${t.role}: ${t.text}`)
-        .join('\n')
-
-      // Save call transcript + status + duration
-      const durationSeconds = callStartTime
-        ? Math.round((Date.now() - callStartTime) / 1000)
-        : 0
-      await supabase
-        .from('calls')
-        .update({
-          status: 'completed',
-          transcript: fullTranscript,
-          duration_seconds: durationSeconds,
-        })
-        .eq('id', callId)
-
-      // Extract lead from the conversation, then save it
-      if (history && history.length > 0 && tenant) {
-        const lead = await extractLead(history, tenantConfig)
-        if (lead) {
-          await saveLead(supabase, {
-            tenantId: tenant.id,
-            callId,
-            callerNumber,
-            lead,
-          })
-        }
-      }
-
-      // Now safe to clear conversation memory
-      clearHistory(callSid)
-      // ─────────────────────────────────────────────────────────────────────
-
-      activeCalls.delete(callerNumber)
-      console.log('Call completed, transcript + lead saved')
-    }
-  })
-
-  ws.on('close', () => {
-    if (deepgramConnection) deepgramConnection.finish()
-    if (callSid) clearHistory(callSid)
-    console.log('WebSocket disconnected')
-  })
+  const cleanup = () => { clearInterval(ping); unregister() }
+  ws.on('close', cleanup)
+  ws.on('error', cleanup)
 })
 
 // ─── Browser "web call" test stream ───────────────────────────────────────────
-// A client tests their agent from the browser using the SAME realtime pipeline a
-// Twilio call uses (Deepgram + Sarvam STT → translation → LLM → Sarvam TTS). The
-// browser sends/receives Twilio-format audio frames (base64 mulaw 8kHz), so the
-// existing createDeepgramConnection works unchanged. No phone, no call/lead rows.
+// A client tests their agent from the browser using the SAME Gemini Live engine a
+// real phone call uses. The browser sends/receives telephony-format audio frames
+// (base64 mulaw 8kHz), so the engine runs exactly as it does on a call. No phone,
+// no call/lead rows.
 testWss.on('connection', (ws) => {
   console.log('[TEST-STREAM] connected')
 
   const sid = 'webtest-' + Math.random().toString(36).slice(2, 8)
-  let deepgramConnection = null
-  let deepgramReady = false
+  let engine = null
+  let engineReady = false
   let audioBuffer = []
   let started = false
 
@@ -350,43 +257,44 @@ testWss.on('connection', (ws) => {
         ...(tenant.config || {}),
         ...(providedConfig || {}),
         tenant_id: tenant.id,
+        audio_io: 'pcm',   // hi-fi browser audio (24kHz PCM out / 16kHz PCM in)
       }
       const streamSid = msg.start?.streamSid || sid
 
-      deepgramConnection = createDeepgramConnection(
+      engine = createGeminiLiveConnection(
         sid,                 // callSid → key for LLM history
         tenantConfig,
-        ws,                  // browser ws receives Twilio-format media frames
+        ws,                  // browser ws receives telephony-format media frames
         streamSid,
         () => {},            // onTranscript — not persisted for a test
-        () => {              // onReady — flush any audio buffered before STT was ready
-          deepgramReady = true
-          audioBuffer.forEach(c => deepgramConnection.send(c))
+        () => {              // onReady — flush any audio buffered before the engine was ready
+          engineReady = true
+          audioBuffer.forEach(c => engine.send(c))
           audioBuffer = []
         },
         'web-test',          // callerNumber (handoff transfer is a no-op here)
       )
-      console.log('[TEST-STREAM] pipeline started for tenant:', tenant.name)
+      console.log('[TEST-STREAM] Gemini engine started for tenant:', tenant.name)
       return
     }
 
     if (msg.event === 'media' && msg.media?.payload) {
-      if (!deepgramConnection) return
+      if (!engine) return
       const chunk = Buffer.from(msg.media.payload, 'base64')
-      if (!deepgramReady) audioBuffer.push(chunk)
-      else deepgramConnection.send(chunk)
+      if (!engineReady) audioBuffer.push(chunk)
+      else engine.send(chunk)
       return
     }
 
     if (msg.event === 'stop') {
-      if (deepgramConnection) deepgramConnection.finish()
+      if (engine) engine.finish()
       clearHistory(sid)
-      deepgramConnection = null
+      engine = null
     }
   })
 
   ws.on('close', () => {
-    if (deepgramConnection) deepgramConnection.finish()
+    if (engine) engine.finish()
     clearHistory(sid)
     console.log('[TEST-STREAM] disconnected')
   })
@@ -511,3 +419,10 @@ const PORT = process.env.PORT || 3000
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
 })
+
+// When Redis isn't configured, run campaigns in-process (no separate worker needed).
+// Resumes running/scheduled campaigns and starts the stale-dial sweep. No-op under
+// Redis (use `npm run worker`) or when CAMPAIGN_RUNNER=off.
+import('./queue/inline.js')
+  .then(({ INLINE_ENABLED, startInlineRunner }) => { if (INLINE_ENABLED) return startInlineRunner() })
+  .catch((e) => console.error('[INLINE] failed to start:', e.message))

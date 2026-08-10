@@ -1,5 +1,24 @@
 import { Link } from "@tanstack/react-router";
-import { Phone } from "lucide-react";
+import { Phone, Sun, Moon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { currentTheme, toggleTheme } from "@/lib/theme";
+
+export function ThemeToggle() {
+  const [dark, setDark] = useState(false);
+  // Read the class the no-flash script already applied (avoids a hydration mismatch).
+  useEffect(() => { setDark(currentTheme() === "dark"); }, []);
+  return (
+    <button
+      type="button"
+      aria-label="Toggle dark mode"
+      title={dark ? "Switch to light" : "Switch to dark"}
+      onClick={() => setDark(toggleTheme() === "dark")}
+      className="grid place-items-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition"
+    >
+      {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    </button>
+  );
+}
 
 export function SiteNav() {
   return (
@@ -20,6 +39,7 @@ export function SiteNav() {
         </nav>
         <div className="flex items-center gap-2">
           <a href="#contact" className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground transition px-3 py-2">Book a demo</a>
+          <ThemeToggle />
           <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition px-3 py-2">Sign in</Link>
           <Link to="/signup" className="text-sm font-medium bg-gradient-primary text-primary-foreground rounded-lg px-4 py-2 shadow-glow hover:opacity-90 transition">Sign up</Link>
         </div>

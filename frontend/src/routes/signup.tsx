@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { setToken } from "@/lib/api";
-import { signup, login } from "@/lib/data";
+import { loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
 import { Phone } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export const Route = createFileRoute("/signup")({
   head: () => ({ meta: [{ title: "Create your account — Vocera" }] }),
@@ -15,29 +16,16 @@ function SignupPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function onGoogle(credential: string) {
     setLoading(true);
-    const fd = new FormData(e.currentTarget);
-    const business_name = String(fd.get("business_name"));
-    const email = String(fd.get("email"));
-    const password = String(fd.get("password"));
     try {
-      if (!business_name || !email || !password) throw new Error("All fields are required");
-      await signup(email, password, business_name);
-      // Account is created with email already confirmed, so log straight in
-      // and send them into onboarding to configure their agent.
-      try {
-        const { token } = await login(email, password);
-        setToken(token);
-        toast.success("Welcome to Vocera!");
-        navigate({ to: "/onboarding" });
-      } catch {
-        toast.success("Account created — please sign in.");
-        navigate({ to: "/login" });
-      }
+      const { token, is_new } = await loginWithGoogle(credential);
+      setToken(token);
+      toast.success("Welcome to Vocera!");
+      // New users go to onboarding to name their business; returning ones to app.
+      navigate({ to: is_new ? "/onboarding" : "/app" });
     } catch (err: any) {
-      toast.error(err.message || "Could not create account");
+      toast.error(err.message || "Google sign-in failed");
     } finally {
       setLoading(false);
     }
@@ -63,25 +51,16 @@ function SignupPage() {
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
           <h1 className="text-3xl font-bold">Create your account</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Start building your voice agent today.</p>
-          <form onSubmit={onSubmit} className="mt-8 grid gap-4">
-            <div className="grid gap-1.5">
-              <label className="text-sm text-muted-foreground">Business name</label>
-              <input name="business_name" type="text" required className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-            </div>
-            <div className="grid gap-1.5">
-              <label className="text-sm text-muted-foreground">Email</label>
-              <input name="email" type="email" required className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-            </div>
-            <div className="grid gap-1.5">
-              <label className="text-sm text-muted-foreground">Password</label>
-              <input name="password" type="password" required minLength={6} className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-            </div>
-            <button disabled={loading} className="mt-2 bg-gradient-primary text-primary-foreground font-medium rounded-lg px-4 py-2.5 shadow-glow hover:opacity-90 transition disabled:opacity-60">
-              {loading ? "Creating account…" : "Create account"}
-            </button>
-          </form>
-          <p className="mt-6 text-xs text-muted-foreground text-center">
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sign up securely with Google — no passwords to manage. We'll set up your workspace and
+            walk you through building your voice agent.
+          </p>
+
+          <div className={loading ? "pointer-events-none opacity-60" : ""}>
+            <GoogleSignInButton onCredential={onGoogle} text="signup_with" showDivider={false} />
+          </div>
+
+          <p className="mt-8 text-xs text-muted-foreground text-center">
             Already have an account? <Link to="/login" className="text-primary hover:underline">Sign in</Link>
           </p>
         </div>

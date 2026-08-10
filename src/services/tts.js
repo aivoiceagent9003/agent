@@ -1,3 +1,8 @@
+// tts.js — Sarvam text-to-speech. The ONLY remaining use of TTS is the campaign
+// platform's "Template Call" type (a pre-rendered spoken message, no conversation):
+// services/campaigns/broadcast.js renders a template to μ-law audio via fetchTTSAudio.
+// Live AI calls do NOT use this — they run on Gemini Live speech-to-speech.
+
 import 'dotenv/config'
 
 // ─── Language Detection ───────────────────────────────────────────────────────
@@ -18,7 +23,7 @@ function detectLang(text) {
   return 'en'
 }
 
-// ─── Core fetch — used by deepgram.js prefetchTTS too ────────────────────────
+// ─── Render text → base64 μ-law 8k (used by campaign Template Calls) ─────────
 
 export async function fetchTTSAudio(text) {
   const langCode = detectLang(text)
@@ -43,31 +48,4 @@ export async function fetchTTSAudio(text) {
   const data = await res.json()
   if (!data.audios?.[0]) throw new Error(`Sarvam TTS error: ${JSON.stringify(data)}`)
   return data.audios[0]  // base64 mulaw string
-}
-
-// ─── Simple one-shot speak — used only for index.js direct calls ──────────────
-
-export async function speakReply(twilioWs, streamSid, text) {
-  try {
-    console.log(`[TTS] Speaking (${detectLang(text)}): "${text}"`)
-    const t0 = Date.now()
-
-    const payload = await fetchTTSAudio(text)
-    console.log(`[TTS] Synthesized in ${Date.now() - t0}ms`)
-
-    if (twilioWs.readyState === 1) {
-      twilioWs.send(JSON.stringify({
-        event: 'media',
-        streamSid,
-        media: { payload }
-      }))
-    }
-
-    const audioBuffer = Buffer.from(payload, 'base64')
-    const playbackMs = Math.round((audioBuffer.length / 8000) * 1000)
-    console.log(`[TTS] ✅ Sent (${Date.now() - t0}ms, ${audioBuffer.length}B / ${playbackMs}ms audio)`)
-
-  } catch (err) {
-    console.error('[TTS] Error:', err.message)
-  }
 }

@@ -26,6 +26,7 @@
 //   }
 
 import { supabase } from '../api/db.js'
+import telemetry from './telemetry.js'
 
 // Hard cap so a slow/broken client API can never freeze the live phone call.
 const LOOKUP_TIMEOUT_MS = 3500
@@ -81,13 +82,21 @@ export async function runLookup(tenantConfig, name, args = {}) {
   const t0 = Date.now()
   try {
     const result = await withTimeout(resolveBackend(tenantConfig, lk, args), LOOKUP_TIMEOUT_MS)
-    console.log(`[LOOKUP] "${name}" ${JSON.stringify(args)} → ${result ? 'hit' : 'miss'} (${Date.now() - t0}ms)`)
-    if (result === null || result === undefined || result === '') {
-      return 'No matching record was found.'
-    }
+    const ms = Date.now() - t0
+    console.log(`[LOOKUP] "${name}" ${JSON.stringify(args)} → ${result ? 'hit' : 'miss'} (${ms}ms)`)
+    telemetry.recordLatency('lookup', ms, { tenantId: tenantConfig.tenant_id })
+    const hit = !(result === null || result === undefined || result === '')
+    telemetry.incr(`lookup:${name}:${hit ? 'hit' : 'miss'}`)
+    if (!hit) return 'No matching record was found.'
     return typeof result === 'string' ? result : JSON.stringify(result)
   } catch (e) {
+    const ms = Date.now() - t0
     console.error(`[LOOKUP] "${name}" failed:`, e.message)
+    telemetry.recordLatency('lookup', ms, { tenantId: tenantConfig.tenant_id })
+    const timeout = /timeout/i.test(e.message)
+    telemetry.incr(`lookup:${name}:${timeout ? 'timeout' : 'error'}`)
+    telemetry.incr(timeout ? 'tool_timeouts_total' : 'tool_errors_total')
+    telemetry.recordServiceEvent({ component: 'tool', severity: 'error', kind: timeout ? 'lookup_timeout' : 'lookup_error', detail: { lookup: name, error: e.message } })
     return 'That information could not be retrieved right now.'
   }
 }
