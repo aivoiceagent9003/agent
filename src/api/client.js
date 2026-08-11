@@ -257,7 +257,82 @@ router.get('/leads/export', requirePermission('leads:read'), async (req, res) =>
   }
 })
 
-// ─── Update a lead (status / assignment / notes) ──────────────────────────────
+// ─── Single lead (everything the detail page needs in one round-trip) ─────────
+// Declared AFTER /leads/export so Express can't match "export" as an :id.
+router.get('/leads/:id', requirePermission('leads:read'), async (req, res) => {
+  const t = req.auth.tenantId
+  try {
+    const { data: lead, error } = await supabase
+      .from('leads').select('*')
+      .eq('id', req.params.id)
+      .eq('tenant_id', t)   // scope guard: business A can never read business B's lead
+      .maybeSingle()
+    if (error) throw error
+    if (!lead) return res.status(404).json({ error: 'Lead not found' })
+
+    // The recording and its length live on the call, not the lead.
+    let recording_url = null
+    let duration_seconds = null
+    if (lead.call_id) {
+      const { data: call } = await supabase
+        .from('calls').select('duration_seconds, recording_path')
+        .eq('id', lead.call_id).eq('tenant_id', t).maybeSingle()
+      if (call) {
+        duration_seconds = call.duration_seconds ?? null
+        recording_url = await getRecordingUrl(call.recording_path)  // signed, expiring
+      }
+    }
+
+    // Resolve the assignee here — the page shows a name, not a uuid.
+    let assignee = null
+    if (lead.assigned_to) {
+      const { data: p } = await supabase
+        .from('profiles').select('id, full_name, email')
+        .eq('id', lead.assigned_to).eq('tenant_id', t).maybeSingle()
+      if (p) assignee = { id: p.id, name: p.full_name || p.email }
+    }
+
+    res.json({
+      lead: {
+        ...lead,
+        recording_url,
+        duration_seconds,
+        assignee,
+        ...contactFields(lead),
+        ...priorityFields(lead),
+      },
+    })
+  } catch (e) {
+    console.error('[CLIENT] lead detail error:', e.message)
+    res.status(500).json({ error: 'Could not load the lead' })
+  }
+})
+
+// The extractor captures ONE alternate contact in `contact_info` ("a phone number
+// OR an email"). The detail page has separate Email / Alt number rows, so resolve
+// the ambiguity here rather than teaching the UI about it.
+const looksLikeEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
+
+function contactFields(lead) {
+  const raw = lead.raw_data || {}
+  const value = (lead.contact_info || '').trim()
+  return {
+    email: raw.email || (looksLikeEmail(value) ? value : null),
+    alt_phone: raw.alt_phone || (value && !looksLikeEmail(value) ? value : null),
+  }
+}
+
+// interest_score is 0-100 from the extractor; the UI shows priority out of 10.
+function priorityFields(lead) {
+  const raw = lead.raw_data || {}
+  const score = Number(raw.interest_score)
+  return {
+    priority_score: Number.isFinite(score) ? Math.round(score / 10) : null,
+    priority_reason: raw.interest_reason || null,
+  }
+}
+
+// ─── Update a lead (status / assignment / notes / follow-up) ──────────────────
 // This is the whole point of employee access: a lead arrives from a call, and a
 // person moves it through the pipeline. Every change appends to lead_activity so
 // there is an answer to "who marked this won, and when".
@@ -265,7 +340,7 @@ const LEAD_STATUSES = ['new', 'contacted', 'converted', 'lost']
 
 router.patch('/leads/:id', requirePermission('leads:write'), async (req, res) => {
   const t = req.auth.tenantId
-  const { status, assigned_to, notes } = req.body || {}
+  const { status, assigned_to, notes, follow_up_needed } = req.body || {}
 
   if (status !== undefined && !LEAD_STATUSES.includes(status)) {
     return res.status(400).json({ error: `status must be one of: ${LEAD_STATUSES.join(', ')}` })
@@ -275,7 +350,8 @@ router.patch('/leads/:id', requirePermission('leads:write'), async (req, res) =>
     // Scope the read to the tenant FIRST — this is what stops a valid user of
     // business A from editing a lead belonging to business B.
     const { data: existing } = await supabase
-      .from('leads').select('id, status, assigned_to').eq('id', req.params.id).eq('tenant_id', t).maybeSingle()
+      .from('leads').select('id, status, assigned_to, follow_up_needed')
+      .eq('id', req.params.id).eq('tenant_id', t).maybeSingle()
     if (!existing) return res.status(404).json({ error: 'Lead not found' })
 
     // An assignee must be a real member of THIS business. Never trust the id.
@@ -289,6 +365,7 @@ router.patch('/leads/:id', requirePermission('leads:write'), async (req, res) =>
     if (status !== undefined) patch.status = status
     if (notes !== undefined) patch.notes = notes
     if (assigned_to !== undefined) patch.assigned_to = assigned_to || null
+    if (follow_up_needed !== undefined) patch.follow_up_needed = !!follow_up_needed
 
     const { data: updated, error } = await supabase
       .from('leads').update(patch).eq('id', req.params.id).eq('tenant_id', t).select().single()
@@ -304,7 +381,12 @@ router.patch('/leads/:id', requirePermission('leads:write'), async (req, res) =>
         ? { action: 'assigned', detail: { to: assigned_to, from: existing.assigned_to } }
         : { action: 'unassigned', detail: { from: existing.assigned_to } })
     }
-    if (notes !== undefined) events.push({ action: 'note_added', detail: {} })
+    if (notes !== undefined) {
+      events.push({ action: 'note_added', detail: { preview: String(notes || '').slice(0, 80) } })
+    }
+    if (follow_up_needed !== undefined && !!follow_up_needed !== !!existing.follow_up_needed) {
+      events.push({ action: follow_up_needed ? 'follow_up_set' : 'follow_up_cleared', detail: {} })
+    }
 
     if (events.length) {
       await supabase.from('lead_activity').insert(
@@ -343,21 +425,196 @@ router.get('/leads/:id/activity', requirePermission('leads:read'), async (req, r
       .limit(100)
     if (error) throw error
 
-    // Resolve actor ids to names so the timeline reads "Priya marked this won".
-    const actorIds = [...new Set((data || []).map(a => a.actor_id).filter(Boolean))]
+    // Resolve ids to names so the timeline reads "Priya assigned this to Ravi" —
+    // both the actor and, for assignments, the person it landed on.
+    const peopleIds = [...new Set(
+      (data || []).flatMap(a => [a.actor_id, a.detail?.to]).filter(Boolean)
+    )]
     let byId = new Map()
-    if (actorIds.length) {
+    if (peopleIds.length) {
       const { data: people } = await supabase
-        .from('profiles').select('id, full_name, email').in('id', actorIds)
+        .from('profiles').select('id, full_name, email').in('id', peopleIds)
       byId = new Map((people || []).map(p => [p.id, p.full_name || p.email]))
     }
 
     res.json({
-      activity: (data || []).map(a => ({ ...a, actor_name: byId.get(a.actor_id) || 'Someone' })),
+      activity: (data || []).map(a => ({
+        ...a,
+        actor_name: byId.get(a.actor_id) || 'Someone',
+        assignee_name: a.detail?.to ? byId.get(a.detail.to) || null : null,
+      })),
     })
   } catch (e) {
     console.error('[CLIENT] lead activity error:', e.message)
     res.status(500).json({ error: 'Could not load activity' })
+  }
+})
+
+// ─── Log a call a person made by hand ─────────────────────────────────────────
+// The call happened on their own handset, so there is nothing to record — this is
+// purely an activity row, which is what "did anyone actually ring them?" needs.
+// Status is deliberately left alone; "Mark contacted" is its own button.
+router.post('/leads/:id/log-call', requirePermission('leads:write'), async (req, res) => {
+  const t = req.auth.tenantId
+  const outcome = String((req.body || {}).outcome || 'called').slice(0, 80)
+  try {
+    const { data: lead } = await supabase
+      .from('leads').select('id').eq('id', req.params.id).eq('tenant_id', t).maybeSingle()
+    if (!lead) return res.status(404).json({ error: 'Lead not found' })
+
+    const { error } = await supabase.from('lead_activity').insert({
+      lead_id: lead.id, tenant_id: t, actor_id: req.auth.userId,
+      action: 'call_logged', detail: { outcome },
+    })
+    if (error) throw error
+
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('[CLIENT] log call error:', e.message)
+    res.status(500).json({ error: 'Could not log the call' })
+  }
+})
+
+// ─── Team comments on a lead ──────────────────────────────────────────────────
+// Distinct from leads.notes, which is one shared scratchpad anyone overwrites.
+// This is a conversation: who said what, when, and replies. Threading is ONE
+// level deep — a reply to a reply is normalised onto its root so it can never
+// become invisible in a UI that only renders two tiers.
+const MAX_COMMENT = 500
+
+// sql/lead_comments.sql may not have been run against this database yet. Reads
+// degrade to an empty thread (a missing table shouldn't break the whole page);
+// writes say plainly what to run.
+const isMissingCommentsTable = e =>
+  e?.code === '42P01' || e?.code === 'PGRST205' ||
+  /lead_comments/i.test(e?.message || '') && /does not exist|schema cache/i.test(e?.message || '')
+
+/** Attach author names + "can I edit this?" — the UI shows a name and an Edit button. */
+async function withAuthors(rows, meId) {
+  const list = rows || []
+  const ids = [...new Set(list.map(c => c.author_id).filter(Boolean))]
+  let byId = new Map()
+  if (ids.length) {
+    const { data: people } = await supabase
+      .from('profiles').select('id, full_name, email').in('id', ids)
+    byId = new Map((people || []).map(p => [p.id, p.full_name || p.email]))
+  }
+  return list.map(c => ({
+    ...c,
+    author_name: byId.get(c.author_id) || 'Someone',
+    is_mine: c.author_id === meId,
+  }))
+}
+
+router.get('/leads/:id/comments', requirePermission('leads:read'), async (req, res) => {
+  const t = req.auth.tenantId
+  try {
+    const { data, error } = await supabase
+      .from('lead_comments')
+      .select('id, body, author_id, parent_id, edited_at, created_at')
+      .eq('lead_id', req.params.id).eq('tenant_id', t)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+
+    res.json({ comments: await withAuthors(data, req.auth.userId) })
+  } catch (e) {
+    if (isMissingCommentsTable(e)) return res.json({ comments: [] })
+    console.error('[CLIENT] lead comments error:', e.message)
+    res.status(500).json({ error: 'Could not load comments' })
+  }
+})
+
+router.post('/leads/:id/comments', requirePermission('leads:write'), async (req, res) => {
+  const t = req.auth.tenantId
+  const body = String((req.body || {}).body || '').trim().slice(0, MAX_COMMENT)
+  const parentId = (req.body || {}).parent_id || null
+  if (!body) return res.status(400).json({ error: 'Write something first' })
+
+  try {
+    const { data: lead } = await supabase
+      .from('leads').select('id, name, assigned_to')
+      .eq('id', req.params.id).eq('tenant_id', t).maybeSingle()
+    if (!lead) return res.status(404).json({ error: 'Lead not found' })
+
+    // A reply must point at a comment on THIS lead — never trust the id.
+    let rootId = null
+    if (parentId) {
+      const { data: parent } = await supabase
+        .from('lead_comments').select('id, parent_id')
+        .eq('id', parentId).eq('lead_id', lead.id).eq('tenant_id', t).maybeSingle()
+      if (!parent) return res.status(400).json({ error: 'That comment no longer exists' })
+      rootId = parent.parent_id || parent.id
+    }
+
+    const { data: created, error } = await supabase.from('lead_comments').insert({
+      lead_id: lead.id, tenant_id: t, author_id: req.auth.userId,
+      body, parent_id: rootId,
+    }).select('id, body, author_id, parent_id, edited_at, created_at').single()
+    if (error) throw error
+
+    // Tell whoever owns the lead that someone weighed in — but never yourself.
+    if (lead.assigned_to && lead.assigned_to !== req.auth.userId) {
+      await notify([lead.assigned_to], {
+        tenantId: t,
+        kind: 'lead_comment',
+        title: 'New comment on your lead',
+        body: `${lead.name || 'A lead'} — ${body.slice(0, 120)}`,
+        link: '/leads',
+      })
+    }
+
+    const [comment] = await withAuthors([created], req.auth.userId)
+    res.status(201).json({ comment })
+  } catch (e) {
+    if (isMissingCommentsTable(e)) {
+      return res.status(503).json({ error: 'Comments are not set up yet — run sql/lead_comments.sql' })
+    }
+    console.error('[CLIENT] add comment error:', e.message)
+    res.status(500).json({ error: 'Could not post the comment' })
+  }
+})
+
+// Edit / delete your OWN comment. author_id in the filter IS the authorisation —
+// a mismatch returns no row, so there is no separate check to forget.
+router.patch('/leads/:id/comments/:commentId', requirePermission('leads:write'), async (req, res) => {
+  const t = req.auth.tenantId
+  const body = String((req.body || {}).body || '').trim().slice(0, MAX_COMMENT)
+  if (!body) return res.status(400).json({ error: 'A comment cannot be empty' })
+
+  try {
+    const { data: updated, error } = await supabase
+      .from('lead_comments')
+      .update({ body, edited_at: new Date().toISOString() })
+      .eq('id', req.params.commentId).eq('lead_id', req.params.id)
+      .eq('tenant_id', t).eq('author_id', req.auth.userId)
+      .select('id, body, author_id, parent_id, edited_at, created_at')
+      .maybeSingle()
+    if (error) throw error
+    if (!updated) return res.status(404).json({ error: 'That comment is not yours to edit' })
+
+    const [comment] = await withAuthors([updated], req.auth.userId)
+    res.json({ comment })
+  } catch (e) {
+    console.error('[CLIENT] edit comment error:', e.message)
+    res.status(500).json({ error: 'Could not save the comment' })
+  }
+})
+
+router.delete('/leads/:id/comments/:commentId', requirePermission('leads:write'), async (req, res) => {
+  const t = req.auth.tenantId
+  try {
+    const { data: deleted, error } = await supabase
+      .from('lead_comments').delete()
+      .eq('id', req.params.commentId).eq('lead_id', req.params.id)
+      .eq('tenant_id', t).eq('author_id', req.auth.userId)
+      .select('id').maybeSingle()
+    if (error) throw error
+    if (!deleted) return res.status(404).json({ error: 'That comment is not yours to delete' })
+
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('[CLIENT] delete comment error:', e.message)
+    res.status(500).json({ error: 'Could not delete the comment' })
   }
 })
 
