@@ -1,5 +1,5 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { Phone, LayoutDashboard, PhoneCall, Users, LogOut, Shield, Settings, BookOpen, Activity, Radio, Gauge, Server, ShieldAlert, TrendingUp, Sparkles, BellRing, Megaphone, Zap, MessageCircle, MessageSquare, UsersRound } from "lucide-react";
+import { Phone, LayoutDashboard, PhoneCall, Users, LogOut, Shield, Settings, BookOpen, Activity, Radio, Gauge, Server, ShieldAlert, TrendingUp, Sparkles, BellRing, Megaphone, Zap, MessageCircle, MessageSquare, UsersRound, LineChart } from "lucide-react";
 import { clearToken } from "@/lib/api";
 import type { ReactNode } from "react";
 import type { Me } from "@/lib/team";
@@ -66,11 +66,13 @@ export function PortalShell({
 }
 
 export const clientNav: NavItem[] = [
-  { to: "/app", label: "Overview", icon: LayoutDashboard, perm: "calls:read" },
+  { to: "/app", label: "Home", icon: LayoutDashboard, perm: "calls:read" },
   { to: "/app/calls", label: "Calls", icon: PhoneCall, perm: "calls:read" },
   { to: "/app/campaigns", label: "Campaigns", icon: Megaphone, perm: "campaigns:read" },
   { to: "/app/instant", label: "Instant Calls", icon: Zap, perm: "campaigns:read" },
   { to: "/app/leads", label: "Leads", icon: Users, perm: "leads:read" },
+  // Was "Overview" on /app. The front door is now Home; the numbers live here.
+  { to: "/app/analytics", label: "Analytics", icon: LineChart, perm: "calls:read" },
   // No perm: messaging is open to every member of a business — a manager needs to
   // reach their agents regardless of what else they can see.
   { to: "/app/messages", label: "Messages", icon: MessageSquare },

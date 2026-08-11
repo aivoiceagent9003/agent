@@ -115,3 +115,28 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3) {
     return ''  // fail gracefully — call continues without KB
   }
 }
+// ─── Knowledge gaps ──────────────────────────────────────────────────────────
+// Every question the agent looked up and couldn't answer. Collected on the trace
+// during the call (gemini-live.js) and flushed here once, at hangup, so nothing
+// touches the database on the latency-critical tool path.
+//
+// This is what turns "81% info hit rate" on the dashboard into something a client
+// can act on: the actual wording of what their agent didn't know.
+export async function saveKnowledgeGaps({ tenantId, callId, questions }) {
+  const list = (questions || []).filter(Boolean)
+  if (!tenantId || !list.length) return 0
+
+  try {
+    const { error } = await supabase.from('knowledge_gaps').insert(
+      list.map(question => ({ tenant_id: tenantId, call_id: callId || null, question })),
+    )
+    if (error) throw error
+    console.log(`[RAG] 📝 logged ${list.length} unanswered question(s)`)
+    return list.length
+  } catch (e) {
+    // sql/knowledge_gaps.sql may not have been run yet. Never let bookkeeping
+    // break the end of a call.
+    console.warn('[RAG] knowledge gap log skipped:', e.message)
+    return 0
+  }
+}

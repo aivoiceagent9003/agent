@@ -506,8 +506,26 @@ const sampleTimer = setInterval(sampleProcess, SAMPLE_INTERVAL_MS); sampleTimer.
 const flushTimer = setInterval(flushRollups, FLUSH_INTERVAL_MS); flushTimer.unref?.()
 
 // Aggregate export so callers can `import * as telemetry`.
+// ─── Per-call quality, denormalised onto the `calls` row ─────────────────────
+// The client Analytics page needs average reply time and knowledge-hit rate PER
+// TENANT. Both are already in the trace, but call_traces.summary carries the whole
+// span waterfall — pulling thousands of those to average two numbers is absurd.
+// So the telephony layer writes these three columns when it closes out the call.
+// Nulls are expected on calls that predate this, and the dashboard shows "—".
+export function callQuality(trace) {
+  const s = trace?.state || {}
+  const replies = Number(s.replyCount || 0)
+  const totalMs = Number(s.replyMsTotal || 0)
+  return {
+    avg_reply_ms: replies ? Math.round(totalMs / replies) : null,
+    knowledge_asks: Number(s.knowledgeAsks || 0),
+    knowledge_hits: Number(s.knowledgeHits || 0),
+  }
+}
+
 export default {
   bus, startTrace, endTrace, getTrace, getTraceDetail, getActiveCalls, getRecentTraces,
+  callQuality,
   recordLatency, getLatencyStats, getSnapshot, getTimeSeries, getMetricHistory,
   incr, getCounter, getCounters, gaugeInc, gaugeDec, gaugeSet,
   recordServiceEvent, getServiceEvents,

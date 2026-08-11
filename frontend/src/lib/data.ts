@@ -356,6 +356,132 @@ export function useClientOverview() {
   });
 }
 
+// ─── Home ────────────────────────────────────────────────────────────────────
+// Everything the /app command centre needs, in one request. Deliberately
+// disjoint from ClientAnalytics: this is "what is my AI doing and what needs me",
+// not "how are we performing over time".
+
+export type AttentionKind =
+  | "issue"
+  | "handoff"
+  | "high_intent"
+  | "follow_up"
+  | "stale"
+  | "knowledge";
+
+export interface AttentionItem {
+  id: string;
+  kind: AttentionKind;
+  title: string;
+  subtitle: string;
+  /** The extractor's one-line summary of the call, when there is one. */
+  detail?: string | null;
+  badge?: string | null;
+  to: string;
+  cta: string;
+  at: string | null;
+}
+
+export interface ClientHome {
+  agent: {
+    name: string;
+    business: string | null;
+    live: boolean;
+    number: string | null;
+    handoff_number: string | null;
+    knowledge: { count: number; updated_at: string | null; fresh: boolean };
+    forwarding_ok: boolean;
+    last_call_at: string | null;
+    team_size: number;
+    /** 'draft' = not published, 'attention' = something is broken, 'ready' = fine. */
+    state: "draft" | "attention" | "ready";
+  };
+  today: {
+    conversations: number;
+    high_intent: number;
+    follow_ups: number;
+    handoffs: number;
+    leads: number;
+    last_call_at: string | null;
+  };
+  attention: AttentionItem[];
+  attention_total: number;
+  signals: {
+    window: string;
+    topics: { key: string; label: string; count: number }[];
+    insight: string | null;
+  };
+  briefing: {
+    window: string;
+    bullets: string[];
+    recommendation: { text: string; to: string; cta: string } | null;
+    focus: string | null;
+  };
+  timeline: {
+    at: string;
+    kind: "call" | "lead" | "high_intent" | "handoff";
+    title: string;
+    detail: string;
+    to: string;
+  }[];
+  campaigns: { id: string; name: string; type: string }[];
+}
+
+export function useClientHome() {
+  return useQuery({
+    queryKey: ["client", "home"],
+    enabled: isBrowser,
+    // Leads and health drift over minutes, not seconds — polling harder would
+    // just be load. React Query still refetches on window focus, which is when a
+    // returning owner actually wants it fresh.
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<ClientHome> => apiFetch("/api/client/home"),
+  });
+}
+
+// ─── Analytics ───────────────────────────────────────────────────────────────
+// Powers /app/analytics. A null on any KPI means "we have no measurement", which
+// the page renders as "—" — distinct from a real zero.
+
+export interface Breakdown {
+  key: string;
+  label: string;
+  count: number;
+  pct: number;
+}
+
+export interface ClientAnalytics {
+  range_days: number;
+  total_calls: number;
+  kpis: {
+    pickup_rate: number | null;
+    handoff_rate: number | null;
+    info_hit_rate: number | null;
+    avg_reply_ms: number | null;
+  };
+  call_volume: { date: string; calls: number }[];
+  duration_trend: { date: string; avg_seconds: number | null }[];
+  avg_duration_seconds: number;
+  languages: Breakdown[];
+  sentiment: Breakdown[];
+  intents: Breakdown[];
+  funnel: {
+    calls_handled: number;
+    conversations: number;
+    leads_captured: number;
+    follow_ups: number;
+  };
+}
+
+export function useClientAnalytics(days = 30) {
+  return useQuery({
+    queryKey: ["client", "analytics", days],
+    enabled: isBrowser,
+    queryFn: async (): Promise<ClientAnalytics> =>
+      apiFetch(`/api/client/analytics?days=${days}`),
+  });
+}
+
 export function useClientCalls(
   page: number,
   limit: number,

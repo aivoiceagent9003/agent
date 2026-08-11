@@ -115,6 +115,596 @@ router.get('/overview', requirePermission('calls:read'), async (req, res) => {
   }
 })
 
+// ─── Home (the client portal's front door) ───────────────────────────────────
+// An executive command centre, deliberately NOT a second analytics page.
+// Analytics answers "how are we performing over time" — trends, rates, charts.
+// This answers five questions, in this order:
+//
+//   1. What is my AI doing right now?
+//   2. What happened while I was away?
+//   3. Does anything need me?
+//   4. Is the agent healthy?
+//   5. What should I do next?
+//
+// One endpoint, because a landing page that fires eight requests feels slow no
+// matter how fast each one is. Everything below is derived from rows this tenant
+// already owns — no counts are invented, and a section with no data says so.
+
+const STALE_LEAD_HOURS = 48
+const SILENT_ALERT_HOURS = 24
+const HIGH_INTENT = 70          // interest_score 0-100 from the lead extractor
+const KNOWLEDGE_STALE_DAYS = 90
+
+// The extractor emits snake_case categories (booking_request, product_inquiry…).
+// Known ones get proper wording; anything new degrades to Title Case rather than
+// being dropped, so a prompt change can't silently empty the signals panel.
+const INTENT_LABELS = {
+  booking_request: 'Booking request',
+  site_visit: 'Site visit',
+  product_inquiry: 'Product inquiry',
+  pricing_inquiry: 'Pricing',
+  pricing: 'Pricing',
+  availability: 'Availability',
+  order_complaint: 'Complaint',
+  complaint: 'Complaint',
+  support: 'Support',
+  billing: 'Billing',
+  general_inquiry: 'General inquiry',
+  appointment: 'Appointment',
+}
+
+function intentLabel(intent) {
+  if (!intent) return 'General inquiry'
+  return INTENT_LABELS[intent] || intent.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase())
+}
+
+/** 0-100 interest score → the three bands the UI colours by. */
+function tone(lead) {
+  const score = Number(lead?.raw_data?.interest_score)
+  if (Number.isFinite(score) && score >= HIGH_INTENT) return 'high'
+  if (lead?.intent && lead.intent !== 'general_inquiry') return 'warm'
+  return 'cool'
+}
+
+const displayName = lead => lead?.name || null
+
+router.get('/home', requirePermission('calls:read'), async (req, res) => {
+  const t = req.auth.tenantId
+  const now = Date.now()
+  const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+  const dayAgo = new Date(now - 86400_000).toISOString()
+  const weekAgo = new Date(now - 7 * 86400_000).toISOString()
+  const staleBefore = new Date(now - STALE_LEAD_HOURS * 3600_000).toISOString()
+
+  try {
+    const [
+      tenant, todayCalls, todayLeads, openLeads,
+      lastCall, failedToday, knowledge, gaps, runningCampaigns, teamSize,
+    ] = await Promise.all([
+      supabase.from('tenants').select('name, phone_number, config').eq('id', t).single()
+        .then(r => r.data || {}),
+
+      // Today's calls, bounded: this is a landing page, not an export.
+      supabase.from('calls').select('id, caller_number, duration_seconds, status, created_at')
+        .eq('tenant_id', t).gte('created_at', startOfToday)
+        .order('created_at', { ascending: false }).limit(200)
+        .then(r => r.data || []),
+
+      supabase.from('leads')
+        .select('id, call_id, name, intent, summary, status, follow_up_needed, handed_off, created_at, raw_data')
+        .eq('tenant_id', t).gte('created_at', startOfToday)
+        .order('created_at', { ascending: false }).limit(200)
+        .then(r => r.data || []),
+
+      // Still-open leads drive the attention queue. One fetch, sliced several
+      // ways below — separate counts for the same rows would be extra trips.
+      supabase.from('leads')
+        .select('id, call_id, name, caller_number, intent, summary, status, assigned_to, follow_up_needed, handed_off, updated_at, created_at, raw_data')
+        .eq('tenant_id', t).in('status', ['new', 'contacted'])
+        .order('created_at', { ascending: false }).limit(200)
+        .then(r => r.data || []),
+
+      supabase.from('calls').select('created_at')
+        .eq('tenant_id', t).order('created_at', { ascending: false }).limit(1)
+        .then(r => r.data?.[0]?.created_at || null),
+
+      supabase.from('calls').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', t).eq('status', 'failed').gte('created_at', dayAgo)
+        .then(r => r.count || 0),
+
+      // Only the newest row and the total — the content itself is the Knowledge
+      // page's business, not Home's.
+      Promise.all([
+        supabase.from('knowledge_base').select('id', { count: 'exact', head: true })
+          .eq('tenant_id', t).then(r => r.count || 0),
+        supabase.from('knowledge_base').select('created_at')
+          .eq('tenant_id', t).order('created_at', { ascending: false }).limit(1)
+          .then(r => r.data?.[0]?.created_at || null),
+      ]).then(([count, updated_at]) => ({ count, updated_at })),
+
+      supabase.from('knowledge_gaps').select('question, created_at')
+        .eq('tenant_id', t).is('resolved_at', null).gte('created_at', weekAgo)
+        .order('created_at', { ascending: false }).limit(200)
+        .then(r => r.data || []),
+
+      supabase.from('campaigns').select('id, name, type')
+        .eq('tenant_id', t).eq('status', 'running').limit(5)
+        .then(r => r.data || []),
+
+      supabase.from('profiles').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', t).eq('status', 'active').then(r => r.count || 0),
+    ])
+
+    const config = tenant.config || {}
+    const answeredToday = todayCalls.filter(c => c.status !== 'failed')
+    const lastCallAgeHours = lastCall ? (now - new Date(lastCall).getTime()) / 3600_000 : null
+
+    // A live number that has gone quiet for a day is almost always call
+    // forwarding — the one thing only the client can check.
+    const isLive = !!tenant.phone_number && config.status === 'published'
+    const forwardingSuspect = isLive && (lastCallAgeHours === null || lastCallAgeHours > SILENT_ALERT_HOURS)
+
+    // ── 1. Your AI today ──────────────────────────────────────────────────────
+    const today = {
+      conversations: answeredToday.length,
+      high_intent: todayLeads.filter(l => tone(l) === 'high').length,
+      follow_ups: todayLeads.filter(l => l.follow_up_needed).length,
+      handoffs: todayLeads.filter(l => l.handed_off).length,
+      leads: todayLeads.length,
+      last_call_at: lastCall,
+    }
+
+    // ── 2. Needs your attention ───────────────────────────────────────────────
+    // Ranked, not dumped. Genuine system faults first (nothing else matters if
+    // the phone isn't ringing), then people waiting on a human, then money.
+    const attention = []
+
+    if (forwardingSuspect) {
+      attention.push({
+        id: 'agent:silent',
+        rank: 0,
+        kind: 'issue',
+        // Lead with the observed fact, not a guessed cause. Forwarding is the
+        // usual culprit, but the only thing we actually know is the silence.
+        title: `Your number hasn't received a call in over ${SILENT_ALERT_HOURS} hours`,
+        subtitle: lastCall
+          ? `Nothing has reached ${tenant.phone_number} since then. Worth checking your number setup.`
+          : `No call has ever reached ${tenant.phone_number}. Worth checking your number setup.`,
+        to: '/onboarding',
+        cta: 'Check setup',
+        at: lastCall,
+      })
+    }
+
+    if (failedToday > 0) {
+      attention.push({
+        id: 'agent:failed',
+        rank: 1,
+        kind: 'issue',
+        title: `${failedToday} ${failedToday === 1 ? 'call' : 'calls'} failed in the last 24 hours`,
+        subtitle: 'The caller reached your number but the agent could not pick up.',
+        to: '/app/calls',
+        cta: 'Open call log',
+        at: null,
+      })
+    }
+
+    // Handoff is on but there is nobody to hand off to.
+    if (config.handoff_number && teamSize < 2) {
+      attention.push({
+        id: 'agent:team',
+        rank: 5,
+        kind: 'issue',
+        title: "Handoff is on, but you're the only person here",
+        subtitle: 'When a caller asks for a human, nobody but you can take it.',
+        to: '/app/team',
+        cta: 'Invite your team',
+        at: null,
+      })
+    }
+
+    for (const l of openLeads) {
+      const who = displayName(l) || l.caller_number || 'A caller'
+      const when = l.updated_at || l.created_at
+
+      if (l.handed_off && l.status === 'new') {
+        attention.push({
+          id: `lead:handoff:${l.id}`,
+          rank: 2,
+          kind: 'handoff',
+          title: who,
+          subtitle: 'Asked to speak with a person — nobody has called back yet.',
+          detail: l.summary,
+          badge: intentLabel(l.intent),
+          to: l.call_id ? `/app/calls/${l.call_id}` : '/app/leads',
+          cta: 'Call back',
+          at: when,
+        })
+      } else if (tone(l) === 'high' && l.status === 'new') {
+        attention.push({
+          id: `lead:hot:${l.id}`,
+          rank: 3,
+          kind: 'high_intent',
+          title: who,
+          subtitle: l.raw_data?.interest_reason || 'Showed strong buying interest.',
+          detail: l.summary,
+          badge: intentLabel(l.intent),
+          to: l.call_id ? `/app/calls/${l.call_id}` : '/app/leads',
+          cta: 'View conversation',
+          at: when,
+        })
+      } else if (l.follow_up_needed) {
+        attention.push({
+          id: `lead:followup:${l.id}`,
+          rank: 4,
+          kind: 'follow_up',
+          title: who,
+          subtitle: 'Flagged for follow-up during the call.',
+          detail: l.summary,
+          badge: intentLabel(l.intent),
+          to: l.call_id ? `/app/calls/${l.call_id}` : '/app/leads',
+          cta: 'View conversation',
+          at: when,
+        })
+      } else if (l.assigned_to && when < staleBefore) {
+        attention.push({
+          id: `lead:stale:${l.id}`,
+          rank: 6,
+          kind: 'stale',
+          title: who,
+          subtitle: `Assigned, then untouched for over ${STALE_LEAD_HOURS} hours.`,
+          detail: l.summary,
+          badge: intentLabel(l.intent),
+          to: '/app/leads',
+          cta: 'Open lead',
+          at: when,
+        })
+      }
+    }
+
+    // Repeated unanswered questions are a real gap, one-offs are noise.
+    const gapCounts = new Map()
+    for (const g of gaps) {
+      const key = g.question.toLowerCase().trim()
+      const prev = gapCounts.get(key)
+      if (prev) prev.count++
+      else gapCounts.set(key, { question: g.question, count: 1, at: g.created_at })
+    }
+    const repeatedGaps = [...gapCounts.values()].filter(g => g.count >= 2)
+      .sort((a, b) => b.count - a.count)
+    if (repeatedGaps.length) {
+      const top = repeatedGaps[0]
+      attention.push({
+        id: 'knowledge:gap',
+        rank: 5,
+        kind: 'knowledge',
+        title: 'Your agent could not answer a repeated question',
+        subtitle: `“${top.question}” came up ${top.count} times this week.`,
+        to: '/app/knowledge',
+        cta: 'Teach your agent',
+        at: top.at,
+      })
+    }
+
+    attention.sort((a, b) => a.rank - b.rank || (a.at && b.at ? (a.at < b.at ? 1 : -1) : 0))
+
+    // ── 3. Customer signals ───────────────────────────────────────────────────
+    // What people are asking about — a ranked list, not a chart. Today when
+    // there's enough to be meaningful, otherwise the week, so a quiet morning
+    // doesn't blank the panel.
+    const signalSource = todayLeads.length >= 3 ? todayLeads : null
+    let signalWindow = 'today'
+    let signalLeads = signalSource
+    if (!signalLeads) {
+      signalWindow = 'this week'
+      signalLeads = await supabase.from('leads').select('intent')
+        .eq('tenant_id', t).gte('created_at', weekAgo).limit(500)
+        .then(r => r.data || [])
+    }
+
+    const topicCounts = new Map()
+    for (const l of signalLeads) {
+      if (!l.intent) continue
+      topicCounts.set(l.intent, (topicCounts.get(l.intent) || 0) + 1)
+    }
+    const topics = [...topicCounts]
+      .sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([key, count]) => ({ key, label: intentLabel(key), count }))
+
+    const topicTotal = topics.reduce((n, x) => n + x.count, 0)
+    const signals = {
+      window: signalWindow,
+      topics,
+      // Only claim a trend when one topic genuinely leads. "Everything is equally
+      // popular" is not an insight.
+      insight: topics.length && topics[0].count >= 2 && topics[0].count / topicTotal >= 0.4
+        ? `${topics[0].label} is what most callers are asking about ${signalWindow}.`
+        : null,
+    }
+
+    // ── 4. AI briefing ────────────────────────────────────────────────────────
+    // Deterministic. An LLM call here would add cost and seconds to every page
+    // load to restate numbers we already have exactly.
+    const briefWindow = todayCalls.length ? 'today' : 'this week'
+    const briefLeads = todayCalls.length
+      ? todayLeads
+      : await supabase.from('leads')
+          .select('name, intent, summary, follow_up_needed, handed_off, raw_data')
+          .eq('tenant_id', t).gte('created_at', weekAgo).limit(200)
+          .then(r => r.data || [])
+
+    const bullets = []
+    const hot = briefLeads.filter(l => tone(l) === 'high')
+    if (hot.length === 1) {
+      bullets.push(`${displayName(hot[0]) || 'A customer'} showed strong interest — ${intentLabel(hot[0].intent).toLowerCase()}.`)
+    } else if (hot.length > 1) {
+      bullets.push(`${hot.length} customers showed strong buying interest.`)
+    }
+
+    if (topics.length) {
+      const top = topics[0]
+      bullets.push(`${top.count} ${top.count === 1 ? 'customer' : 'customers'} asked about ${top.label.toLowerCase()}.`)
+    }
+
+    const handoffCount = briefLeads.filter(l => l.handed_off).length
+    if (handoffCount) {
+      bullets.push(`${handoffCount} ${handoffCount === 1 ? 'conversation' : 'conversations'} needed a person.`)
+    }
+
+    const followUps = briefLeads.filter(l => l.follow_up_needed).length
+    if (followUps) {
+      bullets.push(`${followUps} ${followUps === 1 ? 'customer needs' : 'customers need'} a follow-up.`)
+    }
+
+    if (repeatedGaps.length) {
+      bullets.push(`${repeatedGaps.length} question${repeatedGaps.length === 1 ? '' : 's'} your agent could not answer.`)
+    }
+
+    const lead = attention.find(a => a.kind !== 'issue')
+    const briefing = {
+      window: briefWindow,
+      bullets: bullets.slice(0, 4),
+      // The recommendation IS the top attention item — one place decides what
+      // matters most, so the two panels can never disagree.
+      recommendation: attention.length
+        ? {
+            text: attention[0].kind === 'issue'
+              ? attention[0].title
+              : `Follow up with ${attention[0].title} first.`,
+            to: attention[0].to,
+            cta: attention[0].cta,
+          }
+        : null,
+      focus: lead ? lead.title : null,
+    }
+
+    // ── 5. Today's timeline ───────────────────────────────────────────────────
+    // Calls and the leads they produced, merged. A lead event replaces its call
+    // event, so one conversation is one line rather than two.
+    const leadByCall = new Map(todayLeads.filter(l => l.call_id).map(l => [l.call_id, l]))
+    const timeline = []
+    for (const c of answeredToday) {
+      const l = leadByCall.get(c.id)
+      if (l && l.handed_off) {
+        timeline.push({
+          at: l.created_at, kind: 'handoff',
+          title: 'Human handoff',
+          detail: `${displayName(l) || c.caller_number} asked to speak with a person`,
+          to: `/app/calls/${c.id}`,
+        })
+      } else if (l && tone(l) === 'high') {
+        timeline.push({
+          at: l.created_at, kind: 'high_intent',
+          title: 'High-intent lead identified',
+          detail: `${displayName(l) || c.caller_number} — ${intentLabel(l.intent).toLowerCase()}`,
+          to: `/app/calls/${c.id}`,
+        })
+      } else if (l) {
+        timeline.push({
+          at: l.created_at, kind: 'lead',
+          title: 'Lead captured',
+          detail: l.summary || `${displayName(l) || c.caller_number} — ${intentLabel(l.intent).toLowerCase()}`,
+          to: `/app/calls/${c.id}`,
+        })
+      } else {
+        timeline.push({
+          at: c.created_at, kind: 'call',
+          title: 'AI answered a customer',
+          detail: c.caller_number || 'Unknown caller',
+          to: `/app/calls/${c.id}`,
+        })
+      }
+    }
+    timeline.sort((a, b) => (a.at < b.at ? 1 : -1))
+
+    // ── 7. Agent status ───────────────────────────────────────────────────────
+    const knowledgeAgeDays = knowledge.updated_at
+      ? (now - new Date(knowledge.updated_at).getTime()) / 86400_000
+      : null
+
+    res.json({
+      agent: {
+        name: config.agent_name || config.business_name || tenant.name || 'Your AI agent',
+        business: config.business_name || tenant.name || null,
+        live: isLive,
+        number: tenant.phone_number || null,
+        handoff_number: config.handoff_number || null,
+        knowledge: {
+          count: knowledge.count,
+          updated_at: knowledge.updated_at,
+          // "Up to date" is a claim, so it needs a rule: something in there, and
+          // touched within the quarter.
+          fresh: knowledge.count > 0 && knowledgeAgeDays !== null && knowledgeAgeDays < KNOWLEDGE_STALE_DAYS,
+        },
+        forwarding_ok: isLive && !forwardingSuspect,
+        last_call_at: lastCall,
+        team_size: teamSize,
+        // Drives the one-line status under the greeting. Never alarmist about a
+        // quiet day — only about something actually broken.
+        state: !isLive ? 'draft' : forwardingSuspect || failedToday > 0 ? 'attention' : 'ready',
+      },
+      today,
+      attention: attention.slice(0, 5),
+      attention_total: attention.length,
+      signals,
+      briefing,
+      timeline: timeline.slice(0, 8),
+      campaigns: runningCampaigns,
+    })
+  } catch (e) {
+    console.error('[CLIENT] home error:', e.message)
+    res.status(500).json({ error: 'Could not load your dashboard' })
+  }
+})
+
+// ─── Analytics (everything the /app/analytics dashboard draws) ────────────────
+// One endpoint, one round-trip: four headline rates, two trends and four
+// breakdowns. Every number is derived from rows this tenant actually owns. Where
+// there is genuinely no data the field is null and the UI shows "—", because a
+// zero on a dashboard reads as a measurement rather than an absence.
+
+// Supabase caps a select at 1000 rows. Silently truncating a busy month would not
+// error — it would just report a confidently wrong average. Page until it ends.
+async function fetchAll(build, { pageSize = 1000, max = 100_000 } = {}) {
+  const out = []
+  for (let from = 0; from < max; from += pageSize) {
+    const { data, error } = await build().range(from, from + pageSize - 1)
+    if (error) throw error
+    out.push(...(data || []))
+    if (!data || data.length < pageSize) break
+  }
+  return out
+}
+
+// sql/analytics.sql adds the three per-call quality columns. Until it has been
+// run they don't exist, and Postgres says so with 42703.
+const isMissingColumn = e =>
+  e?.code === '42703' || e?.code === 'PGRST204' ||
+  /column .* does not exist|schema cache/i.test(e?.message || '')
+
+const LANGUAGE_NAMES = {
+  en: 'English', hi: 'Hindi', te: 'Telugu', ta: 'Tamil', kn: 'Kannada',
+  ml: 'Malayalam', mr: 'Marathi', bn: 'Bengali', gu: 'Gujarati', pa: 'Punjabi',
+  // Code-mixed Hindi/English is what a great many callers actually speak. The
+  // extractor reports it as its own language and clients recognise the name.
+  hinglish: 'Hinglish',
+}
+
+const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0)
+const dayKey = iso => new Date(iso).toISOString().slice(0, 10)
+
+/** Dense day-by-day series. A quiet day must render as a zero, not vanish — a
+ *  chart that skips empty days misrepresents the shape of the week. */
+function daySeries(rows, days, reduce) {
+  const buckets = new Map()
+  for (let i = days - 1; i >= 0; i--) {
+    buckets.set(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10), [])
+  }
+  for (const r of rows) {
+    const b = buckets.get(dayKey(r.created_at))
+    if (b) b.push(r)
+  }
+  return [...buckets].map(([date, items]) => ({ date, ...reduce(items) }))
+}
+
+/** Count by field, biggest first, with the long tail folded into "Other". */
+function breakdown(rows, field, { top = 0, label = v => v } = {}) {
+  const counts = new Map()
+  for (const r of rows) {
+    const v = r[field]
+    if (!v) continue
+    counts.set(v, (counts.get(v) || 0) + 1)
+  }
+  const total = [...counts.values()].reduce((a, b) => a + b, 0)
+  let list = [...counts].sort((a, b) => b[1] - a[1])
+    .map(([key, count]) => ({ key, label: label(key), count, pct: pct(count, total) }))
+  if (top && list.length > top) {
+    const rest = list.slice(top)
+    list = list.slice(0, top)
+    const count = rest.reduce((a, r) => a + r.count, 0)
+    list.push({ key: 'other', label: 'Other', count, pct: pct(count, total) })
+  }
+  return list
+}
+
+router.get('/analytics', requirePermission('calls:read'), async (req, res) => {
+  const t = req.auth.tenantId
+  const days = Math.min(365, Math.max(1, parseInt(req.query.days) || 30))
+  const sinceIso = new Date(Date.now() - days * 86400_000).toISOString()
+
+  const CALL_COLS = 'created_at, status, duration_seconds, avg_reply_ms, knowledge_asks, knowledge_hits'
+  const BASE_COLS = 'created_at, status, duration_seconds'
+
+  try {
+    const callsFrom = cols => () => supabase.from('calls').select(cols)
+      .eq('tenant_id', t).gte('created_at', sinceIso).order('created_at')
+
+    // The quality columns are optional: without the migration the page still
+    // draws, minus the two tiles that depend on them.
+    let calls, hasQuality = true
+    try {
+      calls = await fetchAll(callsFrom(CALL_COLS))
+    } catch (e) {
+      if (!isMissingColumn(e)) throw e
+      hasQuality = false
+      calls = await fetchAll(callsFrom(BASE_COLS))
+    }
+
+    const leads = await fetchAll(() => supabase.from('leads')
+      .select('created_at, language, sentiment, intent, follow_up_needed, handed_off')
+      .eq('tenant_id', t).gte('created_at', sinceIso).order('created_at'))
+
+    const total = calls.length
+    const answered = calls.filter(c => c.status === 'completed').length
+    // A call still ringing has neither succeeded nor failed. Leaving it in the
+    // denominator makes a busy afternoon look like an outage.
+    const settled = calls.filter(c => c.status !== 'active').length
+
+    const sum = (rows, f) => rows.reduce((a, r) => a + Number(r[f] || 0), 0)
+    const asks = hasQuality ? sum(calls, 'knowledge_asks') : 0
+    const hits = hasQuality ? sum(calls, 'knowledge_hits') : 0
+    const replied = hasQuality ? calls.filter(c => Number(c.avg_reply_ms) > 0) : []
+
+    const withDuration = calls.filter(c => Number(c.duration_seconds) > 0)
+
+    res.json({
+      range_days: days,
+      total_calls: total,
+      // Null, not zero: "no calls yet" and "nobody picked up" are different facts.
+      kpis: {
+        pickup_rate: settled ? pct(answered, settled) : null,
+        handoff_rate: settled ? pct(leads.filter(l => l.handed_off).length, settled) : null,
+        info_hit_rate: asks ? pct(hits, asks) : null,
+        avg_reply_ms: replied.length ? Math.round(sum(replied, 'avg_reply_ms') / replied.length) : null,
+      },
+      call_volume: daySeries(calls, days, items => ({ calls: items.length })),
+      duration_trend: daySeries(calls, Math.min(days, 15), items => {
+        const real = items.filter(c => Number(c.duration_seconds) > 0)
+        return {
+          avg_seconds: real.length
+            ? Math.round(real.reduce((a, c) => a + c.duration_seconds, 0) / real.length)
+            : null,   // a day with no calls breaks the line rather than dropping to 0
+        }
+      }),
+      avg_duration_seconds: withDuration.length
+        ? Math.round(withDuration.reduce((a, c) => a + c.duration_seconds, 0) / withDuration.length)
+        : 0,
+      languages: breakdown(leads, 'language', { label: c => LANGUAGE_NAMES[c] || c }),
+      sentiment: breakdown(leads, 'sentiment', { label: s => s[0].toUpperCase() + s.slice(1) }),
+      intents: breakdown(leads, 'intent', { top: 5 }),
+      funnel: {
+        calls_handled: total,
+        conversations: answered,
+        leads_captured: leads.length,
+        follow_ups: leads.filter(l => l.follow_up_needed).length,
+      },
+    })
+  } catch (e) {
+    console.error('[CLIENT] analytics error:', e.message)
+    res.status(500).json({ error: 'Could not load analytics' })
+  }
+})
+
 // ─── Calls (paginated list) ───────────────────────────────────────────────────
 router.get('/calls', requirePermission('calls:read'), async (req, res) => {
   const t = req.auth.tenantId

@@ -201,6 +201,7 @@ export function handleCampaignConnection(ws) {
         await supabase.from('calls').update({
           status: 'completed', transcript, duration_seconds: durationSeconds,
           recording_path: recordingPath,
+          ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
         }).eq('id', callId)
       }
 

@@ -32,19 +32,15 @@ function AppLayout() {
   const isOwner = me?.tenant_role === "owner";
   const setupIncomplete = !!me && !me.tenant.phone_number;
 
-  // A business whose agent has no number yet hasn't finished setup — but finishing
-  // it is the OWNER's job. Sending an employee to /onboarding would trap them in a
-  // wizard they have no permission to complete, which for the first employee of a
-  // not-yet-live business was an infinite redirect.
-  const needsOnboarding = setupIncomplete && isOwner;
-
-  useEffect(() => {
-    if (ready && needsOnboarding) navigate({ to: "/onboarding" });
-  }, [ready, needsOnboarding, navigate]);
+  // An owner whose agent isn't live used to be redirected straight into
+  // /onboarding, with no way back and no sense of how much was left. The welcome
+  // card on /app now owns that job: it shows the three steps, tracks which are
+  // done, and offers the wizard as a button. Employees still can't finish setup —
+  // that's the OWNER's to do — so they keep the "nothing to do yet" screen rather
+  // than a wizard they have no permission to complete.
 
   if (!ready || isLoading) return null;
   if (me?.tenant_role === "agent") return null; // redirecting to /work
-  if (needsOnboarding) return null; // redirecting to onboarding
 
   if (setupIncomplete && !isOwner) return <SetupPending business={me?.tenant.business_name} />;
 

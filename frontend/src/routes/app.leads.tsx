@@ -115,53 +115,21 @@ function LeadsList() {
         <Select label="Follow-up" value={followUp} onChange={setFollowUp} options={["", "yes", "no"]} />
       </div>
 
-      <div className="mt-4 bg-card border border-border rounded-xl shadow-card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="text-left px-5 py-3 font-medium">Name</th>
-              <th className="text-left px-5 py-3 font-medium">Status</th>
-              <th className="text-left px-5 py-3 font-medium">Owner</th>
-              <th className="text-left px-5 py-3 font-medium">Interest</th>
-              <th className="text-left px-5 py-3 font-medium">Intent</th>
-              <th className="text-left px-5 py-3 font-medium">Summary</th>
-              <th className="text-left px-5 py-3 font-medium">Sentiment</th>
-              <th className="text-left px-5 py-3 font-medium">Contact</th>
-              <th className="text-left px-5 py-3 font-medium">Follow up</th>
-              <th className="text-left px-5 py-3 font-medium">Transcript</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.length === 0 ? (
-              <tr><td colSpan={10} className="px-5 py-10 text-center text-muted-foreground">No leads match your filters.</td></tr>
-            ) : rows.map((l) => (
-              <tr key={l.id} className="hover:bg-muted/30 transition">
-                <td className="px-5 py-3 font-medium">{l.name ?? <span className="text-muted-foreground">Unknown</span>}</td>
-                <td className="px-5 py-3"><StatusCell lead={l} /></td>
-                <td className="px-5 py-3"><OwnerCell lead={l} members={members} meId={me?.user_id} /></td>
-                <td className="px-5 py-3"><InterestBadge score={l.raw_data?.interest_score} reason={l.raw_data?.interest_reason} /></td>
-                <td className="px-5 py-3">{l.intent}</td>
-                <td className="px-5 py-3 text-muted-foreground max-w-xs truncate">{l.summary}</td>
-                <td className="px-5 py-3"><SentimentBadge s={l.sentiment} /></td>
-                <td className="px-5 py-3 text-muted-foreground">{l.caller_number ?? l.contact_info}</td>
-                <td className="px-5 py-3">{l.follow_up_needed ? <span className="text-warning">Yes</span> : <span className="text-muted-foreground">No</span>}</td>
-                <td className="px-5 py-3">
-                  {l.call_id ? (
-                    <Link
-                      to="/app/calls/$id"
-                      params={{ id: l.call_id }}
-                      className="inline-flex items-center gap-1.5 text-primary hover:underline"
-                    >
-                      <FileText className="w-4 h-4" /> View call
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Cards, not a table — same shape as the employee queue at /work/leads.
+          Ten columns never fitted a laptop, and squeezing a phone number, a
+          summary and two dropdowns onto one row meant everything was either
+          truncated or clipped. A card lets each lead use the vertical space it
+          needs, and nothing has to be cut. */}
+      <div className="mt-6 space-y-4">
+        {rows.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            No leads match your filters.
+          </p>
+        ) : (
+          rows.map((l) => (
+            <LeadCard key={l.id} lead={l} members={members} meId={me?.user_id} />
+          ))
+        )}
       </div>
 
       <div className="mt-4 flex items-center justify-between text-sm">
@@ -173,6 +141,100 @@ function LeadsList() {
       </div>
     </div>
   );
+}
+
+// ─── Lead card ───────────────────────────────────────────────────────────────
+// Everything the table columns carried, arranged so it can breathe: identity and
+// status on top, the summary at full width, then the classification chips and the
+// two controls that actually move a lead along.
+
+function LeadCard({
+  lead, members, meId,
+}: {
+  lead: any;
+  members: { id: string; email: string; full_name: string | null }[];
+  meId?: string;
+}) {
+  const details: string[] = Array.isArray(lead.key_details) ? lead.key_details : [];
+
+  return (
+    <article className="border border-border border-l-2 border-l-primary rounded-xl bg-card p-5 transition hover:border-primary/60 hover:shadow-sm">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <h3 className="font-semibold">
+            {lead.name || <span className="text-muted-foreground">Unknown caller</span>}
+          </h3>
+          {/* Its own line, at full length — this is the number someone has to
+              read out or copy, so it is never truncated. */}
+          <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+            {lead.caller_number || lead.contact_info || "No contact number"}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <StatusCell lead={lead} />
+          <span className="text-xs text-muted-foreground">{timeAgo(lead.created_at)}</span>
+        </div>
+      </div>
+
+      {lead.summary && <p className="mt-3 text-sm">{lead.summary}</p>}
+
+      {details.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {details.slice(0, 4).map((d, i) => (
+            <span key={i} className="rounded-full bg-muted px-2.5 py-1 text-xs">{d}</span>
+          ))}
+          {details.length > 4 && (
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs">
+              +{details.length - 4} more
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 pt-4 border-t border-border flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <InterestBadge score={lead.raw_data?.interest_score} reason={lead.raw_data?.interest_reason} />
+          {lead.intent && (
+            <span className="rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-xs">
+              {lead.intent}
+            </span>
+          )}
+          <SentimentBadge s={lead.sentiment} />
+          {lead.follow_up_needed && (
+            <span className="rounded-full bg-warning/15 text-warning px-2.5 py-0.5 text-xs">
+              ↩ Follow up
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Owner
+            <OwnerCell lead={lead} members={members} meId={meId} />
+          </label>
+          {lead.call_id && (
+            <Link
+              to="/app/calls/$id"
+              params={{ id: lead.call_id }}
+              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline whitespace-nowrap"
+            >
+              <FileText className="w-4 h-4" /> View call
+            </Link>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function timeAgo(iso: string) {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return d < 7 ? `${d}d ago` : new Date(iso).toLocaleDateString();
 }
 
 // ─── Workflow cells ──────────────────────────────────────────────────────────

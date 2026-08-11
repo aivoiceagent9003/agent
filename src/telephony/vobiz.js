@@ -18,6 +18,7 @@ import { clearHistory, getHistory } from '../services/llm.js'
 const createVoiceConnection = createGeminiLiveConnection
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
+import { saveKnowledgeGaps } from '../services/rag.js'
 import { supabase } from '../api/db.js'
 import telemetry from '../services/telemetry.js'
 import 'dotenv/config'
@@ -383,9 +384,18 @@ export function handleVobizConnection(ws) {
 
       const updSpan = trace?.span('db_call_update', { latencyOp: 'supabase' })
       await supabase.from('calls')
-        .update({ status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath })
+        .update({
+          status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath,
+          ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
+        })
         .eq('id', callId)
       updSpan?.end()
+
+      // Questions the agent couldn't answer, collected during the call. Surfaced
+      // on the client's Home page as a to-do list for their knowledge base.
+      await saveKnowledgeGaps({
+        tenantId: tenant?.id, callId, questions: trace?.state?.knowledgeMisses,
+      })
 
       if (tenant) {
         const history = getHistory(callSid)

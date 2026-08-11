@@ -625,6 +625,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
             telemetry.recordLatency('first_audio', firstAudioMs, { tenantId: trace?.tenantId })
             telemetry.recordLatency('model_thinking', firstAudioMs, { tenantId: trace?.tenantId })
             trace?.set('lastLatencyMs', firstAudioMs)
+            // Running total, averaged onto the call row at hangup — one slow turn
+            // shouldn't be what the client's "avg. response" reports.
+            trace?.bump('replyCount')
+            trace?.bump('replyMsTotal', firstAudioMs)
             awaitingFirstChunk = false
           }
           // Greeting time-to-first-word: the opening line is the very first audio of
@@ -696,6 +700,19 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
           if (fc.name === 'search_knowledge') {
             output = await retrieveKnowledge(tenantConfig.tenant_id, fc.args?.query || '') || 'No matching knowledge found.'
             console.log(`[GEMINI] 🔎 search_knowledge("${fc.args?.query}") → ${output ? output.length + ' chars' : 'miss'}`)
+            // "Info hit rate" on the client dashboard: how often a question the
+            // agent looked up was actually answerable from their own material.
+            trace?.bump('knowledgeAsks')
+            if (!/^No matching knowledge found\./.test(output)) {
+              trace?.bump('knowledgeHits')
+            } else if (trace) {
+              // Remember what we couldn't answer; the rows are written once at
+              // hangup. Inserting here would put a Supabase round-trip on the
+              // tool path, which is the latency the caller actually hears.
+              const q = String(fc.args?.query || '').trim().slice(0, 300)
+              const seen = trace.state.knowledgeMisses || []
+              if (q && !seen.includes(q)) trace.set('knowledgeMisses', [...seen, q].slice(0, 20))
+            }
           } else if (fc.name === 'send_whatsapp') {
             output = await handleSendWhatsapp(tenantConfig, callerNumber, fc.args || {}, sentWhatsapp)
             console.log(`[GEMINI] 💬 send_whatsapp(${fc.args?.kind}) → ${output}`)
