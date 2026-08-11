@@ -86,10 +86,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+// Apply the saved theme before first paint, so there's no flash of the wrong theme.
+// Dark is the DEFAULT: only an explicit saved 'light' choice opts out. Runs in <head>
+// where document.documentElement already exists.
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('vocera-theme');if(t!=='light')document.documentElement.classList.add('dark');}catch(e){document.documentElement.classList.add('dark');}})();`;
+
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <head><HeadContent /></head>
+      <head>
+        <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
       <body>{children}<Scripts /></body>
     </html>
   );
