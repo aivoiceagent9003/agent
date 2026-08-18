@@ -1,6 +1,7 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { Phone, LayoutDashboard, PhoneCall, Users, LogOut, Shield, Settings, BookOpen, Activity, Radio, Gauge, Server, ShieldAlert, TrendingUp, Sparkles, BellRing, Megaphone, Zap, MessageCircle, MessageSquare, UsersRound, LineChart } from "lucide-react";
 import { clearToken } from "@/lib/api";
+import { closeRealtime } from "@/lib/realtime";
 import type { ReactNode } from "react";
 import type { Me } from "@/lib/team";
 
@@ -22,6 +23,9 @@ export function PortalShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   function logout() {
+    // Matches EmployeeShell: don't leave a live socket open for whoever signs in
+    // next on this device. clearToken() also wipes the query cache (lib/api).
+    closeRealtime();
     clearToken();
     router.navigate({ to: "/" });
   }

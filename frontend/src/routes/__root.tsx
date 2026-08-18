@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import { Toaster } from "sonner";
 
 import appCss from "../styles.css?url";
+import { registerCacheReset } from "../lib/api";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { OrbField } from "../components/site/OrbField";
 import { SignatureSwitcher } from "../components/site/SignatureSwitcher";
@@ -105,6 +106,14 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // Let the token setters in lib/api wipe cached data when the signed-in identity
+  // changes. Registered here because this is where the QueryClient is in scope,
+  // and lib/api must not import React.
+  useEffect(() => {
+    registerCacheReset(() => queryClient.clear());
+  }, [queryClient]);
+
   // The orb is a marketing flourish — keep it off the data-dense client/admin
   // dashboards so it never competes with leads, calls, or tables.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
