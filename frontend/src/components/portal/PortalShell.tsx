@@ -30,16 +30,25 @@ export function PortalShell({
     router.navigate({ to: "/" });
   }
 
+  // The sidebar used to inherit the DOCUMENT's height (the wrapper is
+  // min-h-screen), so "Sign out" sat at the bottom of the page and drifted
+  // further down the longer the page got.
+  //
+  // `sticky top-0 h-screen` pins it to exactly one viewport instead. Deliberately
+  // not a fixed-height shell with an internally-scrolling <main>: that would move
+  // scrolling off the window and silently break the router's scroll restoration.
   return (
     <div className="min-h-screen flex">
-      <aside className="w-64 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col">
-        <div className="p-6 flex items-center gap-2 font-display font-bold">
+      <aside className="sticky top-0 h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col">
+        <div className="p-6 shrink-0 flex items-center gap-2 font-display font-bold">
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
             {kind === "admin" ? <Shield className="w-4 h-4 text-primary-foreground" /> : <Phone className="w-4 h-4 text-primary-foreground" />}
           </div>
           Vocera {kind === "admin" && <span className="text-xs font-normal text-muted-foreground">Admin</span>}
         </div>
-        <nav className="px-3 flex-1 space-y-1">
+        {/* min-h-0 is what lets this shrink instead of pushing the footer off the
+            bottom — a flex child won't go below its content size without it. */}
+        <nav className="px-3 flex-1 min-h-0 overflow-y-auto space-y-1">
           {navItems.map((item) => {
             const active = pathname === item.to || (item.to !== "/app" && item.to !== "/admin" && pathname.startsWith(item.to));
             return (
@@ -58,13 +67,13 @@ export function PortalShell({
             );
           })}
         </nav>
-        <div className="p-3 border-t border-sidebar-border">
+        <div className="p-3 shrink-0 border-t border-sidebar-border">
           <button onClick={logout} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition">
             <LogOut className="w-4 h-4" /> Sign out
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">{children}</main>
+      <main className="flex-1 min-w-0">{children}</main>
     </div>
   );
 }
