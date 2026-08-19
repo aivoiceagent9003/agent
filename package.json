@@ -8,7 +8,9 @@
     "dev": "nodemon src/index.js",
     "worker": "node src/worker.js",
     "worker:dev": "nodemon src/worker.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "ci:imports": "node scripts/ci-import-check.js"
   },
   "keywords": [],
   "author": "",
@@ -34,5 +36,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

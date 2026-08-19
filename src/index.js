@@ -26,10 +26,15 @@ import telemetry from './services/telemetry.js'
 import { requireWebhookSecret, WEBHOOK_SECRET_SET, timingSafeStringEqual } from './api/webhook-auth.js'
 import { apiLimiter, authLimiter, instantCallLimiter } from './api/rate-limits.js'
 import helmet from 'helmet'
+import { mountHealth, installShutdown, installCrashHandlers, reconcileOrphanedCalls, errorHandler } from './api/lifecycle.js'
 import 'dotenv/config'
 
 const app = express()
 const IS_PROD = process.env.NODE_ENV === 'production'
+
+// Installed before anything else can throw, so a failure during boot is visible
+// rather than a silent exit.
+installCrashHandlers()
 
 // ─── Boot-time config gate ────────────────────────────────────────────────────
 // A missing secret must stop the deploy, not silently downgrade it. Each of these
@@ -382,14 +387,54 @@ testWss.on('connection', (ws) => {
   })
 })
 
-const PORT = process.env.PORT || 3000
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
+// ─── Lifecycle: drain, health, error handling ─────────────────────────────────
+// installShutdown owns the drain flag, and mountHealth reads it — a draining
+// process must fail its health check so the load balancer stops routing new calls
+// to it while it finishes the ones it already has.
+const { isDraining } = installShutdown({
+  server,
+  socketServers: [vobizWss, campaignWss, demoWss, testWss, opsWss, msgWss],
+  graceMs: Number(process.env.SHUTDOWN_GRACE_MS || 15000),
 })
 
-// When Redis isn't configured, run campaigns in-process (no separate worker needed).
-// Resumes running/scheduled campaigns and starts the stale-dial sweep. No-op under
-// Redis (use `npm run worker`) or when CAMPAIGN_RUNNER=off.
+mountHealth(app, { draining: isDraining })
+
+// LAST middleware, after every route: without it a thrown handler returns
+// Express default HTML with a stack trace.
+app.use(errorHandler)
+
+const PORT = process.env.PORT || 3000
+server.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`)
+  // Calls stranded by a previous hard kill are cleaned up here rather than left
+  // to inflate the live-call count forever.
+  await reconcileOrphanedCalls({ olderThanHours: Number(process.env.ORPHAN_CALL_HOURS || 2) })
+})
+
+// ─── Campaign runner ──────────────────────────────────────────────────────────
+// Without Redis, campaigns run in-process via the inline runner. That runner is
+// SINGLE-PROCESS ONLY by construction: it holds the dial queue in memory, so two
+// replicas would each work the full contact list and every contact would be
+// called twice. inline.js documents this constraint; nothing enforced it.
+//
+// The first time you scale to two replicas for availability, that becomes a
+// double-dial incident with real people on the other end — so production refuses
+// the in-process path outright and requires Redis plus the separate worker.
 import('./queue/inline.js')
-  .then(({ INLINE_ENABLED, startInlineRunner }) => { if (INLINE_ENABLED) return startInlineRunner() })
+  .then(({ INLINE_ENABLED, startInlineRunner }) => {
+    if (!INLINE_ENABLED) return
+    if (IS_PROD) {
+      console.error(
+        '[INLINE] refusing to start the in-process campaign runner in production. ' +
+        'It cannot run on more than one replica without double-dialling every ' +
+        'contact. Set REDIS_URL and run the worker, or set CAMPAIGN_RUNNER=off.'
+      )
+      telemetry.recordServiceEvent({
+        component: 'campaigns', severity: 'critical', kind: 'inline_runner_refused',
+        detail: { reason: 'production requires REDIS_URL + worker process' },
+      })
+      return
+    }
+    return startInlineRunner()
+  })
   .catch((e) => console.error('[INLINE] failed to start:', e.message))
