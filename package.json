@@ -14,13 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.0",
-    "@cartesia/cartesia-js": "^3.0.0",
-    "@deepgram/sdk": "^5.1.0",
-    "@google-cloud/speech": "^7.3.1",
-    "@google-cloud/text-to-speech": "^6.4.1",
     "@google/genai": "^2.0.1",
-    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.105.3",
     "bullmq": "^5.79.2",
     "dotenv": "^17.4.2",
@@ -33,7 +27,6 @@
     "openai": "^6.39.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.22.0",
-    "sarvamai": "^1.1.7",
     "ws": "^8.20.0",
     "xlsx": "^0.18.5"
   },
