@@ -35,6 +35,7 @@ import { Route as AppInstantRouteImport } from './routes/app.instant'
 import { Route as AppCampaignsRouteImport } from './routes/app.campaigns'
 import { Route as AppCallsRouteImport } from './routes/app.calls'
 import { Route as AppAnalyticsRouteImport } from './routes/app.analytics'
+import { Route as AdminSupportRouteImport } from './routes/admin.support'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminOpsRouteImport } from './routes/admin.ops'
 import { Route as AdminClientsRouteImport } from './routes/admin.clients'
@@ -185,6 +186,11 @@ const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => AppRoute,
 } as any)
+const AdminSupportRoute = AdminSupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -297,6 +303,7 @@ export interface FileRoutesByFullPath {
   '/admin/clients': typeof AdminClientsRouteWithChildren
   '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
@@ -342,6 +349,7 @@ export interface FileRoutesByTo {
   '/admin/clients': typeof AdminClientsRouteWithChildren
   '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
@@ -390,6 +398,7 @@ export interface FileRoutesById {
   '/admin/clients': typeof AdminClientsRouteWithChildren
   '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
@@ -439,6 +448,7 @@ export interface FileRouteTypes {
     | '/admin/clients'
     | '/admin/ops'
     | '/admin/settings'
+    | '/admin/support'
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
@@ -484,6 +494,7 @@ export interface FileRouteTypes {
     | '/admin/clients'
     | '/admin/ops'
     | '/admin/settings'
+    | '/admin/support'
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
@@ -531,6 +542,7 @@ export interface FileRouteTypes {
     | '/admin/clients'
     | '/admin/ops'
     | '/admin/settings'
+    | '/admin/support'
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
@@ -762,6 +774,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/admin/support': {
+      id: '/admin/support'
+      path: '/support'
+      fullPath: '/admin/support'
+      preLoaderRoute: typeof AdminSupportRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/settings': {
       id: '/admin/settings'
       path: '/settings'
@@ -942,6 +961,7 @@ interface AdminRouteChildren {
   AdminClientsRoute: typeof AdminClientsRouteWithChildren
   AdminOpsRoute: typeof AdminOpsRouteWithChildren
   AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminSupportRoute: typeof AdminSupportRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -949,6 +969,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminClientsRoute: AdminClientsRouteWithChildren,
   AdminOpsRoute: AdminOpsRouteWithChildren,
   AdminSettingsRoute: AdminSettingsRoute,
+  AdminSupportRoute: AdminSupportRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

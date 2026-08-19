@@ -22,16 +22,26 @@ import {
   MessageSquare,
   UsersRound,
   LineChart,
+  LifeBuoy,
 } from "lucide-react";
 import { clearToken } from "@/lib/api";
 import { closeRealtime } from "@/lib/realtime";
 import type { ReactNode } from "react";
 import type { Me } from "@/lib/team";
+import { useAwaitingReplyCount } from "@/lib/support";
 
 // `perm` is the permission a user must hold for the item to appear. Items without
 // one are visible to every signed-in member. Hiding nav is cosmetic — the backend
 // middleware (src/api/permissions.js) is what actually enforces access.
-type NavItem = { to: string; label: string; icon: any; perm?: string };
+type NavItem = {
+  to: string;
+  label: string;
+  icon: any;
+  perm?: string;
+  /** Optional hook returning a count to show as a badge. Named "use…" because it
+   *  is a hook and must obey the rules of hooks — see NavLink below. */
+  useBadge?: () => number;
+};
 
 export function PortalShell({
   kind,
@@ -79,25 +89,9 @@ export function PortalShell({
         {/* min-h-0 is what lets this shrink instead of pushing the footer off the
             bottom — a flex child won't go below its content size without it. */}
         <nav className="px-3 flex-1 min-h-0 overflow-y-auto space-y-1">
-          {navItems.map((item) => {
-            const active =
-              pathname === item.to ||
-              (item.to !== "/app" && item.to !== "/admin" && pathname.startsWith(item.to));
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-                }`}
-              >
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+          {navItems.map((item) => (
+            <NavLink key={item.to} item={item} pathname={pathname} />
+          ))}
         </nav>
         <div className="p-3 shrink-0 border-t border-sidebar-border">
           <button
@@ -144,9 +138,38 @@ export function navFor(items: NavItem[], me: Me | undefined): NavItem[] {
   });
 }
 
+// One nav row. Split out of the map so item.useBadge() is called from a
+// component body rather than inside a loop — calling it in the map would break the
+// rules of hooks the moment two items had different badge hooks.
+function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
+  const badge = item.useBadge?.() ?? 0;
+  const active =
+    pathname === item.to ||
+    (item.to !== "/app" && item.to !== "/admin" && pathname.startsWith(item.to));
+  return (
+    <Link
+      to={item.to}
+      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+      }`}
+    >
+      <item.icon className="w-4 h-4" />
+      <span className="flex-1">{item.label}</span>
+      {badge > 0 && (
+        <span className="shrink-0 min-w-5 text-center text-[11px] font-semibold rounded-full px-1.5 py-0.5 bg-primary text-primary-foreground">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+    </Link>
+  );
+}
+
 export const adminNav: NavItem[] = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/clients", label: "Clients", icon: Users },
+  { to: "/admin/support", label: "Support", icon: LifeBuoy, useBadge: useAwaitingReplyCount },
   { to: "/admin/ops", label: "Operations", icon: Activity },
   { to: "/admin/ops/live", label: "Live Calls", icon: Radio },
   { to: "/admin/ops/latency", label: "Latency", icon: Gauge },
