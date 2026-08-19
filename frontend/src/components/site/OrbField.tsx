@@ -1,12 +1,17 @@
 import { useEffect, useRef } from "react";
 import { orbBus } from "./orbBus";
-import { getSignature, subscribeSignature, type Variant } from "./signature";
 
-// The global "living voice" signature. Three switchable renderers share one
-// canvas, all breathing + scroll-expanding + reactive (orbBus), tuned for light:
+// The "living voice" signature. Several renderers share one canvas, all breathing
+// + scroll-expanding + reactive (orbBus):
 //   bloom    — morphing concentric voice rings
+//   orb      — the voice orb
 //   spectrum — radial equalizer (Siri-style), bars pulse with speech
 //   ribbon   — a flowing live waveform
+//
+// Which one renders is decided by the route in __root.tsx and passed in. It used
+// to come from a localStorage store with a floating switcher, which meant the
+// marketing page's identity depended on whatever a visitor last clicked.
+export type Variant = "bloom" | "orb" | "spectrum" | "ribbon";
 
 type Harmonic = { k: number; a: number; p: number; s: number };
 type Layer = { scale: number; spread: number; alpha: number; hsl: [number, number, number]; harm: Harmonic[]; depth: number };
@@ -20,16 +25,14 @@ const LAYERS: Layer[] = [
     harm: [{ k: 2, a: 0.08, p: 1.6, s: 0.7 }, { k: 5, a: 0.04, p: 0.5, s: -0.9 }] },
 ];
 
-export function OrbField() {
+export function OrbField({ variant }: { variant: Variant }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointer = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const activity = useRef(0.18);
-  const variantRef = useRef<Variant>("bloom");
-
-  useEffect(() => {
-    variantRef.current = getSignature();
-    return subscribeSignature(() => { variantRef.current = getSignature(); });
-  }, []);
+  // Held in a ref so the animation loop reads it without the prop change tearing
+  // down and restarting the canvas.
+  const variantRef = useRef<Variant>(variant);
+  variantRef.current = variant;
 
   useEffect(() => {
     const canvas = canvasRef.current;

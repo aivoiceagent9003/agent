@@ -14,8 +14,7 @@ import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { registerCacheReset } from "../lib/api";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { OrbField } from "../components/site/OrbField";
-import { SignatureSwitcher } from "../components/site/SignatureSwitcher";
+import { OrbField, type Variant } from "../components/site/OrbField";
 import { VisualPreloader } from "../components/VisualPreloader";
 
 function NotFoundComponent() {
@@ -104,6 +103,18 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+// Exactly two pages carry a signature, and each one always carries the same one.
+// Anything else — dashboards, onboarding, employee views, password flows — gets a
+// plain background, because an animated canvas behind a table of leads is noise.
+//
+// This used to be a localStorage preference with a floating switcher, so the
+// marketing page's identity depended on whatever the last visitor clicked.
+function signatureFor(pathname: string): Variant | null {
+  if (pathname === "/") return "ribbon";      // Waveform — the public site
+  if (pathname === "/login") return "orb";    // Orb — sign in
+  return null;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -117,11 +128,10 @@ function RootComponent() {
   // The orb is a marketing flourish — keep it off the data-dense client/admin
   // dashboards so it never competes with leads, calls, or tables.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const showOrb = !pathname.startsWith("/app") && !pathname.startsWith("/admin");
+  const signature = signatureFor(pathname);
   return (
     <QueryClientProvider client={queryClient}>
-      {showOrb && <OrbField />}
-      {showOrb && <SignatureSwitcher />}
+      {signature && <OrbField variant={signature} />}
       <VisualPreloader>
         <Outlet />
       </VisualPreloader>
