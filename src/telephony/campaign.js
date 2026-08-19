@@ -23,6 +23,7 @@ import { takePending, peekPending } from './campaign-registry.js'
 import { enqueueAnalytics } from '../queue/queues.js'
 import { supabase } from '../api/db.js'
 import telemetry from '../services/telemetry.js'
+import { webhookQuery } from '../api/webhook-auth.js'
 import 'dotenv/config'
 
 // AI Sales calls run on Gemini Live speech-to-speech; Template ('broadcast')
@@ -99,7 +100,7 @@ export async function answerCampaign(req, res) {
     res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
     return
   }
-  const wsUrl = `wss://${process.env.PUBLIC_HOST || process.env.NGROK_URL}/media-stream-campaign`
+  const wsUrl = `wss://${process.env.PUBLIC_HOST || process.env.NGROK_URL}/media-stream-campaign?${webhookQuery()}`
   res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000" extraHeaders="correlation_id=${cid}">

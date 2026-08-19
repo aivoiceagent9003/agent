@@ -6,7 +6,8 @@
 // stay fast and campaign execution runs in the worker pool.
 
 import { Router } from 'express'
-import multer from 'multer'
+import { makeUpload, sniff, KINDS, uploadErrorHandler } from './uploads.js'
+import { campaignWriteLimiter } from './rate-limits.js'
 import { randomUUID } from 'node:crypto'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
@@ -20,7 +21,7 @@ import { dialerInfo } from '../services/campaigns/dialer.js'
 import telemetry from '../services/telemetry.js'
 
 const router = Router()
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } })
+const upload = makeUpload({ limitMb: 25, kinds: KINDS.contacts })
 router.use(requireClient())
 // Owners and managers run campaigns; front-line agents never see this router.
 // Guarding by method means a route added later inherits the check automatically.
@@ -54,7 +55,7 @@ router.get('/', async (req, res) => {
   } catch (e) { console.error('[CAMPAIGNS] list:', e.message); res.status(500).json({ error: 'Could not load campaigns' }) }
 })
 
-router.post('/', async (req, res) => {
+router.post('/', campaignWriteLimiter, async (req, res) => {
   const t = req.auth.tenantId
   const { name, type, config, schedule, retry_policy, compliance, from_number } = req.body || {}
   if (!name) return res.status(400).json({ error: 'name is required' })
@@ -247,10 +248,12 @@ router.post('/:id/contacts/paste', async (req, res) => {
   res.json({ inserted, invalidCount, duplicateCount })
 })
 
-router.post('/:id/contacts/import', upload.single('file'), async (req, res) => {
+router.post('/:id/contacts/import', campaignWriteLimiter, upload.single('file'), uploadErrorHandler, async (req, res) => {
   const c = await ownedCampaign(req.params.id, req.auth.tenantId)
   if (!c) return res.status(404).json({ error: 'Campaign not found' })
   if (!req.file) return res.status(400).json({ error: 'file is required' })
+  const check = sniff(req.file, KINDS.contacts)
+  if (!check.ok) return res.status(400).json({ error: check.error })
   try {
     // Parse any supported file (CSV, Excel, TXT, PDF, Word) → rows.
     const rows = await parseFileToRows(req.file.buffer, req.file.originalname, req.file.mimetype)

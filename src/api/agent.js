@@ -6,7 +6,8 @@
 
 import { Router } from 'express'
 import OpenAI from 'openai'
-import multer from 'multer'
+import { makeUpload, sniff, KINDS, uploadErrorHandler } from './uploads.js'
+import { ingestLimiter } from './rate-limits.js'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
 import { requirePermission } from './permissions.js'
@@ -35,11 +36,25 @@ const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const router = Router()
 
 // In-memory upload handling for knowledge files (we parse the buffer, never
-// write it to disk). 15MB cap keeps a stray huge file from exhausting memory.
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 },
-})
+// write it to disk). 15MB cap keeps a stray huge file from exhausting memory;
+// the kind allow-list keeps arbitrary binaries out of the extractor and, more
+// expensively, out of the vision OCR path.
+const upload = makeUpload({ limitMb: 15, kinds: KINDS.knowledge })
+const datasetUpload = makeUpload({ limitMb: 15, kinds: KINDS.tabular })
+
+// Per-tenant ceiling on knowledge volume. Embedding spend is otherwise unbounded:
+// nothing stopped one tenant from ingesting ten thousand documents on a plan that
+// assumes fifty.
+const MAX_DOCUMENTS = Number(process.env.MAX_DOCUMENTS_PER_TENANT || 200)
+
+async function knowledgeCapReached(tenantId) {
+  const { count, error } = await supabase
+    .from('documents')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+  if (error) return false   // never block ingest because the count query failed
+  return (count || 0) >= MAX_DOCUMENTS
+}
 
 // ─── Authorization ───────────────────────────────────────────────────────────
 // Every route in this router is covered by the matrix below. It lives in ONE place
@@ -322,10 +337,15 @@ router.post('/test/reset', (req, res) => {
 // Add knowledge by pasting text. Stored as a 'paste' document (no raw file) so
 // it shows up in the documents list and can be deleted like any other.
 // Body: { text, source? }
-router.post('/knowledge', async (req, res) => {
+router.post('/knowledge', ingestLimiter, async (req, res) => {
   const t = req.auth.tenantId
   const { text, source } = req.body || {}
   if (!text?.trim()) return res.status(400).json({ error: 'text is required' })
+  if (await knowledgeCapReached(t)) {
+    return res.status(402).json({
+      error: `You've reached the limit of ${MAX_DOCUMENTS} documents. Delete some, or contact us to raise it.`,
+    })
+  }
   try {
     const doc = await createDocument(t, {
       filename: source || 'Pasted text',
@@ -341,9 +361,21 @@ router.post('/knowledge', async (req, res) => {
 
 // Upload a file (pdf/txt/docx/image/…) → store the raw file → extract text →
 // ingest into this client's knowledge base as a document. Field name: "file".
-router.post('/knowledge/upload', upload.single('file'), async (req, res) => {
+router.post('/knowledge/upload', ingestLimiter, upload.single('file'), uploadErrorHandler, async (req, res) => {
   const t = req.auth.tenantId
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+
+  // Check the real bytes, not the name the browser sent. fileFilter already
+  // screened the declared type, but only this looks at the contents.
+  const check = sniff(req.file, KINDS.knowledge)
+  if (!check.ok) return res.status(400).json({ error: check.error })
+
+  if (await knowledgeCapReached(t)) {
+    return res.status(402).json({
+      error: `You've reached the limit of ${MAX_DOCUMENTS} documents. Delete some, or contact us to raise it.`,
+    })
+  }
+
   try {
     const text = await extractTextFromFile(req.file)
     if (!text || !text.trim()) {
@@ -490,8 +522,12 @@ router.patch('/lookups', async (req, res) => {
 // Upload a data sheet for the 'table' backend. Accepts either a CSV file
 // (multipart field "file") or pasted CSV text in the JSON body.
 // Body/Query: { dataset } — the dataset name the table lookups reference.
-router.post('/lookups/dataset', upload.single('file'), async (req, res) => {
+router.post('/lookups/dataset', ingestLimiter, datasetUpload.single('file'), uploadErrorHandler, async (req, res) => {
   const t = req.auth.tenantId
+  if (req.file) {
+    const check = sniff(req.file, KINDS.tabular)
+    if (!check.ok) return res.status(400).json({ error: check.error })
+  }
   const dataset = (req.body?.dataset || req.query?.dataset || '').toString().trim()
   if (!dataset) return res.status(400).json({ error: 'dataset name is required' })
 

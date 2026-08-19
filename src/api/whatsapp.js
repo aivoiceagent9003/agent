@@ -7,7 +7,7 @@
 // the advanced fields.)
 
 import { Router } from 'express'
-import multer from 'multer'
+import { makeUpload, sniff, KINDS, uploadErrorHandler } from './uploads.js'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
 import { guardRouter } from './permissions.js'
@@ -18,7 +18,7 @@ const router = Router()
 router.use(requireClient())
 router.use(guardRouter({ read: 'whatsapp:read', write: 'whatsapp:write' }))
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } })
+const upload = makeUpload({ limitMb: 25, kinds: KINDS.sendable })
 
 async function loadTenant(tenantId) {
   const { data } = await supabase.from('tenants').select('id, config').eq('id', tenantId).single()
@@ -92,8 +92,10 @@ router.get('/documents', async (req, res) => {
 
 // Upload one file. Field name "file", plus a `topic` field (what callers ask for).
 // No text extraction — an image-only brochure PDF is perfectly valid here.
-router.post('/documents', upload.single('file'), async (req, res) => {
+router.post('/documents', upload.single('file'), uploadErrorHandler, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+  const check = sniff(req.file, KINDS.sendable)
+  if (!check.ok) return res.status(400).json({ error: check.error })
   try {
     const doc = await createSendable(req.auth.tenantId, {
       topic: req.body?.topic,
