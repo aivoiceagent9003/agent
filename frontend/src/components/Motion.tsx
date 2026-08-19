@@ -28,9 +28,13 @@ export function useInView<T extends HTMLElement>(threshold = 0.15) {
 
 // Reveals its children with a fade-up when scrolled into view. `delay` staggers.
 export function Reveal({
-  children, delay = 0, className = "",
+  children,
+  delay = 0,
+  className = "",
 }: {
-  children: ReactNode; delay?: number; className?: string;
+  children: ReactNode;
+  delay?: number;
+  className?: string;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   return (
@@ -46,9 +50,17 @@ export function Reveal({
 
 // Counts up to `value` when it scrolls into view.
 export function CountUp({
-  value, decimals = 0, prefix = "", suffix = "", duration = 1300,
+  value,
+  decimals = 0,
+  prefix = "",
+  suffix = "",
+  duration = 1300,
 }: {
-  value: number; decimals?: number; prefix?: string; suffix?: string; duration?: number;
+  value: number;
+  decimals?: number;
+  prefix?: string;
+  suffix?: string;
+  duration?: number;
 }) {
   const { ref, inView } = useInView<HTMLSpanElement>();
   const [v, setV] = useState(0);
@@ -68,7 +80,10 @@ export function CountUp({
   return (
     <span ref={ref} className="tabular-nums">
       {prefix}
-      {v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
+      {v.toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      })}
       {suffix}
     </span>
   );

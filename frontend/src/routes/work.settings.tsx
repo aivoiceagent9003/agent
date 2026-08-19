@@ -35,8 +35,7 @@ function WorkSettings() {
     setPhone((me as any).phone || "");
   }, [me]);
 
-  const dirty =
-    !!me && (fullName !== (me.full_name || "") || phone !== ((me as any).phone || ""));
+  const dirty = !!me && (fullName !== (me.full_name || "") || phone !== ((me as any).phone || ""));
 
   async function save() {
     setSaving(true);
@@ -60,7 +59,10 @@ function WorkSettings() {
   }
 
   const initials = (me?.full_name || me?.email || "?")
-    .split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("");
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
@@ -107,10 +109,7 @@ function WorkSettings() {
             />
           </Field>
 
-          <Field
-            label="Email address"
-            hint="Your login address. Contact your admin to change it."
-          >
+          <Field label="Email address" hint="Your login address. Contact your admin to change it.">
             {/* Read-only on purpose: changing a login address needs a verification
                 round-trip, and a typo here would lock you out of your own account. */}
             <input
@@ -157,8 +156,14 @@ function WorkSettings() {
 }
 
 function Field({
-  label, hint, children,
-}: { label: string; hint?: string; children: React.ReactNode }) {
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
       <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">

@@ -13,13 +13,18 @@ function BusinessDashboard() {
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto">
-      <Link to="/admin/ops" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+      <Link
+        to="/admin/ops"
+        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+      >
         <ArrowLeft className="w-4 h-4" /> Operations
       </Link>
       <h1 className="text-3xl font-bold flex items-center gap-3 mt-3">
         <TrendingUp className="w-7 h-7 text-primary" /> Business Analytics
       </h1>
-      <p className="text-sm text-muted-foreground mt-1">Per-tenant economics. Cost/revenue use the platform rate (override per tenant via config).</p>
+      <p className="text-sm text-muted-foreground mt-1">
+        Per-tenant economics. Cost/revenue use the platform rate (override per tenant via config).
+      </p>
 
       {totals && (
         <div className="mt-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -28,7 +33,13 @@ function BusinessDashboard() {
           <Stat icon={Users} label="Leads" value={totals.leads.toLocaleString()} />
           <Stat icon={DollarSign} label="Revenue" value={fmtUsd(totals.revenue)} />
           <Stat icon={DollarSign} label="Cost" value={fmtUsd(totals.cost)} />
-          <Stat icon={DollarSign} label="Profit" value={fmtUsd(totals.profit)} accent={totals.profit >= 0} warn={totals.profit < 0} />
+          <Stat
+            icon={DollarSign}
+            label="Profit"
+            value={fmtUsd(totals.profit)}
+            accent={totals.profit >= 0}
+            warn={totals.profit < 0}
+          />
         </div>
       )}
 
@@ -59,14 +70,30 @@ function BusinessDashboard() {
                 <td className="px-4 py-3 text-right tabular-nums">{t.knowledgeChunks}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{t.storageMb} MB</td>
                 <td className="px-4 py-3 text-right tabular-nums">{fmtUsd(t.revenue)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{fmtUsd(t.cost)}</td>
-                <td className={`px-4 py-3 text-right tabular-nums font-medium ${t.profit >= 0 ? "text-success" : "text-destructive"}`}>{fmtUsd(t.profit)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                  {fmtUsd(t.cost)}
+                </td>
+                <td
+                  className={`px-4 py-3 text-right tabular-nums font-medium ${t.profit >= 0 ? "text-success" : "text-destructive"}`}
+                >
+                  {fmtUsd(t.profit)}
+                </td>
               </tr>
             ))}
             {!isLoading && tenants.length === 0 && (
-              <tr><td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">No tenants.</td></tr>
+              <tr>
+                <td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">
+                  No tenants.
+                </td>
+              </tr>
             )}
-            {isLoading && <tr><td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
+            {isLoading && (
+              <tr>
+                <td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">
+                  Loading…
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -74,14 +101,34 @@ function BusinessDashboard() {
   );
 }
 
-function Stat({ icon: Icon, label, value, accent, warn }: { icon: any; label: string; value: string; accent?: boolean; warn?: boolean }) {
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  accent,
+  warn,
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  accent?: boolean;
+  warn?: boolean;
+}) {
   return (
-    <div className={`rounded-xl p-4 border bg-card shadow-card ${warn ? "border-destructive/50" : accent ? "border-success/40" : "border-border"}`}>
+    <div
+      className={`rounded-xl p-4 border bg-card shadow-card ${warn ? "border-destructive/50" : accent ? "border-success/40" : "border-border"}`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</span>
-        <Icon className={`w-4 h-4 ${warn ? "text-destructive" : accent ? "text-success" : "text-muted-foreground"}`} />
+        <Icon
+          className={`w-4 h-4 ${warn ? "text-destructive" : accent ? "text-success" : "text-muted-foreground"}`}
+        />
       </div>
-      <div className={`mt-2 text-2xl font-bold ${warn ? "text-destructive" : accent ? "text-success" : ""}`}>{value}</div>
+      <div
+        className={`mt-2 text-2xl font-bold ${warn ? "text-destructive" : accent ? "text-success" : ""}`}
+      >
+        {value}
+      </div>
     </div>
   );
 }

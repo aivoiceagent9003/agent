@@ -61,7 +61,10 @@ function SignupPage() {
           </div>
 
           <p className="mt-8 text-xs text-muted-foreground text-center">
-            Already have an account? <Link to="/login" className="text-primary hover:underline">Sign in</Link>
+            Already have an account?{" "}
+            <Link to="/login" className="text-primary hover:underline">
+              Sign in
+            </Link>
           </p>
         </div>
       </div>

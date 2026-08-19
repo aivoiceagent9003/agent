@@ -8,7 +8,17 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Users, Phone, MessageSquare, Settings, Bell, Building2, LogOut, Activity, X } from "lucide-react";
+import {
+  Users,
+  Phone,
+  MessageSquare,
+  Settings,
+  Bell,
+  Building2,
+  LogOut,
+  Activity,
+  X,
+} from "lucide-react";
 import { clearToken } from "@/lib/api";
 import { closeRealtime } from "@/lib/realtime";
 import { useConversations, useNotifications, useMarkNotificationsRead } from "@/lib/messages";
@@ -116,7 +126,10 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
           <div className="flex items-center gap-2 px-1">
             <div className="w-8 h-8 rounded-full bg-primary grid place-items-center text-primary-foreground text-xs font-semibold shrink-0">
               {(me?.full_name || me?.email || "?")
-                .split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((w) => w[0]?.toUpperCase())
+                .join("")}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{me?.full_name || "You"}</p>

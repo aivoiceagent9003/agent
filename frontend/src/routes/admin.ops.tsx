@@ -1,11 +1,29 @@
 import { createFileRoute, Outlet, useChildMatches, Link } from "@tanstack/react-router";
 import {
-  Activity, PhoneCall, Cpu, MemoryStick, Gauge, Radio, Timer, Zap,
-  Database, Boxes, Clock, AlertTriangle, Wifi,
+  Activity,
+  PhoneCall,
+  Cpu,
+  MemoryStick,
+  Gauge,
+  Radio,
+  Timer,
+  Zap,
+  Database,
+  Boxes,
+  Clock,
+  AlertTriangle,
+  Wifi,
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, LineChart, Line,
-  XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
 } from "recharts";
 import { useOpsOverview, fmtMs, fmtDuration, type SeriesPoint } from "@/lib/ops";
 import { useOpsStream } from "@/lib/ops-stream";
@@ -25,11 +43,16 @@ function ExecDashboard() {
   const { connected } = useOpsStream();
   const { data: o, isLoading } = useOpsOverview();
 
-  if (isLoading || !o) return <div className="p-8 text-sm text-muted-foreground">Loading telemetry…</div>;
+  if (isLoading || !o)
+    return <div className="p-8 text-sm text-muted-foreground">Loading telemetry…</div>;
 
   const series = (o.series || []).map((p: SeriesPoint) => ({
     ...p,
-    t: new Date(p.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    t: new Date(p.ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
   }));
 
   return (
@@ -101,11 +124,30 @@ function ExecDashboard() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={40} />
+              <XAxis
+                dataKey="t"
+                stroke="var(--color-muted-foreground)"
+                fontSize={11}
+                minTickGap={40}
+              />
               <YAxis stroke="var(--color-muted-foreground)" fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Area type="monotone" dataKey="activeCalls" name="Active calls" stroke="var(--color-primary)" fill="url(#cc)" strokeWidth={2} />
-              <Area type="monotone" dataKey="geminiSessions" name="Gemini sessions" stroke="#22c55e" fillOpacity={0} strokeWidth={1.5} />
+              <Area
+                type="monotone"
+                dataKey="activeCalls"
+                name="Active calls"
+                stroke="var(--color-primary)"
+                fill="url(#cc)"
+                strokeWidth={2}
+              />
+              <Area
+                type="monotone"
+                dataKey="geminiSessions"
+                name="Gemini sessions"
+                stroke="#22c55e"
+                fillOpacity={0}
+                strokeWidth={1.5}
+              />
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -114,11 +156,30 @@ function ExecDashboard() {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={series}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={40} />
+              <XAxis
+                dataKey="t"
+                stroke="var(--color-muted-foreground)"
+                fontSize={11}
+                minTickGap={40}
+              />
               <YAxis stroke="var(--color-muted-foreground)" fontSize={11} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Line type="monotone" dataKey="cpuPct" name="CPU %" stroke="#f59e0b" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="heapUsedMb" name="Heap MB" stroke="#6366f1" strokeWidth={2} dot={false} />
+              <Line
+                type="monotone"
+                dataKey="cpuPct"
+                name="CPU %"
+                stroke="#f59e0b"
+                strokeWidth={2}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="heapUsedMb"
+                name="Heap MB"
+                stroke="#6366f1"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -127,11 +188,30 @@ function ExecDashboard() {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={series}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={40} />
+              <XAxis
+                dataKey="t"
+                stroke="var(--color-muted-foreground)"
+                fontSize={11}
+                minTickGap={40}
+              />
               <YAxis stroke="var(--color-muted-foreground)" fontSize={11} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Line type="monotone" dataKey="eventLoopDelayMs" name="mean" stroke="#06b6d4" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="eventLoopDelayP99Ms" name="p99" stroke="#ef4444" strokeWidth={2} dot={false} />
+              <Line
+                type="monotone"
+                dataKey="eventLoopDelayMs"
+                name="mean"
+                stroke="#06b6d4"
+                strokeWidth={2}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="eventLoopDelayP99Ms"
+                name="p99"
+                stroke="#ef4444"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -146,10 +226,22 @@ function ExecDashboard() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={40} />
+              <XAxis
+                dataKey="t"
+                stroke="var(--color-muted-foreground)"
+                fontSize={11}
+                minTickGap={40}
+              />
               <YAxis stroke="var(--color-muted-foreground)" fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Area type="monotone" dataKey="websockets" name="WebSockets" stroke="#8b5cf6" fill="url(#ws)" strokeWidth={2} />
+              <Area
+                type="monotone"
+                dataKey="websockets"
+                name="WebSockets"
+                stroke="#8b5cf6"
+                fill="url(#ws)"
+                strokeWidth={2}
+              />
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -159,24 +251,40 @@ function ExecDashboard() {
 }
 
 // ─── Bits ─────────────────────────────────────────────────────────────────────
-const tooltipStyle = { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 };
+const tooltipStyle = {
+  background: "var(--color-card)",
+  border: "1px solid var(--color-border)",
+  borderRadius: 8,
+  fontSize: 12,
+};
 
 function fmtUptime(s: number) {
-  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  const d = Math.floor(s / 86400),
+    h = Math.floor((s % 86400) / 3600),
+    m = Math.floor((s % 3600) / 60);
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
 
 function LiveBadge({ connected }: { connected: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${connected ? "bg-success/15 text-success border-success/30" : "bg-muted text-muted-foreground border-border"}`}>
-      <span className={`w-2 h-2 rounded-full ${connected ? "bg-success animate-pulse" : "bg-muted-foreground"}`} />
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${connected ? "bg-success/15 text-success border-success/30" : "bg-muted text-muted-foreground border-border"}`}
+    >
+      <span
+        className={`w-2 h-2 rounded-full ${connected ? "bg-success animate-pulse" : "bg-muted-foreground"}`}
+      />
       {connected ? "Live" : "Polling"}
     </span>
   );
 }
 
 function HealthGauge({ score, status }: { score: number; status: string }) {
-  const color = status === "healthy" ? "text-success" : status === "degraded" ? "text-amber-500" : "text-destructive";
+  const color =
+    status === "healthy"
+      ? "text-success"
+      : status === "degraded"
+        ? "text-amber-500"
+        : "text-destructive";
   return (
     <div className="flex items-center gap-2">
       {status !== "healthy" && <AlertTriangle className={`w-4 h-4 ${color}`} />}
@@ -190,7 +298,10 @@ function HealthGauge({ score, status }: { score: number; status: string }) {
 
 function SubLink({ to, icon: Icon, label }: { to: string; icon: any; label: string }) {
   return (
-    <Link to={to} className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition">
+    <Link
+      to={to}
+      className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition"
+    >
       <Icon className="w-4 h-4" /> {label}
     </Link>
   );
@@ -199,7 +310,9 @@ function SubLink({ to, icon: Icon, label }: { to: string; icon: any; label: stri
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mt-8">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">{title}</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+        {title}
+      </h2>
       {children}
     </div>
   );
@@ -209,9 +322,21 @@ function Grid({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">{children}</div>;
 }
 
-function Stat({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string | number; accent?: boolean }) {
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: any;
+  label: string;
+  value: string | number;
+  accent?: boolean;
+}) {
   return (
-    <div className={`rounded-xl p-4 border bg-card shadow-card ${accent ? "border-primary/40" : "border-border"}`}>
+    <div
+      className={`rounded-xl p-4 border bg-card shadow-card ${accent ? "border-primary/40" : "border-border"}`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</span>
         <Icon className={`w-4 h-4 ${accent ? "text-primary" : "text-muted-foreground"}`} />

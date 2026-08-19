@@ -43,17 +43,18 @@ function LeadsList() {
   }, [me?.tenant_role]);
 
   const filtered = useMemo(() => {
-    return leads.filter((l) =>
-      (!intent || l.intent === intent) &&
-      (!sentiment || l.sentiment === sentiment) &&
-      (!followUp || (followUp === "yes" ? l.follow_up_needed : !l.follow_up_needed)) &&
-      (!status || (l.status ?? "new") === status) &&
-      (!owner ||
-        (owner === "me"
-          ? l.assigned_to === me?.user_id
-          : owner === "unassigned"
-            ? !l.assigned_to
-            : l.assigned_to === owner))
+    return leads.filter(
+      (l) =>
+        (!intent || l.intent === intent) &&
+        (!sentiment || l.sentiment === sentiment) &&
+        (!followUp || (followUp === "yes" ? l.follow_up_needed : !l.follow_up_needed)) &&
+        (!status || (l.status ?? "new") === status) &&
+        (!owner ||
+          (owner === "me"
+            ? l.assigned_to === me?.user_id
+            : owner === "unassigned"
+              ? !l.assigned_to
+              : l.assigned_to === owner)),
     );
   }, [leads, intent, sentiment, followUp, status, owner, me?.user_id]);
 
@@ -84,13 +85,21 @@ function LeadsList() {
           <h1 className="text-3xl font-bold">Leads</h1>
           <p className="text-sm text-muted-foreground mt-1">{filtered.length} leads.</p>
         </div>
-        <button onClick={exportCsv} className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium shadow-glow hover:opacity-90">
+        <button
+          onClick={exportCsv}
+          className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium shadow-glow hover:opacity-90"
+        >
           <Download className="w-4 h-4" /> Export CSV
         </button>
       </header>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        <Select label="Status" value={status} onChange={setStatus} options={["", ...LEAD_STATUSES]} />
+        <Select
+          label="Status"
+          value={status}
+          onChange={setStatus}
+          options={["", ...LEAD_STATUSES]}
+        />
         <label className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Owner:</span>
           <select
@@ -111,8 +120,18 @@ function LeadsList() {
           </select>
         </label>
         <Select label="Intent" value={intent} onChange={setIntent} options={["", ...intents]} />
-        <Select label="Sentiment" value={sentiment} onChange={setSentiment} options={["", "positive", "neutral", "frustrated", "angry"]} />
-        <Select label="Follow-up" value={followUp} onChange={setFollowUp} options={["", "yes", "no"]} />
+        <Select
+          label="Sentiment"
+          value={sentiment}
+          onChange={setSentiment}
+          options={["", "positive", "neutral", "frustrated", "angry"]}
+        />
+        <Select
+          label="Follow-up"
+          value={followUp}
+          onChange={setFollowUp}
+          options={["", "yes", "no"]}
+        />
       </div>
 
       {/* Cards, not a table — same shape as the employee queue at /work/leads.
@@ -126,17 +145,29 @@ function LeadsList() {
             No leads match your filters.
           </p>
         ) : (
-          rows.map((l) => (
-            <LeadCard key={l.id} lead={l} members={members} meId={me?.user_id} />
-          ))
+          rows.map((l) => <LeadCard key={l.id} lead={l} members={members} meId={me?.user_id} />)
         )}
       </div>
 
       <div className="mt-4 flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">Page {page} of {totalPages}</span>
+        <span className="text-muted-foreground">
+          Page {page} of {totalPages}
+        </span>
         <div className="flex gap-2">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-50 hover:bg-muted">Prev</button>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-50 hover:bg-muted">Next</button>
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-50 hover:bg-muted"
+          >
+            Prev
+          </button>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-50 hover:bg-muted"
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>
@@ -149,7 +180,9 @@ function LeadsList() {
 // two controls that actually move a lead along.
 
 function LeadCard({
-  lead, members, meId,
+  lead,
+  members,
+  meId,
 }: {
   lead: any;
   members: { id: string; email: string; full_name: string | null }[];
@@ -181,7 +214,9 @@ function LeadCard({
       {details.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {details.slice(0, 4).map((d, i) => (
-            <span key={i} className="rounded-full bg-muted px-2.5 py-1 text-xs">{d}</span>
+            <span key={i} className="rounded-full bg-muted px-2.5 py-1 text-xs">
+              {d}
+            </span>
           ))}
           {details.length > 4 && (
             <span className="rounded-full bg-muted px-2.5 py-1 text-xs">
@@ -193,7 +228,10 @@ function LeadCard({
 
       <div className="mt-4 pt-4 border-t border-border flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <InterestBadge score={lead.raw_data?.interest_score} reason={lead.raw_data?.interest_reason} />
+          <InterestBadge
+            score={lead.raw_data?.interest_score}
+            reason={lead.raw_data?.interest_reason}
+          />
           {lead.intent && (
             <span className="rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-xs">
               {lead.intent}
@@ -356,12 +394,30 @@ function InterestBadge({ score, reason }: { score?: number; reason?: string }) {
   );
 }
 
-function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <span className="text-muted-foreground">{label}:</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-input border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-        {options.map((o) => <option key={o} value={o}>{o || "All"}</option>)}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-input border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o || "All"}
+          </option>
+        ))}
       </select>
     </label>
   );

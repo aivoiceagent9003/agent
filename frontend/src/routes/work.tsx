@@ -56,8 +56,8 @@ function WorkLayout() {
             </div>
             <h1 className="mt-4 text-xl font-bold">Setup in progress</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {me.tenant.business_name || "Your team"} hasn't finished connecting their phone
-              number yet. Once the agent goes live, calls and leads appear here automatically.
+              {me.tenant.business_name || "Your team"} hasn't finished connecting their phone number
+              yet. Once the agent goes live, calls and leads appear here automatically.
             </p>
           </div>
         </div>
@@ -73,4 +73,4 @@ function WorkLayout() {
 }
 
 // Shared by the child routes so they can mute the chime for the open thread.
-export { };
+export {};

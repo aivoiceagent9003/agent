@@ -39,7 +39,10 @@ function WorkCalls() {
           {calls.map((c: any) => {
             const open = openId === c.id;
             return (
-              <article key={c.id} className="border border-border rounded-xl bg-card overflow-hidden">
+              <article
+                key={c.id}
+                className="border border-border rounded-xl bg-card overflow-hidden"
+              >
                 <button
                   onClick={() => setOpenId(open ? null : c.id)}
                   className="w-full px-5 py-4 flex items-center gap-4 text-left hover:bg-muted/40 transition"

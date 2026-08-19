@@ -23,7 +23,9 @@ export function VoicePicker({
             type="button"
             onClick={() => onChange(v.id)}
             className={`text-left rounded-lg border px-3 py-2.5 transition ${
-              active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-muted/30"
+              active
+                ? "border-primary bg-primary/5 ring-1 ring-primary"
+                : "border-border hover:bg-muted/30"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -31,7 +33,9 @@ export function VoicePicker({
               {active && <Check className="w-4 h-4 text-primary" />}
             </div>
             {v.gender && v.gender !== "neutral" && (
-              <span className="block mt-0.5 text-xs font-medium capitalize text-muted-foreground">{v.gender}</span>
+              <span className="block mt-0.5 text-xs font-medium capitalize text-muted-foreground">
+                {v.gender}
+              </span>
             )}
             <span className="block mt-0.5 text-xs text-muted-foreground">{v.note}</span>
           </button>

@@ -33,13 +33,14 @@ export function OrbHero() {
         </div>
 
         <h1 className="mt-6 text-4xl md:text-7xl font-semibold tracking-tight text-foreground leading-[1.03]">
-          Say hello to your<br />
+          Say hello to your
+          <br />
           <span className="text-iridescent">business's voice.</span>
         </h1>
 
         <p className="mt-5 max-w-lg text-base md:text-lg text-muted-foreground">
-          Answers every call, captures the lead, books the meeting — in English and
-          every Indian language.
+          Answers every call, captures the lead, books the meeting — in English and every Indian
+          language.
         </p>
 
         <div className="mt-8 min-h-12 flex flex-col items-center gap-3">
@@ -68,7 +69,9 @@ export function OrbHero() {
                 className="group inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-medium text-foreground ring-iridescent shadow-glow hover:-translate-y-0.5 transition-all disabled:opacity-70"
               >
                 {status === "connecting" ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Connecting to Priya…</>
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Connecting to Priya…
+                  </>
                 ) : (
                   <>
                     <span className="relative flex w-2 h-2">

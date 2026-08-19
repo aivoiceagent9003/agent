@@ -46,13 +46,32 @@ function AdminLogin() {
         </div>
         <h1 className="mt-2 text-2xl font-bold">Vocera Admin</h1>
         <form onSubmit={onSubmit} className="mt-6 grid gap-4">
-          <input name="email" type="email" required placeholder="Email" className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <input name="password" type="password" required placeholder="Password" className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <button disabled={loading} className="bg-gradient-primary text-primary-foreground font-medium rounded-lg px-4 py-2.5 shadow-glow disabled:opacity-60">
+          <input
+            name="email"
+            type="email"
+            required
+            placeholder="Email"
+            className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <input
+            name="password"
+            type="password"
+            required
+            placeholder="Password"
+            className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            disabled={loading}
+            className="bg-gradient-primary text-primary-foreground font-medium rounded-lg px-4 py-2.5 shadow-glow disabled:opacity-60"
+          >
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="mt-4 text-xs text-muted-foreground text-center"><Link to="/" className="hover:text-foreground">← Back to site</Link></p>
+        <p className="mt-4 text-xs text-muted-foreground text-center">
+          <Link to="/" className="hover:text-foreground">
+            ← Back to site
+          </Link>
+        </p>
       </div>
     </div>
   );

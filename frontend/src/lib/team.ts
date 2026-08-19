@@ -136,8 +136,7 @@ export function useResendInvite() {
 export function useRevokeInvite() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/api/client/team/invite/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch(`/api/client/team/invite/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["team"] }),
   });
 }
@@ -197,14 +196,11 @@ export async function acceptInvite(
   token: string,
   input: { credential?: string; password?: string; full_name?: string },
 ): Promise<{ token: string; role: string; tenant_role: TenantRole; tenant_id: string }> {
-  const res = await fetch(
-    `${BASE_URL}/api/public/invite/${encodeURIComponent(token)}/accept`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    },
-  );
+  const res = await fetch(`${BASE_URL}/api/public/invite/${encodeURIComponent(token)}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || "Could not complete your signup.");
   return body;

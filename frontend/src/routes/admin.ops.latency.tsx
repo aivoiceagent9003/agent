@@ -2,7 +2,14 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Gauge, ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
 } from "recharts";
 import { useLatency, useMetricHistory, fmtMs, type LatencyStat } from "@/lib/ops";
 
@@ -36,7 +43,8 @@ function LatencyDashboard() {
 
   // Sort known ops first (by ORDER), then any extras alphabetically.
   const ops = Object.keys(stats).sort((a, b) => {
-    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    const ia = ORDER.indexOf(a),
+      ib = ORDER.indexOf(b);
     if (ia === -1 && ib === -1) return a.localeCompare(b);
     if (ia === -1) return 1;
     if (ib === -1) return -1;
@@ -45,22 +53,35 @@ function LatencyDashboard() {
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto">
-      <Link to="/admin/ops" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+      <Link
+        to="/admin/ops"
+        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+      >
         <ArrowLeft className="w-4 h-4" /> Operations
       </Link>
       <h1 className="text-3xl font-bold flex items-center gap-3 mt-3">
         <Gauge className="w-7 h-7 text-primary" /> Latency
       </h1>
-      <p className="text-sm text-muted-foreground mt-1">Percentiles per operation (live, from the in-memory histogram). Click a card for its trend.</p>
+      <p className="text-sm text-muted-foreground mt-1">
+        Percentiles per operation (live, from the in-memory histogram). Click a card for its trend.
+      </p>
 
       {isLoading && <div className="mt-8 text-sm text-muted-foreground">Loading…</div>}
 
       <div className="mt-6 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         {ops.map((op) => (
-          <LatencyCard key={op} op={op} stat={stats[op]} active={selected === op} onClick={() => setSelected(selected === op ? null : op)} />
+          <LatencyCard
+            key={op}
+            op={op}
+            stat={stats[op]}
+            active={selected === op}
+            onClick={() => setSelected(selected === op ? null : op)}
+          />
         ))}
         {!isLoading && ops.length === 0 && (
-          <p className="text-sm text-muted-foreground col-span-full">No latency samples yet — place a call to populate the histograms.</p>
+          <p className="text-sm text-muted-foreground col-span-full">
+            No latency samples yet — place a call to populate the histograms.
+          </p>
         )}
       </div>
 
@@ -69,12 +90,25 @@ function LatencyDashboard() {
   );
 }
 
-function LatencyCard({ op, stat, active, onClick }: { op: string; stat: LatencyStat; active: boolean; onClick: () => void }) {
+function LatencyCard({
+  op,
+  stat,
+  active,
+  onClick,
+}: {
+  op: string;
+  stat: LatencyStat;
+  active: boolean;
+  onClick: () => void;
+}) {
   // Warn coloring on slow p99s for the latency-critical ops.
-  const slow = (op === "first_audio" && stat.p99 > 1500) || (op === "rag_retrieval" && stat.p99 > 2000);
+  const slow =
+    (op === "first_audio" && stat.p99 > 1500) || (op === "rag_retrieval" && stat.p99 > 2000);
   return (
-    <button onClick={onClick}
-      className={`text-left rounded-xl p-4 border bg-card shadow-card transition hover:border-primary/50 ${active ? "border-primary" : slow ? "border-amber-500/50" : "border-border"}`}>
+    <button
+      onClick={onClick}
+      className={`text-left rounded-xl p-4 border bg-card shadow-card transition hover:border-primary/50 ${active ? "border-primary" : slow ? "border-amber-500/50" : "border-border"}`}
+    >
       <div className="flex items-center justify-between">
         <span className="font-medium text-sm">{OP_LABELS[op] || op}</span>
         <span className="text-[11px] text-muted-foreground">{stat.count} samples</span>
@@ -98,7 +132,9 @@ function Pct({ label, value, highlight }: { label: string; value: number; highli
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`text-sm font-bold tabular-nums ${highlight ? "text-amber-500" : ""}`}>{fmtMs(value)}</div>
+      <div className={`text-sm font-bold tabular-nums ${highlight ? "text-amber-500" : ""}`}>
+        {fmtMs(value)}
+      </div>
     </div>
   );
 }
@@ -107,7 +143,9 @@ function HistoryChart({ op }: { op: string }) {
   const { data: rows = [], isLoading } = useMetricHistory(op);
   const data = rows.map((r: any) => ({
     t: new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    p50: r.p50, p95: r.p95, p99: r.p99,
+    p50: r.p50,
+    p95: r.p95,
+    p99: r.p99,
   }));
   return (
     <div className="mt-8 bg-card border border-border rounded-xl p-5 shadow-card">
@@ -116,14 +154,28 @@ function HistoryChart({ op }: { op: string }) {
         {isLoading ? (
           <div className="text-sm text-muted-foreground">Loading history…</div>
         ) : data.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No history yet — rollups accumulate every ~30s.</div>
+          <div className="text-sm text-muted-foreground">
+            No history yet — rollups accumulate every ~30s.
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={40} />
+              <XAxis
+                dataKey="t"
+                stroke="var(--color-muted-foreground)"
+                fontSize={11}
+                minTickGap={40}
+              />
               <YAxis stroke="var(--color-muted-foreground)" fontSize={11} />
-              <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--color-card)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+              />
               <Legend />
               <Line type="monotone" dataKey="p50" stroke="#22c55e" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="p95" stroke="#f59e0b" strokeWidth={2} dot={false} />

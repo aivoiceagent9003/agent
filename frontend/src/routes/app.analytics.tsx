@@ -10,8 +10,17 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  ResponsiveContainer, AreaChart, Area, LineChart, Line,
-  XAxis, YAxis, Tooltip, PieChart, Pie, Cell,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import { useClientAnalytics, type Breakdown } from "@/lib/data";
 import { useMe } from "@/lib/team";
@@ -47,7 +56,11 @@ function Analytics() {
 
   if (isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading analytics…</div>;
   if (isError || !a) {
-    return <div className="p-8 text-sm text-muted-foreground">Analytics couldn't be loaded right now.</div>;
+    return (
+      <div className="p-8 text-sm text-muted-foreground">
+        Analytics couldn't be loaded right now.
+      </div>
+    );
   }
 
   return (
@@ -56,7 +69,8 @@ function Analytics() {
         <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Trends across calls, leads and agent performance
-          {me?.tenant.business_name ? ` for ${me.tenant.business_name}` : ""} — last {a.range_days} days.
+          {me?.tenant.business_name ? ` for ${me.tenant.business_name}` : ""} — last {a.range_days}{" "}
+          days.
         </p>
       </header>
 
@@ -153,7 +167,9 @@ function Analytics() {
         <Panel
           className="lg:col-span-2"
           title="Avg. call duration"
-          badge={a.avg_duration_seconds ? `${formatDuration(a.avg_duration_seconds)} avg` : undefined}
+          badge={
+            a.avg_duration_seconds ? `${formatDuration(a.avg_duration_seconds)} avg` : undefined
+          }
           sub={`Trend over the last ${DURATION_DAYS} days`}
         >
           {a.duration_trend.every((d) => d.avg_seconds === null) ? (
@@ -161,7 +177,10 @@ function Analytics() {
           ) : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={a.duration_trend} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+                <LineChart
+                  data={a.duration_trend}
+                  margin={{ top: 8, right: 8, bottom: 0, left: -20 }}
+                >
                   <XAxis
                     dataKey="date"
                     tickFormatter={shortDate}
@@ -236,7 +255,11 @@ const TOOLTIP = {
 } as const;
 
 function Panel({
-  title, sub, badge, className = "", children,
+  title,
+  sub,
+  badge,
+  className = "",
+  children,
 }: {
   title: string;
   sub?: string;
@@ -264,7 +287,11 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 /** A headline number. `null` means unmeasured — never render that as a zero. */
 function Kpi({
-  label, value, format, sub, empty,
+  label,
+  value,
+  format,
+  sub,
+  empty,
 }: {
   label: string;
   value: number | null;
@@ -378,7 +405,12 @@ function SentimentBar({ items }: { items: Breakdown[] }) {
 function Funnel({
   funnel,
 }: {
-  funnel: { calls_handled: number; conversations: number; leads_captured: number; follow_ups: number };
+  funnel: {
+    calls_handled: number;
+    conversations: number;
+    leads_captured: number;
+    follow_ups: number;
+  };
 }) {
   const top = funnel.calls_handled;
   if (!top) return <Empty>No calls in this period.</Empty>;
@@ -455,6 +487,8 @@ function shortDate(iso: string) {
 
 function fullDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short", day: "numeric", month: "short",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
   });
 }

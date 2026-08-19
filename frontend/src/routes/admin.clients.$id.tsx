@@ -18,11 +18,21 @@ function EditClient() {
     return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   }
   if (!tenant) {
-    return <div className="p-8">Client not found. <Link to="/admin/clients" className="text-primary">Back</Link></div>;
+    return (
+      <div className="p-8">
+        Client not found.{" "}
+        <Link to="/admin/clients" className="text-primary">
+          Back
+        </Link>
+      </div>
+    );
   }
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <Link to="/admin/clients" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+      <Link
+        to="/admin/clients"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
+      >
         <ArrowLeft className="w-4 h-4" /> Back to clients
       </Link>
       <h1 className="text-3xl font-bold">{tenant.name}</h1>

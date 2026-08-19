@@ -86,14 +86,22 @@ export const mockLeads: Lead[] = mockCalls
   .map((c, i) => ({
     id: `lead_${i + 1}`,
     name: ["Priya Sharma", "Marcus Lee", "Aisha Khan", "David Chen", null][i % 5],
-    intent: ["apartment_inquiry", "appointment_booking", "pricing_question", "support", "general"][i % 5],
+    intent: ["apartment_inquiry", "appointment_booking", "pricing_question", "support", "general"][
+      i % 5
+    ],
     summary: "Caller wants a 2BR downtown apartment, $2,500/mo, move-in next month.",
     sentiment: (["positive", "neutral", "frustrated", "positive", "angry"] as Sentiment[])[i % 5],
     language: ["en", "hi", "es", "en", "en"][i % 5],
     key_details: ["2 bedrooms", "Downtown", "$2,500 budget", "Move-in next month"],
     follow_up_needed: i % 2 === 0,
     handed_off: i % 4 === 0,
-    contact_info: ["priya@example.com", "+15551234567", "aisha@example.com", null, "david@example.com"][i % 5],
+    contact_info: [
+      "priya@example.com",
+      "+15551234567",
+      "aisha@example.com",
+      null,
+      "david@example.com",
+    ][i % 5],
     caller_number: c.caller_number,
     created_at: c.created_at,
   }));
@@ -103,7 +111,9 @@ export const mockOverview = {
   total_minutes: Math.round(mockCalls.reduce((s, c) => s + c.duration_seconds, 0) / 60),
   total_leads: mockLeads.length,
   handoff_count: mockLeads.filter((l) => l.handed_off).length,
-  avg_duration_seconds: Math.round(mockCalls.reduce((s, c) => s + c.duration_seconds, 0) / mockCalls.length),
+  avg_duration_seconds: Math.round(
+    mockCalls.reduce((s, c) => s + c.duration_seconds, 0) / mockCalls.length,
+  ),
 };
 
 export const mockCallsPerDay = Array.from({ length: 7 }).map((_, i) => ({
@@ -113,13 +123,35 @@ export const mockCallsPerDay = Array.from({ length: 7 }).map((_, i) => ({
 
 export const mockTenants: Tenant[] = [
   {
-    id: "t_1", name: "Sunrise Realty", phone_number: "+15550100001",
-    config: { business_name: "Sunrise Realty", agent_name: "Aria", purpose: "Answer leasing inquiries and qualify leads.", handoff_number: "+15550199999", enable_handoff: true, enable_kb: true, filler_phrases: ["Let me check that", "One moment"], max_sentences: 2 },
+    id: "t_1",
+    name: "Sunrise Realty",
+    phone_number: "+15550100001",
+    config: {
+      business_name: "Sunrise Realty",
+      agent_name: "Aria",
+      purpose: "Answer leasing inquiries and qualify leads.",
+      handoff_number: "+15550199999",
+      enable_handoff: true,
+      enable_kb: true,
+      filler_phrases: ["Let me check that", "One moment"],
+      max_sentences: 2,
+    },
     created_at: daysAgo(30),
   },
   {
-    id: "t_2", name: "MediCare Hospital", phone_number: "+15550100002",
-    config: { business_name: "MediCare Hospital", agent_name: "Nova", purpose: "Book appointments and triage requests.", handoff_number: "+15550199998", enable_handoff: true, enable_kb: true, filler_phrases: ["Got it", "Sure thing"], max_sentences: 3 },
+    id: "t_2",
+    name: "MediCare Hospital",
+    phone_number: "+15550100002",
+    config: {
+      business_name: "MediCare Hospital",
+      agent_name: "Nova",
+      purpose: "Book appointments and triage requests.",
+      handoff_number: "+15550199998",
+      enable_handoff: true,
+      enable_kb: true,
+      filler_phrases: ["Got it", "Sure thing"],
+      max_sentences: 3,
+    },
     created_at: daysAgo(60),
   },
 ];
@@ -134,9 +166,15 @@ export const industryDemos = [
       { who: "caller" as const, text: "Hi, I'm looking for a 2 bedroom apartment downtown." },
       { who: "agent" as const, text: "Of course! What's your budget and move-in date?" },
       { who: "caller" as const, text: "Around $2,500/mo, ideally next month." },
-      { who: "agent" as const, text: "I have three matches. Can I get your name and email to send details?" },
+      {
+        who: "agent" as const,
+        text: "I have three matches. Can I get your name and email to send details?",
+      },
       { who: "caller" as const, text: "Priya Sharma, priya@example.com." },
-      { who: "agent" as const, text: "Thanks Priya — sending now. A leasing agent will follow up shortly." },
+      {
+        who: "agent" as const,
+        text: "Thanks Priya — sending now. A leasing agent will follow up shortly.",
+      },
     ],
   },
   {

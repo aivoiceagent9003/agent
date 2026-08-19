@@ -13,7 +13,9 @@ function NewClient() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold">Add client</h1>
-      <p className="text-sm text-muted-foreground mt-1">Create a new tenant with its voice agent configuration.</p>
+      <p className="text-sm text-muted-foreground mt-1">
+        Create a new tenant with its voice agent configuration.
+      </p>
       <div className="mt-6">
         <ClientForm
           onSubmit={async (data) => {

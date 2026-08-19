@@ -26,8 +26,23 @@ import {
   type LeadComment,
 } from "@/lib/team";
 import {
-  ArrowLeft, User, Phone, Mail, Globe, BarChart3, PhoneCall, Copy,
-  Check, X, Lock, FileText, Bell, UserCheck, Sparkles, Volume2, Download,
+  ArrowLeft,
+  User,
+  Phone,
+  Mail,
+  Globe,
+  BarChart3,
+  PhoneCall,
+  Copy,
+  Check,
+  X,
+  Lock,
+  FileText,
+  Bell,
+  UserCheck,
+  Sparkles,
+  Volume2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -71,11 +86,18 @@ function LeadDetail() {
         <h1 className="text-3xl font-bold">{lead.name || "Unknown caller"}</h1>
         <div className="mt-2 flex items-center gap-3 flex-wrap text-sm text-muted-foreground">
           <span>{lead.caller_number}</span>
-          <span>{new Date(lead.created_at).toLocaleString([], {
-            day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
-          })}</span>
+          <span>
+            {new Date(lead.created_at).toLocaleString([], {
+              day: "numeric",
+              month: "short",
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </span>
           {lead.language && (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs uppercase">{lead.language}</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-xs uppercase">
+              {lead.language}
+            </span>
           )}
           {lead.sentiment && (
             <span className="rounded-full bg-success/15 text-success px-2.5 py-0.5 text-xs capitalize">
@@ -90,7 +112,11 @@ function LeadDetail() {
         <div className="space-y-6">
           <StatusPanel lead={lead} status={status} meId={me?.user_id} />
           <NotesPanel leadId={id} initial={lead.notes || ""} />
-          <ActionsPanel lead={lead} status={status} onGone={() => navigate({ to: "/work/leads" })} />
+          <ActionsPanel
+            lead={lead}
+            status={status}
+            onGone={() => navigate({ to: "/work/leads" })}
+          />
           <ActivityPanel leadId={id} />
         </div>
       </div>
@@ -219,7 +245,11 @@ function Row({ icon: Icon, label, value }: { icon: any; label: string; value?: s
 
 function languageName(code?: string | null) {
   const map: Record<string, string> = {
-    en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada",
+    en: "English",
+    hi: "Hindi",
+    te: "Telugu",
+    ta: "Tamil",
+    kn: "Kannada",
   };
   return code ? map[code] || code : null;
 }
@@ -250,7 +280,9 @@ function StatusPanel({ lead, status, meId }: { lead: any; status: LeadStatus; me
             key={s}
             onClick={() => patch({ status: s }, `Marked ${STATUS_LABEL[s].toLowerCase()}`)}
             className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition ${
-              status === s ? "border-primary bg-primary/5 font-medium" : "border-border hover:bg-muted"
+              status === s
+                ? "border-primary bg-primary/5 font-medium"
+                : "border-border hover:bg-muted"
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${STATUS_DOT[s]}`} />
@@ -323,7 +355,10 @@ function StatusPanel({ lead, status, meId }: { lead: any; status: LeadStatus; me
           <h3 className="mt-5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
             Priority
           </h3>
-          <div className="mt-1.5 flex items-center gap-2 text-sm" title={lead.priority_reason || undefined}>
+          <div
+            className="mt-1.5 flex items-center gap-2 text-sm"
+            title={lead.priority_reason || undefined}
+          >
             <BarChart3 className={`w-4 h-4 ${priorityTone(lead.priority_score)}`} />
             <span className={`font-medium ${priorityTone(lead.priority_score)}`}>
               {priorityLabel(lead.priority_score)}
@@ -412,17 +447,22 @@ function NotesPanel({ leadId, initial }: { leadId: string; initial: string }) {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-function ActionsPanel({ lead, status, onGone }: { lead: any; status: LeadStatus; onGone: () => void }) {
+function ActionsPanel({
+  lead,
+  status,
+  onGone,
+}: {
+  lead: any;
+  status: LeadStatus;
+  onGone: () => void;
+}) {
   const logCall = useLogCall(lead.id);
   const update = useUpdateLead();
 
   async function copyContact() {
-    const text = [
-      lead.name,
-      lead.caller_number,
-      lead.email,
-      lead.summary,
-    ].filter(Boolean).join("\n");
+    const text = [lead.name, lead.caller_number, lead.email, lead.summary]
+      .filter(Boolean)
+      .join("\n");
     try {
       await navigator.clipboard.writeText(text);
       toast.success("Contact info copied");
@@ -458,10 +498,15 @@ function ActionsPanel({ lead, status, onGone }: { lead: any; status: LeadStatus;
 
         {status !== "converted" && (
           <button
-            onClick={() => update.mutate({ id: lead.id, status: "converted" }, {
-              onSuccess: () => toast.success("Marked converted 🎉"),
-              onError: (e: any) => toast.error(e.message),
-            })}
+            onClick={() =>
+              update.mutate(
+                { id: lead.id, status: "converted" },
+                {
+                  onSuccess: () => toast.success("Marked converted 🎉"),
+                  onError: (e: any) => toast.error(e.message),
+                },
+              )
+            }
             className="w-full flex items-center gap-2.5 border border-success/50 text-success rounded-lg px-3 py-2.5 text-sm hover:bg-success/5 transition"
           >
             <Sparkles className="w-4 h-4" /> Mark as converted
@@ -470,10 +515,15 @@ function ActionsPanel({ lead, status, onGone }: { lead: any; status: LeadStatus;
 
         {status !== "lost" && (
           <button
-            onClick={() => update.mutate({ id: lead.id, status: "lost" }, {
-              onSuccess: () => toast.success("Marked lost"),
-              onError: (e: any) => toast.error(e.message),
-            })}
+            onClick={() =>
+              update.mutate(
+                { id: lead.id, status: "lost" },
+                {
+                  onSuccess: () => toast.success("Marked lost"),
+                  onError: (e: any) => toast.error(e.message),
+                },
+              )
+            }
             className="w-full flex items-center gap-2.5 border border-destructive/50 text-destructive rounded-lg px-3 py-2.5 text-sm hover:bg-destructive/5 transition"
           >
             <X className="w-4 h-4" /> Mark as lost
@@ -500,15 +550,24 @@ const ACTION_ICON: Record<string, any> = {
 function describe(a: any): string {
   const d = a.detail || {};
   switch (a.action) {
-    case "lead_captured": return "Lead captured from inbound call.";
-    case "assigned": return `Assigned to ${a.assignee_name || "a team member"}.`;
-    case "unassigned": return "Unassigned.";
-    case "status_changed": return `Marked as ${d.to || "updated"}.`;
-    case "note_added": return d.preview ? `Added a note: "${d.preview}"` : "Updated the notes.";
-    case "call_logged": return "Logged a call.";
-    case "follow_up_set": return "Marked as needs follow-up.";
-    case "follow_up_cleared": return "Cleared the follow-up flag.";
-    default: return a.action.replace(/_/g, " ");
+    case "lead_captured":
+      return "Lead captured from inbound call.";
+    case "assigned":
+      return `Assigned to ${a.assignee_name || "a team member"}.`;
+    case "unassigned":
+      return "Unassigned.";
+    case "status_changed":
+      return `Marked as ${d.to || "updated"}.`;
+    case "note_added":
+      return d.preview ? `Added a note: "${d.preview}"` : "Updated the notes.";
+    case "call_logged":
+      return "Logged a call.";
+    case "follow_up_set":
+      return "Marked as needs follow-up.";
+    case "follow_up_cleared":
+      return "Cleared the follow-up flag.";
+    default:
+      return a.action.replace(/_/g, " ");
   }
 }
 
@@ -610,7 +669,10 @@ function CommentsPanel({ leadId }: { leadId: string }) {
           <span className="text-xs text-muted-foreground">{draft.length} / 500</span>
           <div className="flex gap-2">
             <button
-              onClick={() => { setDraft(""); setReplyTo(null); }}
+              onClick={() => {
+                setDraft("");
+                setReplyTo(null);
+              }}
               className="border border-border rounded-lg px-3 py-1.5 text-sm hover:bg-muted transition"
             >
               Cancel
@@ -645,8 +707,14 @@ function CommentsPanel({ leadId }: { leadId: string }) {
 }
 
 function CommentRow({
-  comment, leadId, onReply,
-}: { comment: LeadComment; leadId: string; onReply?: () => void }) {
+  comment,
+  leadId,
+  onReply,
+}: {
+  comment: LeadComment;
+  leadId: string;
+  onReply?: () => void;
+}) {
   const edit = useEditComment(leadId);
   const del = useDeleteComment(leadId);
   const [editing, setEditing] = useState(false);
@@ -655,7 +723,11 @@ function CommentRow({
   return (
     <div className="flex items-start gap-3">
       <div className="w-8 h-8 rounded-full bg-primary grid place-items-center text-primary-foreground text-[11px] font-semibold shrink-0">
-        {comment.author_name.split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
+        {comment.author_name
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((w) => w[0]?.toUpperCase())
+          .join("")}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
@@ -665,12 +737,19 @@ function CommentRow({
           {/* Edit/Delete only for your own — the API enforces this too. */}
           {comment.is_mine && !editing && (
             <span className="ml-auto flex gap-3 text-xs">
-              <button onClick={() => setEditing(true)} className="text-muted-foreground hover:text-foreground">
+              <button
+                onClick={() => setEditing(true)}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 Edit
               </button>
               <button
                 onClick={async () => {
-                  try { await del.mutateAsync(comment.id); } catch (e: any) { toast.error(e.message); }
+                  try {
+                    await del.mutateAsync(comment.id);
+                  } catch (e: any) {
+                    toast.error(e.message);
+                  }
                 }}
                 className="text-muted-foreground hover:text-destructive"
               >
@@ -694,14 +773,19 @@ function CommentRow({
                   try {
                     await edit.mutateAsync({ id: comment.id, body });
                     setEditing(false);
-                  } catch (e: any) { toast.error(e.message); }
+                  } catch (e: any) {
+                    toast.error(e.message);
+                  }
                 }}
                 className="bg-gradient-primary text-primary-foreground rounded-lg px-3 py-1 text-xs"
               >
                 Save
               </button>
               <button
-                onClick={() => { setBody(comment.body); setEditing(false); }}
+                onClick={() => {
+                  setBody(comment.body);
+                  setEditing(false);
+                }}
                 className="text-xs text-muted-foreground px-2"
               >
                 Cancel

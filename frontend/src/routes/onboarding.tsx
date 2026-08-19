@@ -54,7 +54,14 @@ const ICONS: Record<string, any> = {
   package: Package,
 };
 
-const STEPS = ["Choose your agent", "Business setup", "Knowledge", "Live data", "Test", "Review & activate"];
+const STEPS = [
+  "Choose your agent",
+  "Business setup",
+  "Knowledge",
+  "Live data",
+  "Test",
+  "Review & activate",
+];
 
 function Onboarding() {
   const ready = useRequireAuth();
@@ -175,7 +182,8 @@ function Onboarding() {
       }
       setBuiltConfig(config);
       setAgentName(config.agent_name || "Priya");
-      if (typeof config.allow_multilingual === "boolean") setMultilingual(config.allow_multilingual);
+      if (typeof config.allow_multilingual === "boolean")
+        setMultilingual(config.allow_multilingual);
       if (config.handoff_number) setHandoff(config.handoff_number);
       if (Array.isArray(config.lookups)) setLookups(config.lookups);
       if (config.voice) setVoice(config.voice);
@@ -302,7 +310,9 @@ function Onboarding() {
               <button
                 onClick={() => setMode("template")}
                 className={`text-sm rounded-lg px-4 py-2 border transition ${
-                  mode === "template" ? "border-primary text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-foreground"
+                  mode === "template"
+                    ? "border-primary text-primary bg-primary/10"
+                    : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Pre-built agents
@@ -310,7 +320,9 @@ function Onboarding() {
               <button
                 onClick={() => setMode("custom")}
                 className={`inline-flex items-center gap-1.5 text-sm rounded-lg px-4 py-2 border transition ${
-                  mode === "custom" ? "border-primary text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-foreground"
+                  mode === "custom"
+                    ? "border-primary text-primary bg-primary/10"
+                    : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Sparkles className="w-4 h-4" /> Custom
@@ -327,7 +339,9 @@ function Onboarding() {
                       key={t.id}
                       onClick={() => setSelectedId(t.id)}
                       className={`text-left rounded-xl p-5 border shadow-card transition ${
-                        active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:bg-muted/30"
+                        active
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border bg-card hover:bg-muted/30"
                       }`}
                     >
                       <div className="flex items-start justify-between">
@@ -344,7 +358,9 @@ function Onboarding() {
               </div>
             ) : (
               <div className="mt-6 bg-card border border-border rounded-xl p-6 shadow-card grid gap-3">
-                <label className="text-sm text-muted-foreground">Describe what your agent should do</label>
+                <label className="text-sm text-muted-foreground">
+                  Describe what your agent should do
+                </label>
                 <textarea
                   rows={5}
                   value={goal}
@@ -387,17 +403,22 @@ function Onboarding() {
                   placeholder="e.g. Sunrise Realty"
                   className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <p className="text-xs text-muted-foreground">Used in the greeting — "…here from [business name]".</p>
+                <p className="text-xs text-muted-foreground">
+                  Used in the greeting — "…here from [business name]".
+                </p>
               </div>
 
               <div className="grid gap-2">
                 <label className="text-sm text-muted-foreground">Voice</label>
                 <p className="text-xs text-muted-foreground -mt-1">
-                  Pick how your agent should sound. Every voice speaks Indian languages (Telugu, Hindi, Tamil…) natively — they differ in tone.
+                  Pick how your agent should sound. Every voice speaks Indian languages (Telugu,
+                  Hindi, Tamil…) natively — they differ in tone.
                 </p>
                 <VoicePicker voices={voices} value={voice} onChange={setVoice} />
                 {voices.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No voices available — check your TTS provider config.</p>
+                  <p className="text-xs text-muted-foreground">
+                    No voices available — check your TTS provider config.
+                  </p>
                 )}
               </div>
 
@@ -408,7 +429,10 @@ function Onboarding() {
                   onChange={(e) => setAgentName(e.target.value)}
                   className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <p className="text-xs text-muted-foreground">The name your agent introduces itself with on calls (e.g. "Priya here from…"). Independent of the voice.</p>
+                <p className="text-xs text-muted-foreground">
+                  The name your agent introduces itself with on calls (e.g. "Priya here from…").
+                  Independent of the voice.
+                </p>
               </div>
 
               <div className="grid gap-1.5">
@@ -427,7 +451,9 @@ function Onboarding() {
               </div>
 
               <div className="grid gap-1.5">
-                <label className="text-sm text-muted-foreground">Human handoff number (optional)</label>
+                <label className="text-sm text-muted-foreground">
+                  Human handoff number (optional)
+                </label>
                 <input
                   value={handoff}
                   onChange={(e) => setHandoff(e.target.value)}
@@ -447,13 +473,18 @@ function Onboarding() {
                   onClick={() => setMultilingual((v) => !v)}
                   className={`relative w-10 h-6 rounded-full transition ${multilingual ? "bg-gradient-primary" : "bg-muted"}`}
                 >
-                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-card shadow transition ${multilingual ? "left-[18px]" : "left-0.5"}`} />
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-card shadow transition ${multilingual ? "left-[18px]" : "left-0.5"}`}
+                  />
                 </button>
               </label>
             </div>
 
             <div className="mt-8 flex justify-between">
-              <button onClick={() => setStep(0)} className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted">
+              <button
+                onClick={() => setStep(0)}
+                className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted"
+              >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
               <button
@@ -472,7 +503,8 @@ function Onboarding() {
           <div>
             <h1 className="text-2xl font-bold">Add your knowledge</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Upload PDFs, Word docs, text files, or images. We extract the text so your agent can answer from it. This is optional — you can add more later.
+              Upload PDFs, Word docs, text files, or images. We extract the text so your agent can
+              answer from it. This is optional — you can add more later.
             </p>
 
             <div className="mt-6 bg-card border border-border rounded-xl p-6 shadow-card grid gap-4">
@@ -480,8 +512,12 @@ function Onboarding() {
                 className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl py-10 cursor-pointer hover:bg-muted/30 transition ${uploading ? "opacity-60 pointer-events-none" : ""}`}
               >
                 <Upload className="w-6 h-6 text-muted-foreground" />
-                <span className="text-sm font-medium">{uploading ? "Uploading…" : "Click to upload files"}</span>
-                <span className="text-xs text-muted-foreground">PDF, DOCX, TXT, CSV, or images</span>
+                <span className="text-sm font-medium">
+                  {uploading ? "Uploading…" : "Click to upload files"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  PDF, DOCX, TXT, CSV, or images
+                </span>
                 <input
                   ref={fileRef}
                   type="file"
@@ -498,7 +534,9 @@ function Onboarding() {
                 </div>
                 <div className="divide-y divide-border max-h-64 overflow-auto">
                   {docs.length === 0 ? (
-                    <div className="py-6 text-center text-sm text-muted-foreground">No files yet.</div>
+                    <div className="py-6 text-center text-sm text-muted-foreground">
+                      No files yet.
+                    </div>
                   ) : (
                     docs.map((d) => (
                       <div key={d.id} className="flex items-center gap-3 py-3">
@@ -535,7 +573,10 @@ function Onboarding() {
             </div>
 
             <div className="mt-8 flex justify-between">
-              <button onClick={() => setStep(1)} className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted">
+              <button
+                onClick={() => setStep(1)}
+                className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted"
+              >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
               <button
@@ -553,9 +594,9 @@ function Onboarding() {
           <div>
             <h1 className="text-2xl font-bold">Live data lookups</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              For details that change per caller — order status, dues, bookings —
-              your agent fetches them live. Tell us where that data lives: your own
-              API, or a data sheet you upload. This is optional.
+              For details that change per caller — order status, dues, bookings — your agent fetches
+              them live. Tell us where that data lives: your own API, or a data sheet you upload.
+              This is optional.
             </p>
 
             <div className="mt-6">
@@ -563,14 +604,18 @@ function Onboarding() {
             </div>
 
             <div className="mt-8 flex justify-between">
-              <button onClick={() => setStep(2)} className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted">
+              <button
+                onClick={() => setStep(2)}
+                className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted"
+              >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
               <button
                 onClick={() => setStep(4)}
                 className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground rounded-lg px-5 py-2.5 text-sm font-medium shadow-glow hover:opacity-90"
               >
-                {lookups.length > 0 ? "Continue" : "Skip for now"} <ArrowRight className="w-4 h-4" />
+                {lookups.length > 0 ? "Continue" : "Skip for now"}{" "}
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -581,7 +626,8 @@ function Onboarding() {
           <div>
             <h1 className="text-2xl font-bold">Test your agent</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Talk to your agent and hear it reply in its real voice — no call needed. Uses your live config and knowledge base.
+              Talk to your agent and hear it reply in its real voice — no call needed. Uses your
+              live config and knowledge base.
             </p>
 
             <div className="mt-6">
@@ -589,7 +635,10 @@ function Onboarding() {
             </div>
 
             <div className="mt-8 flex justify-between">
-              <button onClick={() => setStep(3)} className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted">
+              <button
+                onClick={() => setStep(3)}
+                className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted"
+              >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
               <button
@@ -611,7 +660,12 @@ function Onboarding() {
             </p>
 
             <div className="mt-6 bg-card border border-border rounded-xl p-6 shadow-card divide-y divide-border">
-              <Row label="Agent type" value={mode === "template" ? selectedTemplate?.label ?? "Pre-built" : "Custom agent"} />
+              <Row
+                label="Agent type"
+                value={
+                  mode === "template" ? (selectedTemplate?.label ?? "Pre-built") : "Custom agent"
+                }
+              />
               <Row label="Business" value={businessName} />
               <Row label="Agent name" value={agentName} />
               <Row label="Voice" value={voices.find((v) => v.id === voice)?.label || "Default"} />
@@ -619,11 +673,17 @@ function Onboarding() {
               <Row label="Human handoff" value={handoff.trim() || "Not set"} />
               <Row label="Multilingual" value={multilingual ? "Yes" : "No"} />
               <Row label="Knowledge files" value={String(docs.length)} />
-              <Row label="Live data lookups" value={lookups.length ? `${lookups.length} configured` : "None"} />
+              <Row
+                label="Live data lookups"
+                value={lookups.length ? `${lookups.length} configured` : "None"}
+              />
             </div>
 
             <div className="mt-8 flex justify-between">
-              <button onClick={() => setStep(4)} className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted">
+              <button
+                onClick={() => setStep(4)}
+                className="inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2.5 text-sm hover:bg-muted"
+              >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
               <button

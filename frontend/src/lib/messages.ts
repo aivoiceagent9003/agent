@@ -191,7 +191,10 @@ export function useRealtimeSync(activeConversationId?: string | null) {
           ["notifications"],
           (old) =>
             old
-              ? { notifications: [event.notification, ...old.notifications], unread: old.unread + 1 }
+              ? {
+                  notifications: [event.notification, ...old.notifications],
+                  unread: old.unread + 1,
+                }
               : old,
         );
         qc.invalidateQueries({ queryKey: ["notifications"] });

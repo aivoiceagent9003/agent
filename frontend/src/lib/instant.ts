@@ -19,7 +19,17 @@ export interface InstantInfo {
 }
 
 // Statuses that mean "already worked — don't auto-call". Suggested default in the UI.
-export const DEFAULT_SKIP_STATUSES = ["contacted", "qualified", "converted", "closed", "lost", "customer", "unqualified", "junk", "not interested"];
+export const DEFAULT_SKIP_STATUSES = [
+  "contacted",
+  "qualified",
+  "converted",
+  "closed",
+  "lost",
+  "customer",
+  "unqualified",
+  "junk",
+  "not interested",
+];
 
 export function useInstantInfo() {
   return useQuery({
@@ -32,8 +42,13 @@ export function useInstantInfo() {
 export function useUpdateInstant() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { enabled?: boolean; preset?: string; from_number?: string; skip_recent_days?: number; skip_statuses?: string[] }) =>
-      apiFetch("/api/client/instant-call", { method: "PUT", body: JSON.stringify(body) }),
+    mutationFn: (body: {
+      enabled?: boolean;
+      preset?: string;
+      from_number?: string;
+      skip_recent_days?: number;
+      skip_statuses?: string[];
+    }) => apiFetch("/api/client/instant-call", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instant-call"] }),
   });
 }

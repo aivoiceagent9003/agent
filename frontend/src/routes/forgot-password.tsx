@@ -48,8 +48,8 @@ function ForgotPassword() {
             </div>
             <h1 className="mt-4 text-2xl font-bold">Check your email</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              If <span className="text-foreground">{email}</span> has a Vocera account, a reset
-              link is on its way. It expires in an hour.
+              If <span className="text-foreground">{email}</span> has a Vocera account, a reset link
+              is on its way. It expires in an hour.
             </p>
             <button
               onClick={() => setSent(false)}

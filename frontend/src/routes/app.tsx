@@ -21,8 +21,12 @@ function AppLayout() {
 
   // Messages and notifications arrive on any dashboard screen, not just /app/messages.
   useRealtimeSync(null);
-  useEffect(() => { primeSound(); }, []);
-  useEffect(() => { setCurrentUserId(me?.user_id ?? null); }, [me?.user_id]);
+  useEffect(() => {
+    primeSound();
+  }, []);
+  useEffect(() => {
+    setCurrentUserId(me?.user_id ?? null);
+  }, [me?.user_id]);
 
   // Front-line staff have their own, narrower shell.
   useEffect(() => {

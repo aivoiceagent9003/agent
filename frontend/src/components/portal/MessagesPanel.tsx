@@ -60,8 +60,7 @@ export function MessagesPanel({
       if (filter !== "all" && c.kind !== filter) return false;
       if (!q) return true;
       return (
-        c.title.toLowerCase().includes(q) ||
-        (c.last_message?.body || "").toLowerCase().includes(q)
+        c.title.toLowerCase().includes(q) || (c.last_message?.body || "").toLowerCase().includes(q)
       );
     });
   }, [conversations, filter, search]);
@@ -115,7 +114,14 @@ export function MessagesPanel({
           ))}
         </div>
 
-        {composing && <NewDirect onOpened={(id) => { setActiveId(id); setComposing(false); }} />}
+        {composing && (
+          <NewDirect
+            onOpened={(id) => {
+              setActiveId(id);
+              setComposing(false);
+            }}
+          />
+        )}
 
         <div className="mt-2 flex-1 overflow-y-auto min-h-0">
           {visible.length === 0 ? (
@@ -159,8 +165,12 @@ function initials(name: string) {
 
 // Stable per-name colour, so the same person is always the same shade.
 const AVATAR_COLORS = [
-  "bg-primary", "bg-emerald-600", "bg-orange-500",
-  "bg-sky-600", "bg-violet-600", "bg-rose-500",
+  "bg-primary",
+  "bg-emerald-600",
+  "bg-orange-500",
+  "bg-sky-600",
+  "bg-violet-600",
+  "bg-rose-500",
 ];
 function avatarColor(seed: string) {
   let n = 0;
@@ -207,9 +217,7 @@ function ConversationRow({
     <button
       onClick={onClick}
       className={`w-full text-left px-5 py-3 flex gap-3 items-start transition border-l-2 ${
-        active
-          ? "bg-primary/5 border-primary"
-          : "border-transparent hover:bg-muted/50"
+        active ? "bg-primary/5 border-primary" : "border-transparent hover:bg-muted/50"
       }`}
     >
       {convo.kind === "support" ? (
@@ -247,9 +255,7 @@ function NewDirect({ onOpened }: { onOpened: (conversationId: string) => void })
     <div className="mx-5 mt-3 border border-border rounded-lg overflow-hidden">
       <p className="px-3 py-2 text-xs text-muted-foreground bg-muted/50">Start a direct message</p>
       {people.length === 0 ? (
-        <p className="px-3 py-3 text-xs text-muted-foreground">
-          Nobody else on your team yet.
-        </p>
+        <p className="px-3 py-3 text-xs text-muted-foreground">Nobody else on your team yet.</p>
       ) : (
         people.map((p) => (
           <button
@@ -414,7 +420,10 @@ function MessageList({
                   {m.body}
                 </div>
                 <span className="text-[11px] text-muted-foreground mt-1">
-                  {new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  {new Date(m.created_at).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
                 </span>
               </div>
             ) : (
@@ -429,7 +438,10 @@ function MessageList({
                       {m.body}
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      {new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      {new Date(m.created_at).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
                     </p>
                   </div>
                 </div>

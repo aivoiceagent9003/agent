@@ -54,10 +54,12 @@ function ConversationPlayer({ script }: { script: { who: "caller" | "agent"; tex
     script.forEach((line, i) => {
       timers.current.push(setTimeout(() => setTyping(line.who), delay));
       delay += 900;
-      timers.current.push(setTimeout(() => {
-        setShown((s) => [...s, i]);
-        setTyping(null);
-      }, delay));
+      timers.current.push(
+        setTimeout(() => {
+          setShown((s) => [...s, i]);
+          setTyping(null);
+        }, delay),
+      );
       delay += 600;
     });
     return () => timers.current.forEach(clearTimeout);
@@ -78,24 +80,37 @@ function ConversationPlayer({ script }: { script: { who: "caller" | "agent"; tex
       <div className="mt-4 space-y-3 min-h-[280px]">
         {script.map((line, i) =>
           shown.includes(i) ? (
-            <div key={i} className={`flex ${line.who === "agent" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                line.who === "agent"
-                  ? "bg-gradient-primary text-primary-foreground rounded-br-sm"
-                  : "bg-muted rounded-bl-sm"
-              }`}>
+            <div
+              key={i}
+              className={`flex ${line.who === "agent" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
+                  line.who === "agent"
+                    ? "bg-gradient-primary text-primary-foreground rounded-br-sm"
+                    : "bg-muted rounded-bl-sm"
+                }`}
+              >
                 {line.text}
               </div>
             </div>
-          ) : null
+          ) : null,
         )}
         {typing && (
           <div className={`flex ${typing === "agent" ? "justify-end" : "justify-start"}`}>
-            <div className={`rounded-2xl px-4 py-3 ${typing === "agent" ? "bg-gradient-primary" : "bg-muted"}`}>
+            <div
+              className={`rounded-2xl px-4 py-3 ${typing === "agent" ? "bg-gradient-primary" : "bg-muted"}`}
+            >
               <div className="flex gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 animate-bounce" />
-                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 animate-bounce" style={{ animationDelay: "0.15s" }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 animate-bounce" style={{ animationDelay: "0.3s" }} />
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-current opacity-60 animate-bounce"
+                  style={{ animationDelay: "0.15s" }}
+                />
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-current opacity-60 animate-bounce"
+                  style={{ animationDelay: "0.3s" }}
+                />
               </div>
             </div>
           </div>

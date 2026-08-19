@@ -23,7 +23,8 @@ export const Route = createFileRoute("/login")({
   // ?tab=employee lets /employee-login and invite emails deep-link to the right
   // side of the toggle.
   validateSearch: (search: Record<string, unknown>): { tab?: Audience } => ({
-    tab: search.tab === "business" ? "business" : search.tab === "employee" ? "employee" : undefined,
+    tab:
+      search.tab === "business" ? "business" : search.tab === "employee" ? "employee" : undefined,
   }),
   component: LoginPage,
 });
@@ -102,9 +103,7 @@ function LoginPage() {
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
           <h1 className="text-3xl font-bold">Sign in to Vocera</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Choose how you work with Vocera.
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">Choose how you work with Vocera.</p>
 
           {/* Segmented toggle */}
           <div

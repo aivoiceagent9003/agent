@@ -29,7 +29,9 @@ function TraceView() {
         <BackLink />
         <div className="mt-8 text-center text-muted-foreground">
           <AlertCircle className="w-10 h-10 mx-auto opacity-40" />
-          <p className="mt-3 text-sm">Trace not found — it may have aged out of the in-memory buffer.</p>
+          <p className="mt-3 text-sm">
+            Trace not found — it may have aged out of the in-memory buffer.
+          </p>
         </div>
       </div>
     );
@@ -73,7 +75,9 @@ function TraceView() {
           {spans.map((s, i) => (
             <SpanRow key={i} span={s} total={total} />
           ))}
-          {spans.length === 0 && <p className="text-sm text-muted-foreground">No spans recorded.</p>}
+          {spans.length === 0 && (
+            <p className="text-sm text-muted-foreground">No spans recorded.</p>
+          )}
         </div>
       </div>
     </div>
@@ -89,7 +93,9 @@ function SpanRow({ span, total }: { span: TraceSpan; total: number }) {
       <div className="truncate font-medium flex items-center gap-1.5" title={span.name}>
         <span className="w-2 h-2 rounded-sm" style={{ background: spanColor(span.name) }} />
         {span.name}
-        {span.retryCount > 0 && <span className="text-[10px] text-amber-500">×{span.retryCount + 1}</span>}
+        {span.retryCount > 0 && (
+          <span className="text-[10px] text-amber-500">×{span.retryCount + 1}</span>
+        )}
       </div>
       <div className="relative h-5 rounded bg-muted/40">
         <div
@@ -103,14 +109,18 @@ function SpanRow({ span, total }: { span: TraceSpan; total: number }) {
           title={span.error || ""}
         />
       </div>
-      <div className={`text-right tabular-nums text-xs ${isError ? "text-destructive" : "text-muted-foreground"}`}>
+      <div
+        className={`text-right tabular-nums text-xs ${isError ? "text-destructive" : "text-muted-foreground"}`}
+      >
         {fmtMs(span.durationMs)}
       </div>
       {(isError || span.payloadBytes > 0 || Object.keys(span.attrs || {}).length > 0) && (
         <div className="col-span-3 -mt-1 ml-[232px] text-[11px] text-muted-foreground hidden group-hover:block">
           {isError && <span className="text-destructive">⚠ {span.error} · </span>}
           {span.payloadBytes > 0 && <span>{span.payloadBytes} bytes · </span>}
-          {Object.entries(span.attrs || {}).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")}
+          {Object.entries(span.attrs || {})
+            .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
+            .join(" · ")}
         </div>
       )}
     </div>
@@ -119,7 +129,10 @@ function SpanRow({ span, total }: { span: TraceSpan; total: number }) {
 
 function BackLink() {
   return (
-    <Link to="/admin/ops/live" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+    <Link
+      to="/admin/ops/live"
+      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+    >
       <ArrowLeft className="w-4 h-4" /> Live Calls
     </Link>
   );

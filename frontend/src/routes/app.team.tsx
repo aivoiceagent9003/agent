@@ -47,8 +47,8 @@ function TeamPage() {
       <header>
         <h1 className="text-3xl font-bold">Team</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Invite your staff so they can work the leads your agent captures — without
-          giving them access to your agent's settings.
+          Invite your staff so they can work the leads your agent captures — without giving them
+          access to your agent's settings.
         </p>
       </header>
 
@@ -86,7 +86,9 @@ function InviteForm({ emailDelivery }: { emailDelivery: boolean }) {
   const [role, setRole] = useState<TenantRole>("agent");
   // The join link is returned exactly once, when the invite is created. Holding it
   // here is what makes inviting work at all when email delivery is unavailable.
-  const [lastLink, setLastLink] = useState<{ url: string; email: string; sent: boolean } | null>(null);
+  const [lastLink, setLastLink] = useState<{ url: string; email: string; sent: boolean } | null>(
+    null,
+  );
   const invite = useInviteMember();
 
   async function submit(e: React.FormEvent) {
@@ -140,8 +142,8 @@ function InviteForm({ emailDelivery }: { emailDelivery: boolean }) {
 
       {!emailDelivery && !lastLink && (
         <p className="mt-3 text-xs text-warning">
-          Email isn't configured on this server, so invites won't be delivered
-          automatically — you'll get a link to share yourself.
+          Email isn't configured on this server, so invites won't be delivered automatically —
+          you'll get a link to share yourself.
         </p>
       )}
 
@@ -187,8 +189,8 @@ function InviteLink({
         ) : (
           <>
             <span className="text-warning font-medium">Not emailed.</span> Send this link to{" "}
-            <span className="text-foreground">{email}</span> yourself — it works once and expires
-            in 7 days:
+            <span className="text-foreground">{email}</span> yourself — it works once and expires in
+            7 days:
           </>
         )}
       </p>
@@ -378,7 +380,17 @@ function RemoveConfirm({
   );
 }
 
-function InviteRow({ invite }: { invite: { id: string; email: string; tenant_role: TenantRole; expires_at: string; expired: boolean } }) {
+function InviteRow({
+  invite,
+}: {
+  invite: {
+    id: string;
+    email: string;
+    tenant_role: TenantRole;
+    expires_at: string;
+    expired: boolean;
+  };
+}) {
   const resend = useResendInvite();
   const revoke = useRevokeInvite();
   const [link, setLink] = useState<{ url: string; sent: boolean } | null>(null);
@@ -386,53 +398,55 @@ function InviteRow({ invite }: { invite: { id: string; email: string; tenant_rol
   return (
     <div className="px-4 py-3 bg-card">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-      <div className="min-w-0">
-        <div className="text-sm font-medium truncate flex items-center gap-2">
-          <MailCheck className="w-3.5 h-3.5 text-muted-foreground" />
-          {invite.email}
+        <div className="min-w-0">
+          <div className="text-sm font-medium truncate flex items-center gap-2">
+            <MailCheck className="w-3.5 h-3.5 text-muted-foreground" />
+            {invite.email}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {ROLE_LABEL[invite.tenant_role]} ·{" "}
+            {invite.expired ? (
+              <span className="text-destructive">expired</span>
+            ) : (
+              <>expires {new Date(invite.expires_at).toLocaleDateString()}</>
+            )}
+          </div>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {ROLE_LABEL[invite.tenant_role]} ·{" "}
-          {invite.expired ? (
-            <span className="text-destructive">expired</span>
-          ) : (
-            <>expires {new Date(invite.expires_at).toLocaleDateString()}</>
-          )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                // Resend always mints a NEW token (the previous one is unrecoverable —
+                // we only kept its hash), so this link is the one that works.
+                const res = await resend.mutateAsync(invite.id);
+                setLink({ url: res.invite_url, sent: res.email_sent });
+                toast.success(
+                  res.email_sent ? "A fresh invite is on its way" : "New link ready to share",
+                );
+              } catch (e: any) {
+                toast.error(e.message);
+              }
+            }}
+            disabled={resend.isPending}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-lg hover:bg-muted disabled:opacity-60"
+          >
+            <RotateCw className="w-3.5 h-3.5" /> Resend
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await revoke.mutateAsync(invite.id);
+                toast.success("Invite revoked");
+              } catch (e: any) {
+                toast.error(e.message);
+              }
+            }}
+            disabled={revoke.isPending}
+            className="inline-flex items-center gap-1.5 text-xs text-destructive hover:underline px-2 py-1.5 disabled:opacity-60"
+          >
+            <X className="w-3.5 h-3.5" /> Revoke
+          </button>
         </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={async () => {
-            try {
-              // Resend always mints a NEW token (the previous one is unrecoverable —
-              // we only kept its hash), so this link is the one that works.
-              const res = await resend.mutateAsync(invite.id);
-              setLink({ url: res.invite_url, sent: res.email_sent });
-              toast.success(res.email_sent ? "A fresh invite is on its way" : "New link ready to share");
-            } catch (e: any) {
-              toast.error(e.message);
-            }
-          }}
-          disabled={resend.isPending}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-lg hover:bg-muted disabled:opacity-60"
-        >
-          <RotateCw className="w-3.5 h-3.5" /> Resend
-        </button>
-        <button
-          onClick={async () => {
-            try {
-              await revoke.mutateAsync(invite.id);
-              toast.success("Invite revoked");
-            } catch (e: any) {
-              toast.error(e.message);
-            }
-          }}
-          disabled={revoke.isPending}
-          className="inline-flex items-center gap-1.5 text-xs text-destructive hover:underline px-2 py-1.5 disabled:opacity-60"
-        >
-          <X className="w-3.5 h-3.5" /> Revoke
-        </button>
-      </div>
       </div>
 
       {link && (

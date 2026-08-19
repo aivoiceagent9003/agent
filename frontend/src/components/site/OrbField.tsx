@@ -14,15 +14,51 @@ import { orbBus } from "./orbBus";
 export type Variant = "bloom" | "orb" | "spectrum" | "ribbon";
 
 type Harmonic = { k: number; a: number; p: number; s: number };
-type Layer = { scale: number; spread: number; alpha: number; hsl: [number, number, number]; harm: Harmonic[]; depth: number };
+type Layer = {
+  scale: number;
+  spread: number;
+  alpha: number;
+  hsl: [number, number, number];
+  harm: Harmonic[];
+  depth: number;
+};
 
 const LAYERS: Layer[] = [
-  { scale: 1.06, spread: 1.4, alpha: 0.16, hsl: [262, 82, 66], depth: 1.0,
-    harm: [{ k: 2, a: 0.07, p: 0.0, s: 0.5 }, { k: 3, a: 0.05, p: 1.2, s: -0.7 }, { k: 5, a: 0.03, p: 2.1, s: 0.9 }] },
-  { scale: 0.92, spread: 1.1, alpha: 0.16, hsl: [205, 88, 62], depth: 0.7,
-    harm: [{ k: 3, a: 0.06, p: 0.8, s: -0.6 }, { k: 4, a: 0.045, p: 2.0, s: 0.8 }, { k: 6, a: 0.025, p: 0.3, s: -1.0 }] },
-  { scale: 0.74, spread: 0.8, alpha: 0.15, hsl: [18, 92, 67], depth: 0.45,
-    harm: [{ k: 2, a: 0.08, p: 1.6, s: 0.7 }, { k: 5, a: 0.04, p: 0.5, s: -0.9 }] },
+  {
+    scale: 1.06,
+    spread: 1.4,
+    alpha: 0.16,
+    hsl: [262, 82, 66],
+    depth: 1.0,
+    harm: [
+      { k: 2, a: 0.07, p: 0.0, s: 0.5 },
+      { k: 3, a: 0.05, p: 1.2, s: -0.7 },
+      { k: 5, a: 0.03, p: 2.1, s: 0.9 },
+    ],
+  },
+  {
+    scale: 0.92,
+    spread: 1.1,
+    alpha: 0.16,
+    hsl: [205, 88, 62],
+    depth: 0.7,
+    harm: [
+      { k: 3, a: 0.06, p: 0.8, s: -0.6 },
+      { k: 4, a: 0.045, p: 2.0, s: 0.8 },
+      { k: 6, a: 0.025, p: 0.3, s: -1.0 },
+    ],
+  },
+  {
+    scale: 0.74,
+    spread: 0.8,
+    alpha: 0.15,
+    hsl: [18, 92, 67],
+    depth: 0.45,
+    harm: [
+      { k: 2, a: 0.08, p: 1.6, s: 0.7 },
+      { k: 5, a: 0.04, p: 0.5, s: -0.9 },
+    ],
+  },
 ];
 
 export function OrbField({ variant }: { variant: Variant }) {
@@ -41,7 +77,11 @@ export function OrbField({ variant }: { variant: Variant }) {
     if (!ctx) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    let W = 0, H = 0, cx = 0, cy = 0, baseR = 0;
+    let W = 0,
+      H = 0,
+      cx = 0,
+      cy = 0,
+      baseR = 0;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     function resize() {
@@ -60,7 +100,8 @@ export function OrbField({ variant }: { variant: Variant }) {
     }
     window.addEventListener("mousemove", onMove);
 
-    let scrollTarget = 0, disp = 0;
+    let scrollTarget = 0,
+      disp = 0;
     function onScroll() {
       const max = document.documentElement.scrollHeight - window.innerHeight;
       scrollTarget = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
@@ -81,7 +122,9 @@ export function OrbField({ variant }: { variant: Variant }) {
       const th = i * GA;
       const tt = (y + 1) / 2;
       pts.push({
-        x: Math.cos(th) * r, y, z: Math.sin(th) * r,
+        x: Math.cos(th) * r,
+        y,
+        z: Math.sin(th) * r,
         hue: 250 + Math.sin(th) * 38 + tt * 30 + (Math.random() - 0.5) * 20,
         spread: 0.4 + Math.random() * 1.3,
       });
@@ -117,7 +160,8 @@ export function OrbField({ variant }: { variant: Variant }) {
         const rr = R * r;
         const x = cx + ox + Math.cos(th) * rr;
         const y = cy + oy + Math.sin(th) * rr;
-        if (i === 0) ctx!.moveTo(x, y); else ctx!.lineTo(x, y);
+        if (i === 0) ctx!.moveTo(x, y);
+        else ctx!.lineTo(x, y);
       }
       ctx!.closePath();
     }
@@ -130,16 +174,32 @@ export function OrbField({ variant }: { variant: Variant }) {
         const ox = pointer.current.x * 16 * dpr * L.depth;
         const oy = pointer.current.y * 12 * dpr * L.depth;
         blob(L, t, amp, R, ox, oy);
-        const grad = ctx!.createRadialGradient(cx + ox, cy + oy, R * 0.15, cx + ox, cy + oy, R * 1.25);
+        const grad = ctx!.createRadialGradient(
+          cx + ox,
+          cy + oy,
+          R * 0.15,
+          cx + ox,
+          cy + oy,
+          R * 1.25,
+        );
         const [h, s, l] = L.hsl;
-        grad.addColorStop(0, `hsla(${h}, ${s}%, ${l}%, ${(L.alpha + a * 0.06) * (1 - disp * 0.3)})`);
+        grad.addColorStop(
+          0,
+          `hsla(${h}, ${s}%, ${l}%, ${(L.alpha + a * 0.06) * (1 - disp * 0.3)})`,
+        );
         grad.addColorStop(1, `hsla(${h}, ${s}%, ${l}%, 0)`);
         ctx!.fillStyle = grad;
         ctx!.fill();
       }
       const mid = LAYERS[1];
-      blob(mid, t, (1 + a * 1.4) * breathe, baseR * mid.scale * (1 + disp * mid.spread),
-        pointer.current.x * 16 * dpr * mid.depth, pointer.current.y * 12 * dpr * mid.depth);
+      blob(
+        mid,
+        t,
+        (1 + a * 1.4) * breathe,
+        baseR * mid.scale * (1 + disp * mid.spread),
+        pointer.current.x * 16 * dpr * mid.depth,
+        pointer.current.y * 12 * dpr * mid.depth,
+      );
       ctx!.strokeStyle = `hsla(258, 78%, 60%, ${(0.22 + a * 0.12) * (1 - disp * 0.5)})`;
       ctx!.lineWidth = 1.4 * dpr;
       ctx!.stroke();
@@ -151,9 +211,12 @@ export function OrbField({ variant }: { variant: Variant }) {
       ripples(now, disp);
       const ay = t * 0.1 + pointer.current.x * 0.4;
       const ax = Math.sin(t * 0.08) * 0.1 + pointer.current.y * 0.25;
-      const cosY = Math.cos(ay), sinY = Math.sin(ay), cosX = Math.cos(ax), sinX = Math.sin(ax);
+      const cosY = Math.cos(ay),
+        sinY = Math.sin(ay),
+        cosX = Math.cos(ax),
+        sinX = Math.sin(ax);
       for (const p of pts) {
-        let x = p.x * cosY - p.z * sinY;
+        const x = p.x * cosY - p.z * sinY;
         let z = p.x * sinY + p.z * cosY;
         let y = p.y;
         const y2 = y * cosX - z * sinX;
@@ -179,7 +242,7 @@ export function OrbField({ variant }: { variant: Variant }) {
       const r0 = baseR * 0.52 * breathe * (1 + disp * 0.8);
       const maxLen = baseR * 0.52 * (1 + disp * 0.6);
       ctx!.lineCap = "round";
-      const bw = Math.max(2, (2 * Math.PI * r0 / NB) * 0.46);
+      const bw = Math.max(2, ((2 * Math.PI * r0) / NB) * 0.46);
       for (let i = 0; i < NB; i++) {
         const th = (i / NB) * Math.PI * 2;
         const seed = bars[i];
@@ -190,7 +253,8 @@ export function OrbField({ variant }: { variant: Variant }) {
         let amp = Math.max(0.16, 0.45 + 0.18 * s);
         amp *= 0.55 + a * 1.1;
         const len = maxLen * Math.min(1.35, amp);
-        const c = Math.cos(th), sn = Math.sin(th);
+        const c = Math.cos(th),
+          sn = Math.sin(th);
         const hue = 255 - Math.min(1, len / maxLen) * (255 - 22);
         ctx!.strokeStyle = `hsla(${hue}, 82%, 62%, ${0.55 * (1 - disp * 0.4)})`;
         ctx!.lineWidth = bw;
@@ -228,7 +292,8 @@ export function OrbField({ variant }: { variant: Variant }) {
             cy +
             Math.sin(nx * Math.PI * L.f * 3 + t * L.sp + L.ph) * amp0 * L.k * env +
             Math.sin(nx * Math.PI * L.f * 7 - t * L.sp * 0.7) * amp0 * L.k * 0.4 * env;
-          if (i === 0) ctx!.moveTo(x, y); else ctx!.lineTo(x, y);
+          if (i === 0) ctx!.moveTo(x, y);
+          else ctx!.lineTo(x, y);
         }
         ctx!.strokeStyle = `hsla(${L.hue}, 82%, 62%, ${L.al})`;
         ctx!.lineWidth = 2.4 * dpr;
@@ -272,13 +337,26 @@ export function OrbField({ variant }: { variant: Variant }) {
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div className="absolute -top-[14%] left-[8%] w-[48vw] h-[48vw] rounded-full blur-[150px] opacity-50 animate-aurora"
-        style={{ background: "radial-gradient(circle, #d7ccff, transparent 65%)" }} />
-      <div className="absolute top-[26%] right-[4%] w-[44vw] h-[44vw] rounded-full blur-[160px] opacity-40 animate-aurora [animation-delay:-7s]"
-        style={{ background: "radial-gradient(circle, #c8e6ff, transparent 65%)" }} />
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ opacity: 0.95 }} />
-      <div className="absolute inset-0"
-        style={{ background: "radial-gradient(100% 85% at 50% 40%, transparent 50%, var(--color-background) 100%)" }} />
+      <div
+        className="absolute -top-[14%] left-[8%] w-[48vw] h-[48vw] rounded-full blur-[150px] opacity-50 animate-aurora"
+        style={{ background: "radial-gradient(circle, #d7ccff, transparent 65%)" }}
+      />
+      <div
+        className="absolute top-[26%] right-[4%] w-[44vw] h-[44vw] rounded-full blur-[160px] opacity-40 animate-aurora [animation-delay:-7s]"
+        style={{ background: "radial-gradient(circle, #c8e6ff, transparent 65%)" }}
+      />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
+        style={{ opacity: 0.95 }}
+      />
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(100% 85% at 50% 40%, transparent 50%, var(--color-background) 100%)",
+        }}
+      />
     </div>
   );
 }
