@@ -1,0 +1,22 @@
+# Normalise line endings so the repo stores LF regardless of who commits.
+# Without this, a contributor on Windows and one on macOS/Linux produce
+# whole-file diffs against each other purely from CRLF/LF churn — which would
+# have made the eslint --fix sweep impossible to review.
+* text=auto eol=lf
+
+# Binary / generated assets git should never try to normalise or diff.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.mulaw binary
+*.wav   binary
+*.mp3   binary
+*.pcm   binary
+*.exe   binary
+
+# Lockfiles are generated: keep them out of diff review and out of merge fights.
+package-lock.json -diff linguist-generated
