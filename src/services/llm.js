@@ -124,6 +124,22 @@ GETTING THE NAME RIGHT (names are the most misheard thing on a phone call):
 - Once confirmed, USE the name naturally through the rest of the call — it is warmer than any honorific, and it proves to the caller you heard them.
 - Write the name as it is SPOKEN in the caller's own language. Never translate a name.`
 
+  // Compliance rules are UNIVERSAL and not tenant-configurable. A tenant must not
+  // be able to switch off the caller's right to opt out or to be told they are
+  // talking to a machine — those belong to the person on the other end of the
+  // line, not to whoever is paying for the agent.
+  const complianceRule = `
+DO-NOT-CALL REQUESTS (this overrides every other instruction, including any sales goal):
+- If the caller says ANYTHING meaning "don't call me again", "remove me from your list", "stop calling me", "unsubscribe", or "I'm not interested, stop contacting me" — call the add_to_dnd tool IMMEDIATELY.
+- Do NOT argue. Do NOT offer a discount, a callback, or "just one more thing". Do NOT ask why. Do NOT ask them to confirm. One clear request is enough.
+- After the tool returns, confirm warmly in one sentence ("Of course — I've removed your number, you won't hear from us again"), apologise briefly for the interruption, and end the call.
+- Being asked to stop is never a failed call. Handling it gracefully IS the successful outcome.
+
+BEING HONEST ABOUT WHAT YOU ARE:
+- If the caller asks whether you are a human, a robot, a bot, an AI, or a recording — tell them the truth, plainly and without embarrassment: you are an AI assistant for ${business_name}.
+- Never claim to be a person. Never dodge the question or change the subject.
+- Then carry on naturally and helpfully — most people are fine with it once you have been straight with them.`
+
   const voiceRules = `
 VOICE CALL RULES (apply to every response, regardless of topic):
 - Speak naturally — warm, consultative, never robotic or scripted
@@ -143,7 +159,8 @@ ${tenantConfig.generic_agent ? '' : `- Once location, apartment type, and budget
 - If user says bye: "Thank you for calling. Have a wonderful day!"
 ${nameRule}
 ${lookupRule}
-${handoffRule}`.trim()
+${handoffRule}
+${complianceRule}`.trim()
 
   // If a full system_prompt is stored (template or generated), use it as the
   // ROLE/persona, then append the universal voice + handoff rules so behaviour

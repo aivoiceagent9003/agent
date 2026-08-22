@@ -11,6 +11,7 @@ import agentRoutes from './api/agent.js'
 import authRoutes from './api/auth-routes.js'
 import signupRoutes from './api/signup.js'
 import opsRoutes from './api/ops.js'
+import dsrRoutes from './api/dsr.js'
 import { vobizAnswer, vobizHangup, handleVobizConnection, vobizTransferXml } from './telephony/vobiz.js'
 import { handleDemoConnection } from './telephony/demo.js'
 import { answerCampaign, handleCampaignConnection } from './telephony/campaign.js'
@@ -118,6 +119,7 @@ app.use('/api/client', clientRoutes)
 // Mount the Operations Center BEFORE the general admin router so /api/admin/ops/*
 // is handled by opsRoutes and not shadowed by adminRoutes' prefix.
 app.use('/api/admin/ops', opsRoutes)
+app.use('/api/admin/dsr', dsrRoutes)   // data-subject erasure (DPDP)
 app.use('/api/admin', adminRoutes)
 
 // ─── Vobiz telephony (Indian numbers) ─────────────────────────────────────────

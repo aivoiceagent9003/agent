@@ -20,6 +20,7 @@ import { buildSystemPrompt, getHistory } from './llm.js'
 import { buildLookupTools, runLookup } from './lookups.js'
 import { retrieveKnowledge, warmupRAG } from './rag.js'
 import { resolveGreeting } from './greeting.js'
+import { addToDnd } from './dnd.js'
 import { whatsappReady, resolveCfg, tenantWa, sendDocument, sendConfirmation, logWhatsApp } from './whatsapp.js'
 import { resolveSendable } from './sendables.js'
 import { detectHandoffKeyword, transferToHuman } from './handoff.js'
@@ -126,6 +127,21 @@ function buildGeminiTools(tenantConfig) {
       },
     })
   }
+  // Always declared, on every call. The right to ask not to be called again does
+  // not depend on which features the tenant enabled, and someone on an INBOUND
+  // call may equally want off the outbound list.
+  decls.push({
+    name: 'add_to_dnd',
+    description: "Record that this person does NOT want to be contacted again, and stop calling them. Call this the moment they say anything meaning 'do not call me again', 'remove me from your list', 'stop calling', or 'unsubscribe'. Do not argue, do not try to persuade them to stay, and do not ask why. Confirm warmly that they have been removed, then end the call politely.",
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: "Optional: their stated reason, in their own words, if they gave one. Leave out if they did not." },
+      },
+      required: [],
+    },
+  })
+
   if (whatsappReady(tenantConfig)) {
     decls.push({
       name: 'send_whatsapp',
@@ -713,6 +729,18 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
               const seen = trace.state.knowledgeMisses || []
               if (q && !seen.includes(q)) trace.set('knowledgeMisses', [...seen, q].slice(0, 20))
             }
+          } else if (fc.name === 'add_to_dnd') {
+            const res = await addToDnd({
+              tenantId: tenantConfig.tenant_id,
+              phone: callerNumber,
+              source: 'caller_request',
+              reason: fc.args?.reason || null,
+            })
+            output = res.ok
+              ? 'Done — they have been removed and will not be contacted again. Confirm this warmly, then say goodbye and end the call.'
+              : 'Could not record that automatically. Apologise, assure them it will be handled, and end the call politely.'
+            console.log(`[GEMINI] 🚫 add_to_dnd(${res.phone}) → ${res.ok ? (res.alreadyListed ? 'already listed' : 'added') : 'FAILED'}`)
+            trace?.set('optedOut', res.ok)
           } else if (fc.name === 'send_whatsapp') {
             output = await handleSendWhatsapp(tenantConfig, callerNumber, fc.args || {}, sentWhatsapp)
             console.log(`[GEMINI] 💬 send_whatsapp(${fc.args?.kind}) → ${output}`)

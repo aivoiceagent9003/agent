@@ -83,7 +83,13 @@ export function SiteFooter() {
           <div className="w-6 h-6 rounded bg-gradient-primary" />
           <span>© {new Date().getFullYear()} Vocera. All rights reserved.</span>
         </div>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
+          <Link to="/privacy" className="hover:text-foreground">
+            Privacy
+          </Link>
+          <Link to="/terms" className="hover:text-foreground">
+            Terms
+          </Link>
           <Link to="/signup" className="hover:text-foreground">
             Sign up
           </Link>
