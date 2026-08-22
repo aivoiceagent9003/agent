@@ -15,14 +15,8 @@ export function normalizePhone(raw, countryCode = DEFAULT_CC) {
   if (!raw) return null
   let s = String(raw).trim()
   const hasPlus = s.startsWith('+')
-  let digits = s.replace(/\D/g, '')
+  const digits = s.replace(/\D/g, '')
   if (!digits) return null
-  // Strip the national trunk prefix. "09876543210" is how Indian numbers are
-  // written locally, but '+0…' is not valid E.164 — it has no country code — so
-  // keeping the zero produced an undiallable value that ALSO failed to match the
-  // same person's number written any other way. That mismatch is what would let a
-  // do-not-call request silently miss: suppression compares exact strings.
-  if (!hasPlus && digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
   let e164
   if (hasPlus) e164 = '+' + digits
   else if (digits.length === 10) e164 = `+${countryCode}${digits}`               // bare local number

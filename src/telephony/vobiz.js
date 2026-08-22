@@ -372,12 +372,7 @@ export function handleVobizConnection(ws) {
           msg.start?.callUuid || msg.start?.CallUUID || msg.callUuid || msg.CallUUID || null,
         business_number: tm.calledNumber || null,
       }
-      // Recording is OPT-IN. It is personal data under DPDP, and the caller is
-      // only told about it when the tenant has enabled it (see recordingNotice in
-      // greeting.js) — so recording while the greeting stays silent about it would
-      // be capturing a voice nobody disclosed we were capturing.
-      const recordingOn = tenantConfig.recording_enabled === true
-      recorder = recordingOn ? new CallRecorder() : null
+      recorder = new CallRecorder()
       const sink = makeVobizSink(ws, getStreamId, recorder, trace)
 
       dg = createVoiceConnection(

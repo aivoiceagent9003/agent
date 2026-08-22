@@ -10,8 +10,6 @@ export interface ClientFormData {
   handoff_number: string;
   enable_handoff: boolean;
   enable_kb: boolean;
-  recording_enabled: boolean;
-  recording_notice: string;
   filler_phrases: string[];
   max_sentences: number;
 }
@@ -25,8 +23,6 @@ const defaults: ClientFormData = {
   handoff_number: "",
   enable_handoff: true,
   enable_kb: true,
-  recording_enabled: false,
-  recording_notice: "",
   filler_phrases: [],
   max_sentences: 2,
 };
@@ -160,40 +156,7 @@ export function ClientForm({
           checked={data.enable_kb}
           onChange={(v) => update("enable_kb", v)}
         />
-        <Toggle
-          label="Record calls"
-          checked={data.recording_enabled}
-          onChange={(v) => update("recording_enabled", v)}
-        />
       </div>
-
-      {/* Only shown when recording is on, because the disclosure is the whole
-          reason recording is allowed — it should appear as part of that decision,
-          not buried in a settings page somewhere else. */}
-      {data.recording_enabled && (
-        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
-          <p className="text-sm">
-            Callers are told at the start of every call that it is being recorded. This is
-            required before you may record someone, and the notice is spoken in the
-            caller&apos;s own language.
-          </p>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">
-              What the agent says{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
-            </label>
-            <input
-              value={data.recording_notice}
-              onChange={(e) => update("recording_notice", e.target.value)}
-              placeholder="This call is recorded for quality and training purposes."
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Leave blank to use the default wording above.
-            </p>
-          </div>
-        </div>
-      )}
 
       <div className="flex justify-end">
         <button

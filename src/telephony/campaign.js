@@ -132,9 +132,7 @@ export function handleCampaignConnection(ws) {
       callId = ctx.callId || null
       callSid = streamId || callId || `campaign-${Date.now()}`
       callStart = Date.now()
-      // Opt-in, same as inbound — see the note in vobiz.js.
-      const recordingOn = (ctx.config || {}).recording_enabled === true
-      recorder = recordingOn ? new CallRecorder() : null
+      recorder = new CallRecorder()
       trace = telemetry.startTrace({
         callSid, tenantId: ctx.tenantId, tenantName: ctx.tenantName,
         callerNumber: ctx.phone, businessNumber: ctx.fromNumber,
