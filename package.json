@@ -10,7 +10,8 @@
     "worker:dev": "nodemon src/worker.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/index.js",
-    "ci:imports": "node scripts/ci-import-check.js"
+    "ci:imports": "node scripts/ci-import-check.js",
+    "tunnel": "ngrok http --domain=tackling-facing-could.ngrok-free.dev 3000"
   },
   "keywords": [],
   "author": "",
