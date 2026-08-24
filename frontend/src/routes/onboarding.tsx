@@ -102,6 +102,8 @@ function Onboarding() {
   const [handoff, setHandoff] = useState("");
   const [multilingual, setMultilingual] = useState(true);
   const [voice, setVoice] = useState("");
+  const [recordingEnabled, setRecordingEnabled] = useState(false);
+  const [recordingNotice, setRecordingNotice] = useState("");
 
   // Hydrate the form from the saved agent (runs once when it loads).
   // - First-run (no number/config yet): only prefill the business name and let
@@ -129,6 +131,8 @@ function Onboarding() {
     setBuiltConfig(cfg);
     setAgentName(cfg.agent_name || "Priya");
     if (typeof cfg.allow_multilingual === "boolean") setMultilingual(cfg.allow_multilingual);
+    if (typeof cfg.recording_enabled === "boolean") setRecordingEnabled(cfg.recording_enabled);
+    if (cfg.recording_notice) setRecordingNotice(cfg.recording_notice);
     if (cfg.handoff_number) setHandoff(cfg.handoff_number);
     if (cfg.voice) setVoice(cfg.voice);
     if (Array.isArray(cfg.lookups)) setLookups(cfg.lookups);
@@ -153,6 +157,7 @@ function Onboarding() {
       agent_name: agentName,
       business_name: businessName,
       allow_multilingual: multilingual,
+      recording_enabled: recordingEnabled,
     };
     if (handoff.trim()) {
       cfg.handoff_number = handoff.trim();
@@ -163,6 +168,12 @@ function Onboarding() {
       cfg.enable_lookups = true;
     }
     if (voice.trim()) cfg.voice = voice.trim();
+    // Custom wording is kept only while recording is on, and cleared with an
+    // empty string rather than by omitting the key: the API MERGES this object
+    // over the stored config, so an absent key leaves the old value in the
+    // database and the wording silently reappears the next time recording is
+    // switched back on.
+    cfg.recording_notice = recordingEnabled ? recordingNotice.trim() : "";
     return cfg;
   }
 
@@ -478,6 +489,53 @@ function Onboarding() {
                   />
                 </button>
               </label>
+
+              {/* Recording is opt-in, and the disclosure is the whole reason it
+                  is allowed — so the wording lives directly under the toggle, as
+                  part of the same decision, rather than on a page nobody opens. */}
+              <div className="grid gap-2">
+                <label className="flex items-center justify-between gap-3 bg-input border border-border rounded-lg px-3 py-2.5 cursor-pointer">
+                  <span className="text-sm">Record calls</span>
+                  <button
+                    type="button"
+                    onClick={() => setRecordingEnabled((v) => !v)}
+                    className={`relative w-10 h-6 rounded-full transition ${recordingEnabled ? "bg-gradient-primary" : "bg-muted"}`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-card shadow transition ${recordingEnabled ? "left-[18px]" : "left-0.5"}`}
+                    />
+                  </button>
+                </label>
+
+                {recordingEnabled ? (
+                  <div className="rounded-lg border border-border bg-muted/30 p-4 grid gap-3">
+                    <p className="text-sm">
+                      Your agent tells every caller at the start of the call that it is being
+                      recorded. You must say so before recording someone, so this is spoken
+                      automatically — in the caller&apos;s own language.
+                    </p>
+                    <div className="grid gap-1.5">
+                      <label className="text-sm text-muted-foreground">
+                        What the agent says <span className="text-xs">(optional)</span>
+                      </label>
+                      <input
+                        value={recordingNotice}
+                        onChange={(e) => setRecordingNotice(e.target.value)}
+                        placeholder="This call is recorded for quality and training purposes."
+                        className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Leave blank to use the default wording above.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Calls are not recorded and no audio is saved. Turn this on to keep
+                    recordings for review — your agent will disclose it to every caller.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="mt-8 flex justify-between">
@@ -672,6 +730,7 @@ function Onboarding() {
               <Row label="Number to automate" value={phone} />
               <Row label="Human handoff" value={handoff.trim() || "Not set"} />
               <Row label="Multilingual" value={multilingual ? "Yes" : "No"} />
+              <Row label="Call recording" value={recordingEnabled ? "On — callers are told" : "Off"} />
               <Row label="Knowledge files" value={String(docs.length)} />
               <Row
                 label="Live data lookups"
