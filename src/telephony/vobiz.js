@@ -463,15 +463,34 @@ export function handleVobizConnection(ws) {
         consent_notice_played: noticePlayed,
         ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
       }
-      let { error: updErr } = await supabase.from('calls').update(callRow).eq('id', callId)
-      // Postgres rejects the ENTIRE update when one column is missing, and this is
-      // the write that persists the transcript — the most valuable thing the call
-      // produced. sql/compliance.sql may not be applied yet, so drop the compliance
-      // field and save the rest rather than lose a transcript to a migration gap.
-      if (updErr && /consent_notice_played/.test(updErr.message || '')) {
-        delete callRow.consent_notice_played
-        console.warn('[VOBIZ] consent_notice_played column missing — run sql/compliance.sql. Saving call without consent evidence.')
-        ;({ error: updErr } = await supabase.from('calls').update(callRow).eq('id', callId))
+      // Postgres rejects the ENTIRE update when a single column is missing, and this
+      // is the write that persists the transcript — the most valuable thing the call
+      // produced. Migrations in sql/ get applied late or not at all (analytics.sql and
+      // compliance.sql have both been missing in practice), and losing a transcript to
+      // a migration gap is a far worse outcome than losing a metric. So: drop whichever
+      // column the database says it does not know, and retry with the rest.
+      //
+      // ESSENTIAL is never dropped. Without these the row is not a record of the call
+      // at all, and silently writing a hollow row would be worse than failing loudly.
+      const ESSENTIAL = new Set(['status', 'transcript', 'duration_seconds'])
+      const dropped = []
+      let updErr = null
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const { error } = await supabase.from('calls').update(callRow).eq('id', callId)
+        updErr = error
+        if (!error) break
+        // PostgREST names the offending column: "Could not find the 'x' column of …"
+        const missing = /Could not find the '([^']+)' column/.exec(error.message || '')?.[1]
+        if (!missing || ESSENTIAL.has(missing) || !(missing in callRow)) break
+        delete callRow[missing]
+        dropped.push(missing)
+      }
+      if (dropped.length) {
+        console.warn(`[VOBIZ] calls table is missing ${dropped.join(', ')} — run the pending sql/ migrations. Call saved without ${dropped.length === 1 ? 'it' : 'them'}.`)
+        telemetry.recordServiceEvent({
+          component: 'telephony', severity: 'warn', kind: 'calls_schema_behind',
+          detail: { missing: dropped, callSid },
+        })
       }
       // Previously unchecked: a failure here silently discarded the transcript.
       if (updErr) {
