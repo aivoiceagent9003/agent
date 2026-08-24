@@ -18,6 +18,7 @@ import { clearHistory, getHistory } from '../services/llm.js'
 const createVoiceConnection = createGeminiLiveConnection
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
+import { recordingNotice } from '../services/greeting.js'
 import { saveKnowledgeGaps } from '../services/rag.js'
 import { supabase } from '../api/db.js'
 import telemetry from '../services/telemetry.js'
@@ -301,6 +302,11 @@ export function handleVobizConnection(ws) {
   let finalized = false
   let recorder = null
   let trace = null
+  // Evidence that the disclosure went out on THIS call. "Our greeting normally
+  // says so" is not an answer about a specific call, which is the whole reason
+  // the column exists — so it has to be stamped from the same condition that
+  // decides whether to record at all.
+  let noticePlayed = false
 
   const getStreamId = () => streamId
 
@@ -377,6 +383,7 @@ export function handleVobizConnection(ws) {
       // greeting.js) — so recording while the greeting stays silent about it would
       // be capturing a voice nobody disclosed we were capturing.
       const recordingOn = tenantConfig.recording_enabled === true
+      noticePlayed = recordingNotice(tenantConfig) !== ''
       recorder = recordingOn ? new CallRecorder() : null
       const sink = makeVobizSink(ws, getStreamId, recorder, trace)
 
@@ -451,12 +458,29 @@ export function handleVobizConnection(ws) {
       }
 
       const updSpan = trace?.span('db_call_update', { latencyOp: 'supabase' })
-      await supabase.from('calls')
-        .update({
-          status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath,
-          ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
+      const callRow = {
+        status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath,
+        consent_notice_played: noticePlayed,
+        ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
+      }
+      let { error: updErr } = await supabase.from('calls').update(callRow).eq('id', callId)
+      // Postgres rejects the ENTIRE update when one column is missing, and this is
+      // the write that persists the transcript — the most valuable thing the call
+      // produced. sql/compliance.sql may not be applied yet, so drop the compliance
+      // field and save the rest rather than lose a transcript to a migration gap.
+      if (updErr && /consent_notice_played/.test(updErr.message || '')) {
+        delete callRow.consent_notice_played
+        console.warn('[VOBIZ] consent_notice_played column missing — run sql/compliance.sql. Saving call without consent evidence.')
+        ;({ error: updErr } = await supabase.from('calls').update(callRow).eq('id', callId))
+      }
+      // Previously unchecked: a failure here silently discarded the transcript.
+      if (updErr) {
+        console.error('[VOBIZ] call row update failed:', updErr.message)
+        telemetry.recordServiceEvent({
+          component: 'telephony', severity: 'error', kind: 'call_update_failed',
+          detail: { error: updErr.message, callSid },
         })
-        .eq('id', callId)
+      }
       updSpan?.end()
 
       // Questions the agent couldn't answer, collected during the call. Surfaced
