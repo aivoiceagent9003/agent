@@ -10,6 +10,7 @@
 //   DIAL_RATE_MAX / DIAL_RATE_DURATION_MS (token-bucket per queue).
 
 import { Worker } from 'bullmq'
+import { startRetentionSchedule } from './jobs/retention.js'
 import { bullConnection, REDIS_ENABLED } from './queue/connection.js'
 import { QUEUE_NAMES } from './queue/queues.js'
 import { executeDial, executeBroadcast, executeRetry, sweepStaleDialing } from './services/campaigns/execute.js'
@@ -79,9 +80,15 @@ const sweepTimer = setInterval(() => {
     .catch((e) => console.error('[WORKER] stale-dial sweep failed:', e.message))
 }, 60_000)
 
+// Nightly retention pass — deletes recordings and pseudonymises callers past the
+// tenant's window. Runs here rather than in the API so it happens once, not once
+// per replica.
+const stopRetention = startRetentionSchedule()
+
 async function shutdown() {
   console.log('[WORKER] shutting down…')
   clearInterval(sweepTimer)
+  stopRetention()
   await Promise.all(Object.values(workers).map(w => w.close()))
   process.exit(0)
 }

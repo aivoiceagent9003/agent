@@ -192,6 +192,12 @@ export async function startInlineRunner() {
 
   const { supabase, execute } = await mods()
 
+  // Retention runs here as well as in the worker. The two are mutually exclusive —
+  // inline only activates when Redis is absent, and the worker requires it — so
+  // this covers the single-process path without any risk of both running.
+  const { startRetentionSchedule } = await import('../jobs/retention.js')
+  startRetentionSchedule()
+
   // Stale-dial sweep (mirrors worker.js): contacts stuck 'dialing' → no_answer + retry.
   setInterval(() => {
     execute.sweepStaleDialing()
