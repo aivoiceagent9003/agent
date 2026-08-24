@@ -22,16 +22,30 @@ export function normalizePhone(raw, countryCode = DEFAULT_CC) {
   // keeping the zero produced an undiallable value that ALSO failed to match the
   // same person's number written any other way. That mismatch is what would let a
   // do-not-call request silently miss: suppression compares exact strings.
-  if (!hasPlus && digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
+  // "00" is the international access prefix: 00919876543210 is how you dial
+  // +919876543210 from an Indian landline. E.164 uses the leading '+' in its
+  // place, so treat it as an explicit country code rather than letting the zeros
+  // through as digits — otherwise this lands as '+0091…', which is undiallable.
+  let explicitCc = hasPlus
+  if (!hasPlus && digits.length > 10 && digits.startsWith('00')) {
+    digits = digits.slice(2)
+    explicitCc = true
+  }
+  if (!explicitCc && digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
   let e164
-  if (hasPlus) e164 = '+' + digits
+  if (explicitCc) e164 = '+' + digits
   else if (digits.length === 10) e164 = `+${countryCode}${digits}`               // bare local number
   else if (digits.startsWith(countryCode) && digits.length > 10) e164 = '+' + digits
   else if (digits.length > 10) e164 = '+' + digits
   else return null                                                                // too short
-  // E.164 allows up to 15 digits total.
+  // E.164 allows up to 15 digits total, and no country code begins with zero.
+  // Rejecting a leading zero here is deliberate: a malformed value like '+0091…'
+  // is undiallable AND would never match the same person written correctly, so
+  // letting it through would put a number in the suppression list that silently
+  // fails to suppress. A rejected row surfaces as a visible import error instead.
   const nd = e164.slice(1)
   if (nd.length < 8 || nd.length > 15) return null
+  if (nd.startsWith('0')) return null
   return e164
 }
 
