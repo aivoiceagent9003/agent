@@ -513,7 +513,14 @@ export function handleVobizConnection(ws) {
         if (history && history.length > 0) {
           const leadSpan = trace?.span('lead_extraction')
           try {
-            const lead = await extractLead(history, tenant.config || {})
+            // The live classifier measured the call language turn by turn; the
+            // extractor would otherwise re-guess it from the transcript and can
+            // get it plainly wrong. Undefined for native-audio models, which run
+            // without a LanguageManager — the extractor then falls back to its
+            // own inference, which is the best available signal in that case.
+            const lead = await extractLead(history, tenant.config || {}, {
+              knownLanguage: trace?.state?.language || null,
+            })
             if (lead) await saveLead(supabase, { tenantId: tenant.id, callId, callerNumber, lead })
             leadSpan?.end({ attrs: { extracted: !!lead, intent: lead?.intent || null } })
           } catch (e) {
