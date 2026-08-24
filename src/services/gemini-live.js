@@ -385,7 +385,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   // The language the caller will actually HEAR first. Anchors turn one, which the
   // LanguageManager cannot: it has no verdict until the first substantive utterance.
   // Null for native-audio models — they mirror language natively and aren't steered.
-  const openingLang = langMgr ? langMgr.guessLanguage(resolveGreeting(tenantConfig)) : null
+  // Without the recording notice: it is a fixed English sentence, and letting it
+  // into the sample would pull the guess toward English on a call whose greeting
+  // is Hindi or Telugu.
+  const openingLang = langMgr ? langMgr.guessLanguage(resolveGreeting(tenantConfig, { includeNotice: false })) : null
   if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG()
 
   const sendAudioToCaller = (mulawB64) => {
