@@ -44,12 +44,77 @@ export function setToken(t: string) {
 
 export function clearToken() {
   localStorage.removeItem("vocera_token");
+  localStorage.removeItem("vocera_refresh");
+  localStorage.removeItem("vocera_expires");
   resetCache?.();
 }
 
-export async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getToken();
-  const res = await fetch(`${BASE_URL}${path}`, {
+// ─── Refresh ─────────────────────────────────────────────────────────────────
+// Access tokens last about an hour, after which every request 401s and the user
+// is bounced to /login mid-task. The refresh token buys a new one.
+//
+// Supabase ROTATES refresh tokens: each refresh returns a new one. The previous
+// token stays valid for a short reuse window (Supabase default: 10s) rather than
+// dying instantly, so a burst of refreshes will not usually log anyone out.
+//
+// It is still wrong to let them run independently. Every dashboard page has
+// several queries in flight, so an expired access token means N simultaneous
+// refreshes: N round-trips racing each other to write localStorage, where the
+// last writer can persist a token older than one already stored — and any that
+// arrive after the reuse window has closed fail outright. `inFlight` makes every
+// concurrent caller await the SAME refresh, so exactly one is ever issued.
+export interface Session {
+  token: string;
+  refresh_token?: string | null;
+  expires_at?: number | null;
+}
+
+export function setSession(s: Session) {
+  setToken(s.token);
+  if (s.refresh_token) localStorage.setItem("vocera_refresh", s.refresh_token);
+  if (s.expires_at) localStorage.setItem("vocera_expires", String(s.expires_at));
+}
+
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("vocera_refresh");
+}
+
+let inFlight: Promise<string | null> | null = null;
+
+/** Returns a fresh access token, or null if the session is truly over. */
+export function refreshSession(): Promise<string | null> {
+  if (inFlight) return inFlight;
+  const refresh_token = getRefreshToken();
+  if (!refresh_token) return Promise.resolve(null);
+
+  inFlight = (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token }),
+      });
+      if (!res.ok) return null;
+      const body = await res.json();
+      if (!body?.token) return null;
+      // Persist the ROTATED refresh token, not just the access token — missing
+      // this makes the next refresh fail and the session die after two hours.
+      setSession(body);
+      return body.token as string;
+    } catch {
+      // Network failure, not an auth failure. Returning null signs the user out,
+      // which is the safe direction: a stale token cannot be smuggled onward.
+      return null;
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+function send(path: string, init: RequestInit, token: string | null) {
+  return fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -57,6 +122,20 @@ export async function apiFetch<T = any>(path: string, init: RequestInit = {}): P
       ...(init.headers || {}),
     },
   });
+}
+
+export async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  let res = await send(path, init, getToken());
+
+  // One 401 is not proof the session is over — it is usually just an access token
+  // that aged out. Try a single refresh and replay before evicting the user.
+  // Exactly one retry: if the replay 401s too, the session really is finished and
+  // looping would only delay saying so.
+  if (res.status === 401) {
+    const fresh = await refreshSession();
+    if (fresh) res = await send(path, init, fresh);
+  }
+
   if (res.status === 401) {
     clearToken();
     if (typeof window !== "undefined") window.location.href = "/login";

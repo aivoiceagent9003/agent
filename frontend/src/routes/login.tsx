@@ -10,7 +10,7 @@
 
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { setToken } from "@/lib/api";
+import { setSession } from "@/lib/api";
 import { login, loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
 import { Phone, Eye, EyeOff } from "lucide-react";
@@ -55,8 +55,9 @@ function LoginPage() {
     const password = String(fd.get("password"));
     try {
       if (!email || !password) throw new Error("Email and password required");
-      const { token, role } = await login(email, password);
-      setToken(token);
+      const session = await login(email, password);
+      const { role } = session;
+      setSession(session);
       toast.success("Welcome back!");
       land(role);
     } catch (err: any) {
@@ -69,8 +70,9 @@ function LoginPage() {
   async function onGoogle(credential: string) {
     setLoading(true);
     try {
-      const { token, role, is_new } = await loginWithGoogle(credential);
-      setToken(token);
+      const session = await loginWithGoogle(credential);
+      const { role, is_new } = session;
+      setSession(session);
       toast.success("Welcome!");
       land(role, is_new);
     } catch (err: any) {

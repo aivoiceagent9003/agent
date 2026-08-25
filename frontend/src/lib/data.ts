@@ -24,7 +24,13 @@ const weekday = (date: string) => new Date(date).toLocaleDateString("en", { week
 export async function login(
   email: string,
   password: string,
-): Promise<{ token: string; role: string; tenant_id: string | null }> {
+): Promise<{
+  token: string;
+  refresh_token?: string | null;
+  expires_at?: number | null;
+  role: string;
+  tenant_id: string | null;
+}> {
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -41,7 +47,14 @@ export async function login(
 // login, plus `is_new` so we can route first-time users into onboarding.
 export async function loginWithGoogle(
   credential: string,
-): Promise<{ token: string; role: string; tenant_id: string | null; is_new: boolean }> {
+): Promise<{
+  token: string;
+  refresh_token?: string | null;
+  expires_at?: number | null;
+  role: string;
+  tenant_id: string | null;
+  is_new: boolean;
+}> {
   const res = await fetch(`${BASE_URL}/api/auth/google`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

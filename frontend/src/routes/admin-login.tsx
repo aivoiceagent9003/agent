@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { setToken, clearToken } from "@/lib/api";
+import { setSession, clearToken } from "@/lib/api";
 import { login } from "@/lib/data";
 import { toast } from "sonner";
 import { Shield } from "lucide-react";
@@ -23,12 +23,12 @@ function AdminLogin() {
       const email = String(fd.get("email"));
       const password = String(fd.get("password"));
       if (!email || !password) throw new Error("Email and password required");
-      const { token, role } = await login(email, password);
-      if (role !== "admin") {
+      const session = await login(email, password);
+      if (session.role !== "admin") {
         clearToken();
         throw new Error("This account is not an admin");
       }
-      setToken(token);
+      setSession(session);
       toast.success("Welcome, admin");
       navigate({ to: "/admin" });
     } catch (err: any) {
