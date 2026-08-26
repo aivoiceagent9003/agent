@@ -26,17 +26,10 @@ const DEFAULT_PRICE_PER_MIN = Number(process.env.PRICE_PER_MIN_USD || 0.30)
 // ─── Section 1: Executive Operations Dashboard ────────────────────────────────
 router.get('/overview', async (_req, res) => {
   try {
-    const snapshot = telemetry.getSnapshot()
-    // Call counts come from the calls table, not this process's memory. The
-    // in-memory ring is empty after every restart, so the dashboard used to read
-    // zero however many calls the business had actually taken. Infra figures in
-    // the snapshot stay as they are — they describe THIS process and have no
-    // historical meaning. Returns null if the database is unreachable, in which
-    // case the in-memory figures stand rather than the panel breaking.
-    const persisted = await telemetry.getPersistedCallStats()
+    // Shared with the ops-stream heartbeat so the socket cannot contradict this
+    // response five seconds later — see getOverviewSnapshot.
     res.json({
-      ...snapshot,
-      ...(persisted || {}),
+      ...(await telemetry.getOverviewSnapshot()),
       series: telemetry.getTimeSeries(180),   // ~15 min of 5s samples for live charts
     })
   } catch (e) {

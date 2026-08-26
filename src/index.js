@@ -238,13 +238,22 @@ opsWss.on('connection', async (ws, req) => {
   const safeSend = (obj) => { try { if (ws.readyState === 1) ws.send(JSON.stringify(obj)) } catch {} }
 
   // Initial snapshot so the client renders immediately, then live deltas.
-  safeSend({ type: 'snapshot', snapshot: telemetry.getSnapshot(), calls: telemetry.getActiveCalls() })
+  //
+  // getOverviewSnapshot, NOT getSnapshot: this payload lands in the same client
+  // cache as GET /overview, so pushing the raw in-memory snapshot here overwrote
+  // the database-backed call counts every 5 seconds and the tiles flickered.
+  const sendSnapshot = async () => {
+    try {
+      safeSend({ type: 'snapshot', snapshot: await telemetry.getOverviewSnapshot(), calls: telemetry.getActiveCalls() })
+    } catch { /* a heartbeat is never worth throwing over */ }
+  }
+  sendSnapshot()
 
   const forward = ({ event, payload }) => safeSend({ type: 'event', event, payload })
   telemetry.bus.on('*', forward)
 
   // Periodic snapshot heartbeat (covers anything not captured by deltas + keepalive).
-  const hb = setInterval(() => safeSend({ type: 'snapshot', snapshot: telemetry.getSnapshot(), calls: telemetry.getActiveCalls() }), 5000)
+  const hb = setInterval(sendSnapshot, 5000)
 
   ws.on('close', () => { telemetry.bus.off('*', forward); clearInterval(hb) })
   ws.on('error', () => { telemetry.bus.off('*', forward); clearInterval(hb) })

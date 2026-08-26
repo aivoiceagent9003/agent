@@ -481,6 +481,20 @@ export function getTimeSeries(limit = TIMESERIES_MAX) { return series.toArray().
 const STATS_CACHE_MS = Number(process.env.OPS_STATS_CACHE_MS || 30_000)
 let _statsCache = { at: 0, data: null }
 
+// THE source of truth for "the dashboard snapshot". Both the /overview endpoint
+// and the ops-stream heartbeat must serve identical numbers.
+//
+// When they diverged the page visibly flickered: the REST poll set callsToday
+// from the database, then five seconds later the socket pushed a raw getSnapshot()
+// carrying the in-memory 0 into the same React Query cache, and every tile
+// alternated between the real figure and zero. Two callers assembling "the same"
+// payload independently is what allowed that, so there is now only one.
+export async function getOverviewSnapshot() {
+  const snapshot = getSnapshot()
+  const persisted = await getPersistedCallStats()
+  return { ...snapshot, ...(persisted || {}) }
+}
+
 export async function getPersistedCallStats() {
   if (_statsCache.data && Date.now() - _statsCache.at < STATS_CACHE_MS) return _statsCache.data
   try {
@@ -617,7 +631,7 @@ export default {
   bus, startTrace, endTrace, getTrace, getTraceDetail, getActiveCalls, getRecentTraces,
   callQuality,
   recordLatency, getLatencyStats, getSnapshot, getTimeSeries, getMetricHistory,
-  getPersistedCallStats,
+  getPersistedCallStats, getOverviewSnapshot,
   incr, getCounter, getCounters, gaugeInc, gaugeDec, gaugeSet,
   recordServiceEvent, getServiceEvents,
   registerControl, unregisterControl, getControl,
