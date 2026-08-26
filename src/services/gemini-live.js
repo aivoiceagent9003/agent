@@ -44,28 +44,38 @@ const GEMINI_VOICE = process.env.GEMINI_VOICE || 'Aoede'   // fallback prebuilt 
 const IS_NATIVE_AUDIO = /native-audio/i.test(GEMINI_MODEL)
 
 // ─── Audio helpers ───────────────────────────────────────────────────────────
+// G.711 μ-law → linear PCM16, as a 256-entry table because this runs on every
+// inbound frame of every call.
+//
+// Per ITU-T G.711: bias 0x84 (132), mantissa shifted left 3, then left by the
+// exponent. The previous implementation used bias 33 and shifted by exp-1, which
+// is not G.711. It peaked at 20383 where the standard peaks at 32124, and — the
+// part that actually mattered — it was non-linear against the real curve, landing
+// anywhere from 0.25x to 1.94x of the correct sample depending on its value. That
+// is waveform distortion, not quiet audio, and it sat on the INBOUND path: every
+// word a caller spoke reached the model misshapen.
+//
+// pcm16ToMulaw below has always used the standard bias, so the two never agreed
+// with each other. decode(encode(x)) !== x, which is what the round-trip test in
+// tests/audio.test.js caught.
 const MULAW_DECODE = (() => {
   const t = new Int16Array(256)
   for (let i = 0; i < 256; i++) {
-    let u = ~i & 0xFF
-    const sign = u & 0x80
-    const exp = (u >> 4) & 0x07
-    let mant = (u & 0x0F) << 1
-    mant += 33
-    if (exp > 0) mant += 0x100
-    if (exp > 1) mant <<= exp - 1
-    t[i] = sign ? 33 - mant : mant - 33
+    const u = ~i & 0xFF
+    let m = ((u & 0x0F) << 3) + 0x84   // mantissa + bias
+    m <<= (u & 0x70) >> 4              // scale by exponent
+    t[i] = (u & 0x80) ? (0x84 - m) : (m - 0x84)
   }
   return t
 })()
 
-function mulawToPcm16(mulawBuf) {
+export function mulawToPcm16(mulawBuf) {
   const pcm = Buffer.alloc(mulawBuf.length * 2)
   for (let i = 0; i < mulawBuf.length; i++) pcm.writeInt16LE(MULAW_DECODE[mulawBuf[i]], i * 2)
   return pcm
 }
 
-function pcm16ToMulaw(pcmBuf) {
+export function pcm16ToMulaw(pcmBuf) {
   const samples = pcmBuf.length >> 1
   const out = Buffer.alloc(samples)
   for (let i = 0; i < samples; i++) {
@@ -83,7 +93,7 @@ function pcm16ToMulaw(pcmBuf) {
 }
 
 // 8kHz → 16kHz: linear interpolation (one extra sample between each pair).
-function upsample8to16(pcm8) {
+export function upsample8to16(pcm8) {
   const n = pcm8.length >> 1
   const out = Buffer.alloc(n * 4)
   for (let i = 0; i < n; i++) {
@@ -96,7 +106,7 @@ function upsample8to16(pcm8) {
 }
 
 // 24kHz → 8kHz: average each group of 3 samples (cheap anti-alias).
-function downsample24to8(pcm24) {
+export function downsample24to8(pcm24) {
   const n = pcm24.length >> 1
   const outN = Math.floor(n / 3)
   const out = Buffer.alloc(outN * 2)
