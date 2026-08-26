@@ -60,10 +60,22 @@ export function requireWebhookSecret() {
 // independently, and it is scoped with a label so a signature minted here cannot
 // be replayed against some other endpoint that happens to use the same secret.
 
+// The payload is JSON-encoded rather than joined with a delimiter. Interpolating
+// `${to}|${callerId}` made the field boundary ambiguous: ("+9198765", "43210|+918")
+// and ("+9198765|43210", "+918") produced the SAME payload and therefore the same
+// signature, so a signature issued for one authorised the other.
+//
+// isE164 rejects "|" today, so nothing could reach this with a delimiter in it —
+// this was latent, not exploitable. It is fixed for the same reason xmlEscape is
+// kept below: a control that depends on a validator somewhere else staying exactly
+// as strict is one refactor away from being no control at all.
+//
+// v2 because the encoding changed. A signature minted by v1 will not verify here,
+// which matters only for a transfer already in flight across a deploy.
 export function signDestination(to, callerId) {
   return crypto
     .createHmac('sha256', SECRET)
-    .update(`vobiz-transfer:v1:${to}|${callerId || ''}`)
+    .update(`vobiz-transfer:v2:${JSON.stringify([String(to ?? ''), String(callerId ?? '')])}`)
     .digest('hex')
     .slice(0, 32)
 }
