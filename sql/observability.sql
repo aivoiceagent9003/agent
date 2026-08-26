@@ -65,3 +65,15 @@ create index if not exists service_events_ts_idx
   on public.service_events (ts desc);
 create index if not exists service_events_component_idx
   on public.service_events (component, severity, ts desc);
+
+-- ─── metric_rollups: min / max ────────────────────────────────────────────────
+-- The rollup carried p50/p90/p95/p99/avg/count but not min or max, while the
+-- Latency dashboard renders both. Without them a database-backed latency view has
+-- to report 0, which reads as "0ms" rather than "not recorded".
+--
+-- Safe to re-run. Rows written before this migration keep null, and the API
+-- coalesces those to 0 — historical min/max is genuinely unknown and there is no
+-- way to reconstruct it from percentiles.
+alter table public.metric_rollups
+  add column if not exists min double precision,
+  add column if not exists max double precision;

@@ -69,10 +69,13 @@ router.get('/calls/:callSid/trace', async (req, res) => {
 })
 
 // ─── Section 4: Latency Dashboard ─────────────────────────────────────────────
-router.get('/latency', (req, res) => {
+router.get('/latency', async (req, res) => {
   try {
-    if (req.query.op) return res.json({ op: req.query.op, ...telemetry.getLatencyStats(req.query.op) })
-    res.json(telemetry.getLatencyStats())
+    // Merged, not raw: getLatencyStats() reads the in-memory rings, which are empty
+    // after a restart — so this page showed nothing at all until a call came in,
+    // while metric_rollups held two months of samples.
+    if (req.query.op) return res.json({ op: req.query.op, ...(await telemetry.getLatencyStatsMerged(req.query.op)) })
+    res.json(await telemetry.getLatencyStatsMerged())
   } catch (e) {
     console.error('[OPS] latency error:', e.message)
     res.status(500).json({ error: 'Could not load latency' })
