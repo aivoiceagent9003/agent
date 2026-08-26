@@ -53,15 +53,16 @@ router.get('/calls/live', (_req, res) => {
 })
 
 // Recently completed calls (for the console's "recent" tab + trace entry points).
-router.get('/calls/recent', (req, res) => {
+router.get('/calls/recent', async (req, res) => {
   const limit = Math.min(500, parseInt(req.query.limit) || 100)
-  res.json({ calls: telemetry.getRecentTraces(limit) })
+  // Reads persisted history, not just this process's memory — see getRecentTraces.
+  res.json({ calls: await telemetry.getRecentTraces(limit) })
 })
 
 // ─── Section 3: Distributed Tracing ───────────────────────────────────────────
-router.get('/calls/:callSid/trace', (req, res) => {
-  const detail = telemetry.getTraceDetail(req.params.callSid)
-  if (!detail) return res.status(404).json({ error: 'Trace not found (it may have aged out of the buffer)' })
+router.get('/calls/:callSid/trace', async (req, res) => {
+  const detail = await telemetry.getTraceDetail(req.params.callSid)
+  if (!detail) return res.status(404).json({ error: 'Trace not found' })
   res.json(detail)
 })
 

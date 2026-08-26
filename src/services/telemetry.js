@@ -285,14 +285,57 @@ export function endTrace(callSid, { status = 'completed' } = {}) {
   }
 }
 
+// Every completed trace is written to call_traces by persistTrace(). For a long
+// time nothing read it back: both accessors below served ONLY the in-memory ring,
+// which is process-local and empty after every restart. The effect was that the
+// Operations Center showed just the calls placed since the last boot — so any
+// average was computed over a handful of samples, or one, and the history sitting
+// in the database was invisible.
+//
+// Memory first, database second. Memory has the live and just-ended calls, which
+// may not have reached Postgres yet; the database has everything older.
+
 // Lookup a completed trace's full waterfall (for the tracing dashboard).
-export function getTraceDetail(callSid) {
+export async function getTraceDetail(callSid) {
   const active = activeTraces.get(callSid)
   if (active) return active.toJSON()
-  return recentBySid.get(callSid) || null
+  const cached = recentBySid.get(callSid)
+  if (cached) return cached
+  try {
+    const sb = await db()
+    if (!sb) return null
+    const { data } = await sb.from('call_traces').select('summary').eq('call_sid', callSid).maybeSingle()
+    return data?.summary || null
+  } catch {
+    return null   // history is best-effort; never surface a DB fault as a 500 here
+  }
 }
-export function getRecentTraces(limit = 100) {
-  return recentTraces.toArray().slice(-limit).reverse()
+
+export async function getRecentTraces(limit = 100) {
+  const live = recentTraces.toArray().slice(-limit).reverse()
+  try {
+    const sb = await db()
+    if (!sb) return live
+    const { data } = await sb
+      .from('call_traces')
+      .select('call_sid, summary')
+      .order('started_at', { ascending: false })
+      .limit(limit)
+    if (!data?.length) return live
+    // Dedupe by callSid with the in-memory copy winning: a call that just ended
+    // is fresher in memory than the row persistTrace() is still writing.
+    const seen = new Set(live.map(t => t.callSid))
+    const merged = [...live]
+    for (const row of data) {
+      if (!row.summary || seen.has(row.call_sid)) continue
+      seen.add(row.call_sid)
+      merged.push(row.summary)
+    }
+    merged.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))
+    return merged.slice(0, limit)
+  } catch {
+    return live   // degrade to whatever this process has seen
+  }
 }
 
 // ─── Service events (errors / downtime seeds — used by later phases) ──────────
