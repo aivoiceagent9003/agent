@@ -82,6 +82,7 @@ function ExecDashboard() {
           <Stat icon={PhoneCall} label="Active calls" value={o.activeCalls} accent />
           <Stat icon={Clock} label="Calls this hour" value={o.callsThisHour} />
           <Stat icon={PhoneCall} label="Calls today" value={o.callsToday} />
+          <Stat icon={PhoneCall} label="Calls all time" value={o.callsAllTime ?? 0} />
           <Stat icon={Boxes} label="Peak concurrent" value={o.peakConcurrentCalls} />
           <Stat icon={Boxes} label="Avg concurrent" value={o.avgConcurrentCalls} />
           <Stat icon={Timer} label="Avg call duration" value={fmtDuration(o.avgCallDurationMs)} />

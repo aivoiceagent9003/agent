@@ -30,6 +30,7 @@ export interface OpsSnapshot {
   healthScore: number;
   activeCalls: number;
   callsToday: number;
+  callsAllTime?: number;
   callsThisHour: number;
   peakConcurrentCalls: number;
   avgConcurrentCalls: number;

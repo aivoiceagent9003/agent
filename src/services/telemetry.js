@@ -466,6 +466,53 @@ export function getSnapshot() {
 
 export function getTimeSeries(limit = TIMESERIES_MAX) { return series.toArray().slice(-limit) }
 
+// ─── Persisted call statistics ───────────────────────────────────────────────
+// getSnapshot() computes callsToday, callsThisHour and the duration average from
+// the in-memory ring and latency rings. Those are process-local and empty after a
+// restart, so the executive dashboard read zero however many calls the business
+// had actually taken — while the calls table held every one of them.
+//
+// Infra numbers (CPU, heap, event-loop delay, live sockets) stay in memory, which
+// is correct: they describe THIS process and have no meaning historically. Only
+// the business counts are re-sourced here.
+//
+// Cached for CACHE_MS because the overview endpoint is polled continuously by
+// every open dashboard; without it each poll would be three round-trips.
+const STATS_CACHE_MS = Number(process.env.OPS_STATS_CACHE_MS || 30_000)
+let _statsCache = { at: 0, data: null }
+
+export async function getPersistedCallStats() {
+  if (_statsCache.data && Date.now() - _statsCache.at < STATS_CACHE_MS) return _statsCache.data
+  try {
+    const sb = await db()
+    if (!sb) return null
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString()
+    const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString()
+
+    const [today, hour, total, durations] = await Promise.all([
+      sb.from('calls').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay.toISOString()),
+      sb.from('calls').select('id', { count: 'exact', head: true }).gte('created_at', hourAgo),
+      sb.from('calls').select('id', { count: 'exact', head: true }),
+      sb.from('calls').select('duration_seconds').gt('duration_seconds', 0).gte('created_at', weekAgo).limit(1000),
+    ])
+
+    const durs = (durations.data || []).map(r => r.duration_seconds).filter(n => n > 0)
+    const data = {
+      callsToday: today.count ?? 0,
+      callsThisHour: hour.count ?? 0,
+      callsAllTime: total.count ?? 0,
+      // Averaged over the last week rather than all time: a duration average
+      // spanning every call ever made stops responding to anything.
+      avgCallDurationMs: durs.length ? Math.round((durs.reduce((a, b) => a + b, 0) / durs.length) * 1000) : 0,
+    }
+    _statsCache = { at: Date.now(), data }
+    return data
+  } catch {
+    return null   // caller keeps the in-memory figures; never fail the dashboard
+  }
+}
+
 function isSameDay(a, b) {
   const da = new Date(a), db = new Date(b)
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate()
@@ -570,6 +617,7 @@ export default {
   bus, startTrace, endTrace, getTrace, getTraceDetail, getActiveCalls, getRecentTraces,
   callQuality,
   recordLatency, getLatencyStats, getSnapshot, getTimeSeries, getMetricHistory,
+  getPersistedCallStats,
   incr, getCounter, getCounters, gaugeInc, gaugeDec, gaugeSet,
   recordServiceEvent, getServiceEvents,
   registerControl, unregisterControl, getControl,
