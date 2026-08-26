@@ -14,8 +14,14 @@ const ORIGINAL_ENV = { ...process.env }
 
 async function loadNotify(env = {}) {
   vi.resetModules()
+  // Blanked, NOT deleted. notify.js imports dotenv/config, and dotenv fills in any
+  // key that is ABSENT from process.env — so deleting these let the developer's
+  // real .env leak in. This test suite started failing the moment a real
+  // ALERT_WEBHOOK_URL was configured on the machine, which is precisely the kind
+  // of environment dependence a test must not have. An empty string is present,
+  // so dotenv leaves it alone.
   for (const k of ['ALERT_WEBHOOK_URL', 'ALERT_EMAIL_TO', 'ALERT_MIN_SEVERITY', 'ALERT_COOLDOWN_MS', 'ALERT_SEND_TIMEOUT_MS']) {
-    delete process.env[k]
+    process.env[k] = ''
   }
   Object.assign(process.env, env)
   // email.js is stubbed so nothing here can touch a real SMTP server.
