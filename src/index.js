@@ -26,6 +26,7 @@ import hub from './services/realtime-hub.js'
 import telemetry from './services/telemetry.js'
 import { requireWebhookSecret, WEBHOOK_SECRET_SET, timingSafeStringEqual } from './api/webhook-auth.js'
 import { apiLimiter, authLimiter, instantCallLimiter } from './api/rate-limits.js'
+import { logNotifyConfig } from './services/notify.js'
 import helmet from 'helmet'
 import { mountHealth, installShutdown, installCrashHandlers, reconcileOrphanedCalls, errorHandler } from './api/lifecycle.js'
 import 'dotenv/config'
@@ -408,6 +409,10 @@ app.use(errorHandler)
 const PORT = process.env.PORT || 3000
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`)
+  // Say, at boot, whether alerts can actually reach anyone. A deployment that
+  // detects every problem correctly and can report none of them looks identical
+  // to a healthy one until the night it matters.
+  logNotifyConfig()
   // Calls stranded by a previous hard kill are cleaned up here rather than left
   // to inflate the live-call count forever.
   await reconcileOrphanedCalls({ olderThanHours: Number(process.env.ORPHAN_CALL_HOURS || 2) })

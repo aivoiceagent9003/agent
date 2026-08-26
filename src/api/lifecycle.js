@@ -7,6 +7,7 @@
 
 import { supabase } from './db.js'
 import telemetry from '../services/telemetry.js'
+import { notify } from '../services/notify.js'
 
 const BOOTED_AT = Date.now()
 
@@ -156,6 +157,16 @@ export function installCrashHandlers() {
     })
     // Deliberately NOT fatal: one rejected promise in a background job should not
     // hang up every call in progress.
+    //
+    // Sent at "error", below the default critical threshold, so it lands in the
+    // log and the dashboard without waking anyone. Keyed on the message so a
+    // rejection firing in a loop is reported once per cooldown, not per event.
+    notify({
+      title: 'Unhandled promise rejection',
+      body: reason instanceof Error ? (reason.stack || reason.message) : String(reason),
+      severity: 'error',
+      key: `rejection:${String(reason?.message || reason).slice(0, 120)}`,
+    })
   })
 
   process.on('uncaughtException', (err) => {
@@ -166,9 +177,27 @@ export function installCrashHandlers() {
     })
     // This one IS fatal. After an uncaught exception the process is in an
     // undefined state, and a voice agent that half-works is worse than one the
-    // orchestrator restarts. Exit non-zero so it actually does get restarted —
-    // delayed slightly so the telemetry write above has a chance to land.
-    setTimeout(() => process.exit(1), 100).unref?.()
+    // orchestrator restarts. Exit non-zero so it actually does get restarted.
+    //
+    // Before dying, tell somebody. force:true bypasses both the severity filter
+    // and the cooldown — a crash is never the thing to suppress, and if the
+    // process is crash-looping every restart is worth knowing about.
+    //
+    // The exit is NOT unref'd and is deliberately longer than the old 100ms: an
+    // unref'd timer lets the process exit 0 the moment nothing else holds the
+    // loop open, which would both lose the notification and hide the crash from
+    // the orchestrator. CRASH_EXIT_DELAY_MS is the hard ceiling — the send has
+    // its own 5s timeout, so a hanging webhook cannot keep a broken process up.
+    const hardExit = setTimeout(() => process.exit(1), Number(process.env.CRASH_EXIT_DELAY_MS || 6000))
+    notify({
+      title: 'CRASH — uncaught exception, process exiting',
+      body: err?.stack || String(err?.message || err),
+      severity: 'critical',
+      force: true,
+    }).finally(() => {
+      clearTimeout(hardExit)
+      process.exit(1)
+    })
   })
 }
 
