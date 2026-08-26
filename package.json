@@ -12,7 +12,8 @@
     "start": "node src/index.js",
     "ci:imports": "node scripts/ci-import-check.js",
     "tunnel": "node scripts/tunnel.js",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "alert:test": "node scripts/alert-test.js"
   },
   "keywords": [],
   "author": "",

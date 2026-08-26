@@ -105,6 +105,62 @@ describe('delivery', () => {
   })
 })
 
+describe('Slack formatting', () => {
+  const SLACK = 'https://hooks.slack.com/services/T000/B000/xxxx'
+
+  async function capture(url, args) {
+    const { notify } = await loadNotify({ ALERT_WEBHOOK_URL: url })
+    let body
+    vi.stubGlobal('fetch', async (_u, init) => { body = JSON.parse(init.body); return { ok: true, status: 200 } })
+    await notify({ severity: 'critical', force: true, ...args })
+    return body
+  }
+
+  it('sends a coloured attachment to a Slack webhook', async () => {
+    const body = await capture(SLACK, { title: 'Gemini errors spiking', body: '12 in 60s' })
+    expect(body.attachments).toHaveLength(1)
+    expect(body.attachments[0].color).toBe('#d32f2f')
+    expect(body.attachments[0].title).toBe('Gemini errors spiking')
+  })
+
+  it('colours a resolve green rather than by the original severity', async () => {
+    // The alert's severity is still "critical" when it clears. Painting the
+    // recovery red is how people stop trusting the channel.
+    const body = await capture(SLACK, { title: 'RESOLVED: Gemini errors spiking', body: 'Cleared after 180s.' })
+    expect(body.attachments[0].color).toBe('#388e3c')
+    expect(body.attachments[0].fields.find((f) => f.title === 'Severity').value).toBe('resolved')
+    expect(body.text).toContain('✅')
+  })
+
+  it('keeps `text` a complete summary, since it is the phone preview', async () => {
+    const body = await capture(SLACK, { title: 'CPU usage high', body: 'CPU at 96%' })
+    expect(body.text).toContain('CPU usage high')
+    expect(body.text).toMatch(/\[.+\/.+\]/)
+    expect(body.text).toContain('🚨')
+  })
+
+  it('wraps the body in a code block so stack traces stay readable', async () => {
+    const body = await capture(SLACK, { title: 'CRASH', body: 'Error: boom\n    at foo (bar.js:1)' })
+    expect(body.attachments[0].text.startsWith('```')).toBe(true)
+    expect(body.attachments[0].text).toContain('at foo (bar.js:1)')
+  })
+
+  it('truncates a very long body rather than having Slack reject the message', async () => {
+    const body = await capture(SLACK, { title: 'CRASH', body: 'x'.repeat(10_000) })
+    expect(body.attachments[0].text.length).toBeLessThan(2600)
+  })
+
+  it('does NOT send Slack attachments to a non-Slack webhook', async () => {
+    // A generic receiver gets the flat shape it can parse; Discord would reject a
+    // payload built around `attachments`.
+    const body = await capture('https://hooks.example/generic', { title: 'CPU usage high', body: 'CPU at 96%' })
+    expect(body.attachments).toBeUndefined()
+    expect(body.title).toBe('CPU usage high')
+    expect(body.severity).toBe('critical')
+    expect(body.content).toContain('CPU usage high') // Discord
+  })
+})
+
 describe('severity filtering', () => {
   it('drops anything below the configured minimum', async () => {
     const { notify } = await loadNotify({ ALERT_WEBHOOK_URL: 'https://hooks.example/x', ALERT_MIN_SEVERITY: 'critical' })
