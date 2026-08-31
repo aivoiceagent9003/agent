@@ -12,8 +12,8 @@ function KnowledgePage() {
       <header>
         <h1 className="text-3xl font-bold">Knowledge</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Files your agent answers from. Upload, download, or delete them any time —
-          deleting a file removes its knowledge from the agent.
+          Files your agent answers from. Upload, download, or delete them any time — deleting a file
+          removes its knowledge from the agent.
         </p>
       </header>
       <div className="mt-6">

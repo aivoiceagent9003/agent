@@ -285,14 +285,57 @@ export function endTrace(callSid, { status = 'completed' } = {}) {
   }
 }
 
+// Every completed trace is written to call_traces by persistTrace(). For a long
+// time nothing read it back: both accessors below served ONLY the in-memory ring,
+// which is process-local and empty after every restart. The effect was that the
+// Operations Center showed just the calls placed since the last boot — so any
+// average was computed over a handful of samples, or one, and the history sitting
+// in the database was invisible.
+//
+// Memory first, database second. Memory has the live and just-ended calls, which
+// may not have reached Postgres yet; the database has everything older.
+
 // Lookup a completed trace's full waterfall (for the tracing dashboard).
-export function getTraceDetail(callSid) {
+export async function getTraceDetail(callSid) {
   const active = activeTraces.get(callSid)
   if (active) return active.toJSON()
-  return recentBySid.get(callSid) || null
+  const cached = recentBySid.get(callSid)
+  if (cached) return cached
+  try {
+    const sb = await db()
+    if (!sb) return null
+    const { data } = await sb.from('call_traces').select('summary').eq('call_sid', callSid).maybeSingle()
+    return data?.summary || null
+  } catch {
+    return null   // history is best-effort; never surface a DB fault as a 500 here
+  }
 }
-export function getRecentTraces(limit = 100) {
-  return recentTraces.toArray().slice(-limit).reverse()
+
+export async function getRecentTraces(limit = 100) {
+  const live = recentTraces.toArray().slice(-limit).reverse()
+  try {
+    const sb = await db()
+    if (!sb) return live
+    const { data } = await sb
+      .from('call_traces')
+      .select('call_sid, summary')
+      .order('started_at', { ascending: false })
+      .limit(limit)
+    if (!data?.length) return live
+    // Dedupe by callSid with the in-memory copy winning: a call that just ended
+    // is fresher in memory than the row persistTrace() is still writing.
+    const seen = new Set(live.map(t => t.callSid))
+    const merged = [...live]
+    for (const row of data) {
+      if (!row.summary || seen.has(row.call_sid)) continue
+      seen.add(row.call_sid)
+      merged.push(row.summary)
+    }
+    merged.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))
+    return merged.slice(0, limit)
+  } catch {
+    return live   // degrade to whatever this process has seen
+  }
 }
 
 // ─── Service events (errors / downtime seeds — used by later phases) ──────────
@@ -423,6 +466,144 @@ export function getSnapshot() {
 
 export function getTimeSeries(limit = TIMESERIES_MAX) { return series.toArray().slice(-limit) }
 
+// ─── Persisted call statistics ───────────────────────────────────────────────
+// getSnapshot() computes callsToday, callsThisHour and the duration average from
+// the in-memory ring and latency rings. Those are process-local and empty after a
+// restart, so the executive dashboard read zero however many calls the business
+// had actually taken — while the calls table held every one of them.
+//
+// Infra numbers (CPU, heap, event-loop delay, live sockets) stay in memory, which
+// is correct: they describe THIS process and have no meaning historically. Only
+// the business counts are re-sourced here.
+//
+// Cached for CACHE_MS because the overview endpoint is polled continuously by
+// every open dashboard; without it each poll would be three round-trips.
+const STATS_CACHE_MS = Number(process.env.OPS_STATS_CACHE_MS || 30_000)
+let _statsCache = { at: 0, data: null }
+
+// THE source of truth for "the dashboard snapshot". Both the /overview endpoint
+// and the ops-stream heartbeat must serve identical numbers.
+//
+// When they diverged the page visibly flickered: the REST poll set callsToday
+// from the database, then five seconds later the socket pushed a raw getSnapshot()
+// carrying the in-memory 0 into the same React Query cache, and every tile
+// alternated between the real figure and zero. Two callers assembling "the same"
+// payload independently is what allowed that, so there is now only one.
+// Latency as of the most recent rollup, per operation.
+//
+// Deliberately the NEWEST ROW PER OP rather than an aggregate across rows.
+// flushRollups() percentiles the WHOLE ring every 30s, so consecutive rows are
+// overlapping snapshots of the same samples, not disjoint windows — summing their
+// counts or averaging their percentiles would multiply-count the same calls. One
+// row is already a valid, self-consistent LatencyStat; combining them is not.
+//
+// min/max are null on rows written before they were recorded. They coalesce to 0,
+// which is honest: historical min/max cannot be reconstructed from percentiles.
+const LATENCY_CACHE_MS = Number(process.env.OPS_LATENCY_CACHE_MS || 30_000)
+let _latCache = { at: 0, data: null }
+
+export async function getPersistedLatencyStats() {
+  if (_latCache.data && Date.now() - _latCache.at < LATENCY_CACHE_MS) return _latCache.data
+  try {
+    const sb = await db()
+    if (!sb) return null
+    const { data } = await sb
+      .from('metric_rollups')
+      // select('*') rather than naming columns: min/max only exist once
+      // sql/observability.sql has been re-run, and naming a column Postgres does
+      // not have fails the WHOLE query — which would leave this page blank exactly
+      // as it was before, for a new reason. Absent columns simply arrive undefined.
+      .select('*')
+      .eq('metric', 'latency')
+      .order('ts', { ascending: false })
+      .limit(600)   // ample: ~20 ops x the most recent flushes
+    if (!data?.length) return null
+    const out = {}
+    for (const r of data) {
+      if (out[r.op]) continue          // rows arrive newest-first, so the first wins
+      out[r.op] = {
+        p50: Math.round(r.p50 || 0), p90: Math.round(r.p90 || 0),
+        p95: Math.round(r.p95 || 0), p99: Math.round(r.p99 || 0),
+        min: Math.round(r.min || 0), max: Math.round(r.max || 0),
+        avg: Math.round(r.avg || 0), count: r.count || 0,
+      }
+    }
+    _latCache = { at: Date.now(), data: out }
+    return out
+  } catch {
+    return null
+  }
+}
+
+// In-memory where this process has samples, persisted rollups everywhere else.
+// Live wins because it is current; the rollup is at most 30s stale and, after a
+// restart, is the only thing there is.
+//
+// NOT used by the alert engine, which must keep evaluating thresholds against
+// live samples only — alerting on a rollup written before the restart would fire
+// on conditions that no longer exist.
+export async function getLatencyStatsMerged(op) {
+  const live = getLatencyStats(op)
+  const persisted = await getPersistedLatencyStats()
+  if (!persisted) return live
+  if (op) return live.count ? live : (persisted[op] || live)
+  const merged = { ...persisted }
+  for (const [k, v] of Object.entries(live)) if (v.count) merged[k] = v
+  return merged
+}
+
+export async function getOverviewSnapshot() {
+  const snapshot = getSnapshot()
+  const [persisted, lat] = await Promise.all([getPersistedCallStats(), getPersistedLatencyStats()])
+  // The "Latency (averages)" tiles come from the in-memory rings too, so they read
+  // zero after a restart for exactly the reason the call counts did. Fill only the
+  // ones this process has no samples for.
+  const avgFrom = (key, current) => (current || !lat?.[key] ? current : lat[key].avg)
+  return {
+    ...snapshot,
+    ...(persisted || {}),
+    avgCallDurationMs: (persisted?.avgCallDurationMs) || avgFrom('call_duration', snapshot.avgCallDurationMs),
+    avgTurnDurationMs: avgFrom('turn', snapshot.avgTurnDurationMs),
+    avgFirstAudioMs: avgFrom('first_audio', snapshot.avgFirstAudioMs),
+    avgModelLatencyMs: avgFrom('model_thinking', snapshot.avgModelLatencyMs),
+    avgRagLatencyMs: avgFrom('rag_retrieval', snapshot.avgRagLatencyMs),
+    avgLanguageDetectionMs: avgFrom('language_detection', snapshot.avgLanguageDetectionMs),
+    avgToolLatencyMs: avgFrom('tool_call', snapshot.avgToolLatencyMs),
+  }
+}
+
+export async function getPersistedCallStats() {
+  if (_statsCache.data && Date.now() - _statsCache.at < STATS_CACHE_MS) return _statsCache.data
+  try {
+    const sb = await db()
+    if (!sb) return null
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString()
+    const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString()
+
+    const [today, hour, total, durations] = await Promise.all([
+      sb.from('calls').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay.toISOString()),
+      sb.from('calls').select('id', { count: 'exact', head: true }).gte('created_at', hourAgo),
+      sb.from('calls').select('id', { count: 'exact', head: true }),
+      sb.from('calls').select('duration_seconds').gt('duration_seconds', 0).gte('created_at', weekAgo).limit(1000),
+    ])
+
+    const durs = (durations.data || []).map(r => r.duration_seconds).filter(n => n > 0)
+    const data = {
+      callsToday: today.count ?? 0,
+      callsThisHour: hour.count ?? 0,
+      callsAllTime: total.count ?? 0,
+      // Averaged over the last week rather than all time: a duration average
+      // spanning every call ever made stops responding to anything.
+      avgCallDurationMs: durs.length ? Math.round((durs.reduce((a, b) => a + b, 0) / durs.length) * 1000) : 0,
+    }
+    _statsCache = { at: Date.now(), data }
+    return data
+  } catch {
+    return null   // caller keeps the in-memory figures; never fail the dashboard
+  }
+}
+
 function isSameDay(a, b) {
   const da = new Date(a), db = new Date(b)
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate()
@@ -447,7 +628,7 @@ async function flushRollups() {
     for (const [op, r] of latencyRings) {
       const p = percentiles(r.toArray())
       if (!p.count) continue
-      rows.push({ ts, metric: 'latency', op, p50: p.p50, p90: p.p90, p95: p.p95, p99: p.p99, count: p.count, avg: p.avg })
+      rows.push({ ts, metric: 'latency', op, p50: p.p50, p90: p.p90, p95: p.p95, p99: p.p99, count: p.count, avg: p.avg, min: p.min, max: p.max })
     }
     const last = series.toArray().slice(-1)[0] || {}
     rows.push({
@@ -527,6 +708,7 @@ export default {
   bus, startTrace, endTrace, getTrace, getTraceDetail, getActiveCalls, getRecentTraces,
   callQuality,
   recordLatency, getLatencyStats, getSnapshot, getTimeSeries, getMetricHistory,
+  getPersistedCallStats, getOverviewSnapshot, getPersistedLatencyStats, getLatencyStatsMerged,
   incr, getCounter, getCounters, gaugeInc, gaugeDec, gaugeSet,
   recordServiceEvent, getServiceEvents,
   registerControl, unregisterControl, getControl,

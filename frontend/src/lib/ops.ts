@@ -30,6 +30,7 @@ export interface OpsSnapshot {
   healthScore: number;
   activeCalls: number;
   callsToday: number;
+  callsAllTime?: number;
   callsThisHour: number;
   peakConcurrentCalls: number;
   avgConcurrentCalls: number;
@@ -162,7 +163,9 @@ export function useMetricHistory(op: string, sinceMs = 6 * 3600_000) {
     queryKey: ["ops", "history", op, sinceMs],
     enabled: isBrowser && !!op,
     queryFn: async (): Promise<any[]> => {
-      const r = await apiFetch(`/api/admin/ops/metrics/history?metric=latency&op=${encodeURIComponent(op)}&sinceMs=${sinceMs}`);
+      const r = await apiFetch(
+        `/api/admin/ops/metrics/history?metric=latency&op=${encodeURIComponent(op)}&sinceMs=${sinceMs}`,
+      );
       return r.rows || [];
     },
   });
@@ -200,7 +203,10 @@ export const useBusinessStats = opsResource<any>("business", "/api/admin/ops/bus
 export const useQualityStats = opsResource<any>("quality", "/api/admin/ops/quality", 6000);
 export const useAlerts = opsResource<any>("alerts", "/api/admin/ops/alerts", 5000);
 
-export const fmtUsd = (n?: number | null) => (n == null ? "—" : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+export const fmtUsd = (n?: number | null) =>
+  n == null
+    ? "—"
+    : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Friendly ms formatter shared across the ops dashboards.
 export const fmtMs = (ms?: number | null) =>

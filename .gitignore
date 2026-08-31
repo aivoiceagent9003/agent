@@ -6,10 +6,18 @@ node_modules/
 .env.*
 !.env.example
 
-# Service account / credential files
-*.json
-!package.json
-!package-lock.json
+# Service account / credential files.
+# Match credentials SPECIFICALLY — a blanket `*.json` also swallowed config that
+# belongs in the repo (frontend/tsconfig.json, frontend/components.json), and it
+# did so silently: a clone without tsconfig.json still BUILDS, but `tsc --noEmit`
+# finds no project, prints its help, and exits 0 — a typecheck that passes without
+# checking anything. Keep these patterns narrow.
+*-service-account*.json
+*-credentials.json
+**/credentials.json
+aivoiceagent-*.json
+gcp-*.json
+service-account*.json
 
 # Binaries
 *.exe

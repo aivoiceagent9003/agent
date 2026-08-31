@@ -10,7 +10,7 @@
 
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { setToken } from "@/lib/api";
+import { setSession } from "@/lib/api";
 import { login, loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
 import { Phone, Eye, EyeOff } from "lucide-react";
@@ -23,7 +23,8 @@ export const Route = createFileRoute("/login")({
   // ?tab=employee lets /employee-login and invite emails deep-link to the right
   // side of the toggle.
   validateSearch: (search: Record<string, unknown>): { tab?: Audience } => ({
-    tab: search.tab === "business" ? "business" : search.tab === "employee" ? "employee" : undefined,
+    tab:
+      search.tab === "business" ? "business" : search.tab === "employee" ? "employee" : undefined,
   }),
   component: LoginPage,
 });
@@ -54,8 +55,9 @@ function LoginPage() {
     const password = String(fd.get("password"));
     try {
       if (!email || !password) throw new Error("Email and password required");
-      const { token, role } = await login(email, password);
-      setToken(token);
+      const session = await login(email, password);
+      const { role } = session;
+      setSession(session);
       toast.success("Welcome back!");
       land(role);
     } catch (err: any) {
@@ -68,8 +70,9 @@ function LoginPage() {
   async function onGoogle(credential: string) {
     setLoading(true);
     try {
-      const { token, role, is_new } = await loginWithGoogle(credential);
-      setToken(token);
+      const session = await loginWithGoogle(credential);
+      const { role, is_new } = session;
+      setSession(session);
       toast.success("Welcome!");
       land(role, is_new);
     } catch (err: any) {
@@ -102,9 +105,7 @@ function LoginPage() {
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
           <h1 className="text-3xl font-bold">Sign in to Vocera</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Choose how you work with Vocera.
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">Choose how you work with Vocera.</p>
 
           {/* Segmented toggle */}
           <div

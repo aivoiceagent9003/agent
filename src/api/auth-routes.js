@@ -11,6 +11,18 @@ import 'dotenv/config'
 
 const router = Router()
 
+// Every session-issuing route returns this same shape. The access token expires
+// in about an hour; refresh_token is what keeps the session alive past that, and
+// expires_at (unix seconds) lets the client renew BEFORE a request fails rather
+// than after one already has.
+function sessionPayload(session) {
+  return {
+    token: session.access_token,
+    refresh_token: session.refresh_token || null,
+    expires_at: session.expires_at || null,
+  }
+}
+
 // ─── Password reset ──────────────────────────────────────────────────────────
 // Supabase sends the recovery email and hosts the token verification; we only
 // kick it off and then apply the new password. Two endpoints:
@@ -96,7 +108,52 @@ router.post('/login', async (req, res) => {
     .single()
 
   res.json({
-    token: data.session.access_token,
+    ...sessionPayload(data.session),
+    role: profile?.role || 'client',
+    tenant_id: profile?.tenant_id || null,
+  })
+})
+
+// POST /api/auth/refresh { refresh_token } -> { token, refresh_token, expires_at, role, tenant_id }
+//
+// Access tokens last about an hour. Without this endpoint every user was signed
+// out mid-task: the dashboard 401d and bounced them to /login, losing whatever
+// they were in the middle of.
+//
+// Supabase ROTATES refresh tokens: the response carries a new one, and the old
+// one keeps working only for a short reuse window (Supabase default: 10s, which
+// exists so a burst of concurrent refreshes does not destroy a live session).
+// Measured on this project — an immediate replay of the previous token still
+// returns 200.
+//
+// So the client MUST persist what comes back here; storing only the access token
+// leaves it holding a refresh token that dies once the window closes. The
+// frontend also funnels refreshes through one shared promise: concurrent
+// refreshes are wasteful round-trips that race each other to write localStorage,
+// and any that land after the window has closed fail outright.
+router.post('/refresh', async (req, res) => {
+  const refreshToken = String(req.body?.refresh_token || '')
+  if (!refreshToken) return res.status(400).json({ error: 'refresh_token is required' })
+
+  const { data, error } = await supabaseAuth.auth.refreshSession({ refresh_token: refreshToken })
+  if (error || !data?.session) {
+    // 401 rather than 500: the token is expired, revoked, or already rotated
+    // away. That is the one outcome where the client SHOULD stop retrying and
+    // send the user to /login, so it has to be distinguishable from a fault.
+    return res.status(401).json({ error: 'Session expired. Please sign in again.' })
+  }
+
+  // Role and tenant can change between refreshes (a client promoted to admin, an
+  // employee moved). Re-reading them here stops the frontend routing on a stale
+  // role for as long as the session happens to live.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, tenant_id')
+    .eq('id', data.user?.id)
+    .maybeSingle()
+
+  res.json({
+    ...sessionPayload(data.session),
     role: profile?.role || 'client',
     tenant_id: profile?.tenant_id || null,
   })
@@ -139,7 +196,7 @@ router.post('/google', async (req, res) => {
 
   if (existing) {
     return res.json({
-      token: data.session.access_token,
+      ...sessionPayload(data.session),
       role: existing.role || 'client',
       tenant_id: existing.tenant_id || null,
       is_new: false,
@@ -182,7 +239,7 @@ router.post('/google', async (req, res) => {
     sendWelcomeEmail({ to: user.email, name: googleName })
 
     res.json({
-      token: data.session.access_token,
+      ...sessionPayload(data.session),
       role: 'client',
       tenant_id: tenantId,
       is_new: true,

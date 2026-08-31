@@ -17,15 +17,20 @@ import type { Call, Lead, Tenant } from "./mock-data";
 // Queries must not run during SSR (token + window are client-only).
 const isBrowser = typeof window !== "undefined";
 
-const weekday = (date: string) =>
-  new Date(date).toLocaleDateString("en", { weekday: "short" });
+const weekday = (date: string) => new Date(date).toLocaleDateString("en", { weekday: "short" });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export async function login(
   email: string,
   password: string,
-): Promise<{ token: string; role: string; tenant_id: string | null }> {
+): Promise<{
+  token: string;
+  refresh_token?: string | null;
+  expires_at?: number | null;
+  role: string;
+  tenant_id: string | null;
+}> {
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -42,7 +47,14 @@ export async function login(
 // login, plus `is_new` so we can route first-time users into onboarding.
 export async function loginWithGoogle(
   credential: string,
-): Promise<{ token: string; role: string; tenant_id: string | null; is_new: boolean }> {
+): Promise<{
+  token: string;
+  refresh_token?: string | null;
+  expires_at?: number | null;
+  role: string;
+  tenant_id: string | null;
+  is_new: boolean;
+}> {
   const res = await fetch(`${BASE_URL}/api/auth/google`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -234,8 +246,7 @@ export function useClientDocuments() {
 export function useDeleteDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/api/client/agent/documents/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch(`/api/client/agent/documents/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client", "documents"] });
       qc.invalidateQueries({ queryKey: ["client", "knowledge"] });
@@ -477,16 +488,11 @@ export function useClientAnalytics(days = 30) {
   return useQuery({
     queryKey: ["client", "analytics", days],
     enabled: isBrowser,
-    queryFn: async (): Promise<ClientAnalytics> =>
-      apiFetch(`/api/client/analytics?days=${days}`),
+    queryFn: async (): Promise<ClientAnalytics> => apiFetch(`/api/client/analytics?days=${days}`),
   });
 }
 
-export function useClientCalls(
-  page: number,
-  limit: number,
-  direction?: "inbound" | "outbound",
-) {
+export function useClientCalls(page: number, limit: number, direction?: "inbound" | "outbound") {
   return useQuery({
     queryKey: ["client", "calls", page, limit, direction ?? "all"],
     enabled: isBrowser,
@@ -523,7 +529,9 @@ export function parseTranscript(raw: string | null | undefined): TranscriptTurn[
     if (Array.isArray(turns)) {
       return turns
         .map((t) => ({
-          who: (t.role === "agent" || t.role === "assistant" ? "agent" : "caller") as "agent" | "caller",
+          who: (t.role === "agent" || t.role === "assistant" ? "agent" : "caller") as
+            | "agent"
+            | "caller",
           native: String(t.native ?? t.text ?? "").trim(),
           en: String(t.english ?? t.en ?? "").trim() || undefined,
         }))
@@ -540,7 +548,9 @@ export function parseTranscript(raw: string | null | undefined): TranscriptTurn[
     .map((t) => {
       const stripped = t.replace(/^\[(Agent|Caller)\]\s*/i, "");
       const m = stripped.match(/^(user|caller|customer|assistant|agent|bot|system)\s*:\s*(.*)$/i);
-      const isAgent = /^\[Agent\]/i.test(t) || (m && ["assistant", "agent", "bot", "system"].includes(m[1].toLowerCase()));
+      const isAgent =
+        /^\[Agent\]/i.test(t) ||
+        (m && ["assistant", "agent", "bot", "system"].includes(m[1].toLowerCase()));
       const native = (m ? m[2] : stripped).trim();
       return { who: (isAgent ? "agent" : "caller") as "agent" | "caller", native };
     })
@@ -720,8 +730,7 @@ export function useDeleteChunk(tenantId: string) {
 export function useClearKnowledge(tenantId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/admin/tenants/${tenantId}/knowledge`, { method: "DELETE" }),
+    mutationFn: () => apiFetch(`/api/admin/tenants/${tenantId}/knowledge`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "kb", tenantId] }),
   });
 }

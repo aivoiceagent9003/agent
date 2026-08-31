@@ -18,9 +18,24 @@ interface Sector {
 
 // Shown until the backend list loads (keeps the section from flashing empty).
 const FALLBACK_SECTORS: Sector[] = [
-  { id: "real_estate", title: "Real Estate", emoji: "🏠", description: "Qualifies buyers and books site visits." },
-  { id: "clinic", title: "Clinic / Front Desk", emoji: "🩺", description: "Books appointments and answers patient queries." },
-  { id: "support", title: "Customer Support", emoji: "🎧", description: "Answers FAQs and triages issues 24/7." },
+  {
+    id: "real_estate",
+    title: "Real Estate",
+    emoji: "🏠",
+    description: "Qualifies buyers and books site visits.",
+  },
+  {
+    id: "clinic",
+    title: "Clinic / Front Desk",
+    emoji: "🩺",
+    description: "Books appointments and answers patient queries.",
+  },
+  {
+    id: "support",
+    title: "Customer Support",
+    emoji: "🎧",
+    description: "Answers FAQs and triages issues 24/7.",
+  },
 ];
 
 export function LiveDemo() {
@@ -37,7 +52,9 @@ export function LiveDemo() {
           setActive((cur) => (list.some((s: Sector) => s.id === cur) ? cur : list[0].id));
         }
       })
-      .catch(() => { /* keep fallback */ });
+      .catch(() => {
+        /* keep fallback */
+      });
   }, []);
   const live = status === "live";
   const current = sectors.find((s) => s.id === active);
@@ -54,7 +71,9 @@ export function LiveDemo() {
           {sectors.map((s) => (
             <button
               key={s.id}
-              onClick={() => { if (!live) setActive(s.id); }}
+              onClick={() => {
+                if (!live) setActive(s.id);
+              }}
               disabled={live}
               className={`text-left rounded-xl border p-5 transition disabled:opacity-60 disabled:cursor-not-allowed ${
                 active === s.id
@@ -100,7 +119,8 @@ export function LiveDemo() {
               </p>
               {live && remaining !== null && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Demo ends in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}
+                  Demo ends in {Math.floor(remaining / 60)}:
+                  {String(remaining % 60).padStart(2, "0")}
                 </p>
               )}
               {error && <p className="text-sm text-destructive mt-2">{error}</p>}

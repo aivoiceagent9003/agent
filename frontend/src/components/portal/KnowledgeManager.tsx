@@ -71,7 +71,9 @@ export function KnowledgeManager() {
         className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl py-10 cursor-pointer hover:bg-muted/30 transition ${uploading ? "opacity-60 pointer-events-none" : ""}`}
       >
         <Upload className="w-6 h-6 text-muted-foreground" />
-        <span className="text-sm font-medium">{uploading ? "Uploading…" : "Click to upload files"}</span>
+        <span className="text-sm font-medium">
+          {uploading ? "Uploading…" : "Click to upload files"}
+        </span>
         <span className="text-xs text-muted-foreground">PDF, DOCX, TXT, CSV, or images</span>
         <input
           ref={fileRef}

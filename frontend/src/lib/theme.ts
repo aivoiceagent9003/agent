@@ -14,7 +14,11 @@ export function currentTheme(): Theme {
 export function setTheme(t: Theme) {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", t === "dark");
-  try { localStorage.setItem(KEY, t); } catch { /* private mode */ }
+  try {
+    localStorage.setItem(KEY, t);
+  } catch {
+    /* private mode */
+  }
 }
 
 export function toggleTheme(): Theme {

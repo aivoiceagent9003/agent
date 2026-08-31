@@ -29,9 +29,13 @@ function LiveConsole() {
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <Radio className="w-7 h-7 text-primary" /> Live Calls Console
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">{calls.length} active call{calls.length === 1 ? "" : "s"} · updates in real time</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {calls.length} active call{calls.length === 1 ? "" : "s"} · updates in real time
+          </p>
         </div>
-        <Link to="/admin/ops" className="text-sm text-primary hover:underline">← Operations</Link>
+        <Link to="/admin/ops" className="text-sm text-primary hover:underline">
+          ← Operations
+        </Link>
       </div>
 
       {calls.length === 0 ? (
@@ -57,26 +61,57 @@ function LiveConsole() {
             </thead>
             <tbody className="divide-y divide-border">
               {calls.map((c) => (
-                <tr key={c.callSid} className="hover:bg-muted/30 transition cursor-pointer" onClick={() => setSelected(c)}>
+                <tr
+                  key={c.callSid}
+                  className="hover:bg-muted/30 transition cursor-pointer"
+                  onClick={() => setSelected(c)}
+                >
                   <td className="px-4 py-3">
                     <div className="font-medium">{c.tenantName || "—"}</div>
                     <div className="text-xs text-muted-foreground">{c.businessNumber || ""}</div>
                   </td>
                   <td className="px-4 py-3">{c.callerNumber || "unknown"}</td>
-                  <td className="px-4 py-3 tabular-nums"><Ticker startedAt={c.startedAt} /></td>
+                  <td className="px-4 py-3 tabular-nums">
+                    <Ticker startedAt={c.startedAt} />
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${STATE_COLOR[c.conversationState] || STATE_COLOR.active}`}>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full border ${STATE_COLOR[c.conversationState] || STATE_COLOR.active}`}
+                    >
                       {c.conversationState}
                     </span>
                   </td>
-                  <td className="px-4 py-3">{c.language ? <span className="inline-flex items-center gap-1"><Languages className="w-3 h-3" />{c.language}</span> : "—"}</td>
-                  <td className="px-4 py-3">{c.currentTool ? <span className="inline-flex items-center gap-1 text-amber-500"><Wrench className="w-3 h-3" />{c.currentTool}</span> : "—"}</td>
+                  <td className="px-4 py-3">
+                    {c.language ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Languages className="w-3 h-3" />
+                        {c.language}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.currentTool ? (
+                      <span className="inline-flex items-center gap-1 text-amber-500">
+                        <Wrench className="w-3 h-3" />
+                        {c.currentTool}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-4 py-3 tabular-nums">{fmtMs(c.lastLatencyMs)}</td>
-                  <td className="px-4 py-3 tabular-nums text-xs">{c.reconnects} / {c.interruptions}</td>
+                  <td className="px-4 py-3 tabular-nums text-xs">
+                    {c.reconnects} / {c.interruptions}
+                  </td>
                   <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="inline-flex gap-1.5">
-                      <Link to="/admin/ops/trace/$callSid" params={{ callSid: c.callSid }}
-                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-border hover:bg-muted transition">
+                      <Link
+                        to="/admin/ops/trace/$callSid"
+                        params={{ callSid: c.callSid }}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-border hover:bg-muted transition"
+                      >
                         <GitBranch className="w-3 h-3" /> Trace
                       </Link>
                       <TerminateButton callSid={c.callSid} />
@@ -108,9 +143,12 @@ function TerminateButton({ callSid }: { callSid: string }) {
   const term = useTerminateCall();
   return (
     <button
-      onClick={() => { if (confirm("Terminate this live call?")) term.mutate(callSid); }}
+      onClick={() => {
+        if (confirm("Terminate this live call?")) term.mutate(callSid);
+      }}
       disabled={term.isPending}
-      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-destructive/40 text-destructive hover:bg-destructive/10 transition disabled:opacity-50">
+      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-destructive/40 text-destructive hover:bg-destructive/10 transition disabled:opacity-50"
+    >
       <PhoneOff className="w-3 h-3" /> {term.isPending ? "…" : "End"}
     </button>
   );
@@ -119,10 +157,15 @@ function TerminateButton({ callSid }: { callSid: string }) {
 function CallDrawer({ call, onClose }: { call: LiveCall; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div className="w-full max-w-md h-full bg-card border-l border-border shadow-xl p-6 overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-md h-full bg-card border-l border-border shadow-xl p-6 overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-lg">{call.tenantName || "Call"}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            ✕
+          </button>
         </div>
         <p className="text-xs text-muted-foreground mt-1 break-all">SID {call.callSid}</p>
 
@@ -146,8 +189,11 @@ function CallDrawer({ call, onClose }: { call: LiveCall; onClose: () => void }) 
           <Bubble who="Agent" text={call.lastAgentReply} />
         </div>
 
-        <Link to="/admin/ops/trace/$callSid" params={{ callSid: call.callSid }}
-          className="mt-6 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium">
+        <Link
+          to="/admin/ops/trace/$callSid"
+          params={{ callSid: call.callSid }}
+          className="mt-6 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
+        >
           <GitBranch className="w-4 h-4" /> Open full trace
         </Link>
       </div>

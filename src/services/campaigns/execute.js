@@ -8,6 +8,7 @@
 // context by correlation_id and run the conversation.
 
 import { randomUUID } from 'node:crypto'
+import { webhookQuery } from '../../api/webhook-auth.js'
 import { supabase } from '../../api/db.js'
 import { originate } from './dialer.js'
 import { canDial } from './compliance.js'
@@ -92,7 +93,7 @@ async function dialContact(job, type) {
   await log(job, 'dialing', { phone: contact.phone, correlationId })
 
   try {
-    const { providerId } = await originate({ to: contact.phone, from: fromNumber, correlationId, answerUrl: `${ANSWER_URL()}?cid=${correlationId}` })
+    const { providerId } = await originate({ to: contact.phone, from: fromNumber, correlationId, answerUrl: `${ANSWER_URL()}?${webhookQuery()}&cid=${correlationId}` })
     await log(job, 'originated', { providerId })
     return { originated: true, providerId, correlationId }
   } catch (e) {

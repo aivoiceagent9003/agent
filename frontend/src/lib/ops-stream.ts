@@ -37,11 +37,19 @@ export function useOpsStream() {
         setConnected(false);
         if (!closedByUs) retryRef.current = setTimeout(connect, 2000); // auto-reconnect
       };
-      ws.onerror = () => { try { ws.close(); } catch {} };
+      ws.onerror = () => {
+        try {
+          ws.close();
+        } catch {}
+      };
 
       ws.onmessage = (e) => {
         let msg: OpsMessage;
-        try { msg = JSON.parse(e.data); } catch { return; }
+        try {
+          msg = JSON.parse(e.data);
+        } catch {
+          return;
+        }
 
         if (msg.type === "snapshot") {
           qc.setQueryData(["ops", "overview"], (prev: OpsSnapshot | undefined) => ({
@@ -62,7 +70,9 @@ export function useOpsStream() {
     return () => {
       closedByUs = true;
       if (retryRef.current) clearTimeout(retryRef.current);
-      try { wsRef.current?.close(); } catch {}
+      try {
+        wsRef.current?.close();
+      } catch {}
     };
   }, [qc]);
 
@@ -74,17 +84,22 @@ export function useOpsStream() {
 function applyEvent(qc: ReturnType<typeof useQueryClient>, event: string, payload: any) {
   if (event === "trace:start" && payload?.call) {
     qc.setQueryData(["ops", "calls", "live"], (prev: LiveCall[] = []) =>
-      prev.some((c) => c.callSid === payload.call.callSid) ? prev : [payload.call, ...prev]);
+      prev.some((c) => c.callSid === payload.call.callSid) ? prev : [payload.call, ...prev],
+    );
     return;
   }
   if (event === "trace:end" && payload?.call) {
     qc.setQueryData(["ops", "calls", "live"], (prev: LiveCall[] = []) =>
-      prev.filter((c) => c.callSid !== payload.call.callSid));
+      prev.filter((c) => c.callSid !== payload.call.callSid),
+    );
     return;
   }
   if (event === "trace:update" && payload?.callSid) {
     qc.setQueryData(["ops", "calls", "live"], (prev: LiveCall[] = []) =>
-      prev.map((c) => (c.callSid === payload.callSid ? { ...c, [payload.field]: payload.value } : c)));
+      prev.map((c) =>
+        c.callSid === payload.callSid ? { ...c, [payload.field]: payload.value } : c,
+      ),
+    );
     return;
   }
 }

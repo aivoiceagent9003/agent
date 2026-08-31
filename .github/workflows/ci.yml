@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A new push to the same PR cancels the previous run rather than queueing behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    # Obvious placeholders, not secrets. Supabase, OpenAI and Google clients are
+    # all constructed at MODULE LOAD and throw without a key, so a runner with no
+    # credentials cannot even import the app — let alone boot it for the
+    # integration tests. Nothing in CI contacts these services: every assertion
+    # is about a request being refused, and refusals happen in middleware.
+    env:
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_ANON_KEY: placeholder-anon-key
+      OPENAI_API_KEY: sk-placeholder
+      GOOGLE_AI_API_KEY: placeholder-google-key
+      WEBHOOK_SECRET: ci-webhook-secret
+      NODE_ENV: development
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Catches the broken import or syntax error that would otherwise only
+      # surface when a call comes in. Cheap, and it runs before the suite so a
+      # module that cannot even load fails with a clearer message.
+      - name: Modules load
+        run: node scripts/ci-import-check.js
+
+      # Unit + integration tests. The integration file boots the real server on a
+      # spare port; nothing here needs Supabase or a network, because every
+      # assertion in it is about a request being REFUSED and refusals happen in
+      # middleware. WEBHOOK_SECRET is set because the boot gate demands one.
+      #
+      # The end-to-end smoke test does NOT run here: it opens a real Gemini
+      # session and spends tokens. Run it before a deploy with RUN_SMOKE=1.
+      - name: Tests
+        run: npm test
+
+      - name: Secrets not committed
+        run: |
+          if git ls-files | grep -iE 'service-account|credentials\.json|^\.env$'; then
+            echo "::error::A credential file is tracked in git"
+            exit 1
+          fi
+          echo "No credential files tracked."
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      # Named project, so a missing tsconfig.json is an error rather than a
+      # silent pass — see the Phase 0 commit for why that matters.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: Image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t voice-agent:ci .

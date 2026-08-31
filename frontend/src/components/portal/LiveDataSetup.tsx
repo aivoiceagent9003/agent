@@ -72,8 +72,8 @@ export function LiveDataSetup({
     <div className="grid gap-4">
       {lookups.length === 0 && (
         <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          No live lookups yet. Add one if your agent needs to pull caller-specific
-          details like order status, dues, or bookings.
+          No live lookups yet. Add one if your agent needs to pull caller-specific details like
+          order status, dues, or bookings.
         </div>
       )}
 
@@ -204,7 +204,9 @@ function LookupCard({
             type="button"
             onClick={() => setBackendType("http")}
             className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm text-left transition ${
-              isHttp ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-muted/30"
+              isHttp
+                ? "border-primary bg-primary/5 ring-1 ring-primary"
+                : "border-border hover:bg-muted/30"
             }`}
           >
             <Globe className="w-4 h-4 shrink-0" />
@@ -214,7 +216,9 @@ function LookupCard({
             type="button"
             onClick={() => setBackendType("table")}
             className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm text-left transition ${
-              !isHttp ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-muted/30"
+              !isHttp
+                ? "border-primary bg-primary/5 ring-1 ring-primary"
+                : "border-border hover:bg-muted/30"
             }`}
           >
             <Sheet className="w-4 h-4 shrink-0" />
@@ -232,7 +236,9 @@ function LookupCard({
             <input
               value={(lookup.backend as any).url || ""}
               onChange={(e) =>
-                onUpdate({ backend: { ...(lookup.backend as any), type: "http", url: e.target.value } })
+                onUpdate({
+                  backend: { ...(lookup.backend as any), type: "http", url: e.target.value },
+                })
               }
               placeholder="https://yourstore.com/api/orders/{order_id}"
               className="bg-input border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
@@ -244,7 +250,9 @@ function LookupCard({
               <select
                 value={(lookup.backend as any).method || "GET"}
                 onChange={(e) =>
-                  onUpdate({ backend: { ...(lookup.backend as any), type: "http", method: e.target.value } })
+                  onUpdate({
+                    backend: { ...(lookup.backend as any), type: "http", method: e.target.value },
+                  })
                 }
                 className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
@@ -253,7 +261,9 @@ function LookupCard({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <label className="text-xs text-muted-foreground">Authorization header (optional)</label>
+              <label className="text-xs text-muted-foreground">
+                Authorization header (optional)
+              </label>
               <input
                 value={(lookup.backend as any).headers?.Authorization || ""}
                 onChange={(e) =>
@@ -288,7 +298,9 @@ function LookupCard({
             }`}
           >
             <Upload className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm">{uploading ? "Uploading…" : "Upload CSV (first row = column names)"}</span>
+            <span className="text-sm">
+              {uploading ? "Uploading…" : "Upload CSV (first row = column names)"}
+            </span>
             <input
               ref={fileRef}
               type="file"

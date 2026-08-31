@@ -17,13 +17,33 @@
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  PhoneCall, ArrowRight, Check, Sparkles, BookOpen, Radio,
-  UsersRound, ListChecks, AlertTriangle, HelpCircle, Bot, Brain, Flame, Clock,
-  Zap, Activity, UserPlus, Megaphone, BarChart3,
+  PhoneCall,
+  ArrowRight,
+  Check,
+  Sparkles,
+  BookOpen,
+  Radio,
+  UsersRound,
+  ListChecks,
+  AlertTriangle,
+  HelpCircle,
+  Bot,
+  Brain,
+  Flame,
+  Clock,
+  Zap,
+  Activity,
+  UserPlus,
+  Megaphone,
+  BarChart3,
 } from "lucide-react";
 import {
-  useAgent, useClientKnowledge, useClientHome,
-  type ClientHome, type AttentionItem, type AttentionKind,
+  useAgent,
+  useClientKnowledge,
+  useClientHome,
+  type ClientHome,
+  type AttentionItem,
+  type AttentionKind,
 } from "@/lib/data";
 import { useMe } from "@/lib/team";
 import { Reveal, CountUp } from "@/components/Motion";
@@ -100,7 +120,10 @@ type Step = {
 };
 
 function Setup({
-  name, business, number, steps,
+  name,
+  business,
+  number,
+  steps,
 }: {
   name: string;
   business?: string | null;
@@ -176,9 +199,24 @@ function Setup({
               Or look around first
             </h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <QuickLink to="/app/calls" icon={PhoneCall} title="Call log" body="Every call, transcript and recording." />
-              <QuickLink to="/app/leads" icon={ListChecks} title="Leads" body="What your agent captures, ready to work." />
-              <QuickLink to="/app/team" icon={UsersRound} title="Team" body="Invite the people who'll handle the leads." />
+              <QuickLink
+                to="/app/calls"
+                icon={PhoneCall}
+                title="Call log"
+                body="Every call, transcript and recording."
+              />
+              <QuickLink
+                to="/app/leads"
+                icon={ListChecks}
+                title="Leads"
+                body="What your agent captures, ready to work."
+              />
+              <QuickLink
+                to="/app/team"
+                icon={UsersRound}
+                title="Team"
+                body="Invite the people who'll handle the leads."
+              />
             </div>
           </div>
         </Reveal>
@@ -218,16 +256,18 @@ function AgentOrb({ number }: { number?: string | null }) {
             <span
               key={i}
               className="w-[3px] rounded-full bg-gradient-primary origin-bottom animate-eq opacity-45"
-              style={{ height: `${h * 100}%`, animationDelay: `${i * 0.13}s`, animationDuration: "2.2s" }}
+              style={{
+                height: `${h * 100}%`,
+                animationDelay: `${i * 0.13}s`,
+                animationDuration: "2.2s",
+              }}
             />
           ))}
         </div>
       </div>
 
       <div className="mt-3 text-sm font-medium">Agent asleep</div>
-      <div className="text-xs text-muted-foreground tabular-nums">
-        {number || "No number yet"}
-      </div>
+      <div className="text-xs text-muted-foreground tabular-nums">{number || "No number yet"}</div>
     </div>
   );
 }
@@ -304,8 +344,16 @@ function StepCard({ step, index, current }: { step: Step; index: number; current
 }
 
 function QuickLink({
-  to, icon: Icon, title, body,
-}: { to: string; icon: any; title: string; body: string }) {
+  to,
+  icon: Icon,
+  title,
+  body,
+}: {
+  to: string;
+  icon: any;
+  title: string;
+  body: string;
+}) {
   return (
     <Link
       to={to}
@@ -323,7 +371,6 @@ function firstName(full?: string | null) {
   // "Welcome to Vocera, there." still reads as a greeting with no name on file.
   return n || "there";
 }
-
 
 // ─── Command centre (agent is live) ──────────────────────────────────────────
 // Not an analytics page. Analytics answers "how are we performing over time";
@@ -433,7 +480,9 @@ function StatusDot({ state }: { state: ClientHome["agent"]["state"] }) {
   const s = map[state];
   return (
     <span className="inline-flex items-center gap-2 align-middle">
-      <span className={`w-2 h-2 rounded-full ${s.cls} ${state === "ready" ? "animate-live" : ""}`} />
+      <span
+        className={`w-2 h-2 rounded-full ${s.cls} ${state === "ready" ? "animate-live" : ""}`}
+      />
       <span className="font-medium">{s.label}</span>
       <span className="text-muted-foreground">·</span>
     </span>
@@ -450,7 +499,10 @@ function timeOfDay() {
 // ─── 2. Your AI today ────────────────────────────────────────────────────────
 
 function AiToday({
-  today, live, campaigns, className = "",
+  today,
+  live,
+  campaigns,
+  className = "",
 }: {
   today: ClientHome["today"];
   live: boolean;
@@ -466,7 +518,10 @@ function AiToday({
       title="Your AI today"
       action={
         !quiet && (
-          <Link to="/app/calls" className="text-xs text-muted-foreground hover:text-foreground transition">
+          <Link
+            to="/app/calls"
+            className="text-xs text-muted-foreground hover:text-foreground transition"
+          >
             View today's activity →
           </Link>
         )
@@ -530,9 +585,12 @@ function AiToday({
 function Stat({ n, label, tone }: { n: number; label: string; tone?: "high" | "warn" }) {
   // Zero is a fact, not a failure — it recedes rather than shouting in colour.
   const colour =
-    n === 0 ? "text-muted-foreground/50"
-      : tone === "high" ? "text-success"
-        : tone === "warn" ? "text-warning"
+    n === 0
+      ? "text-muted-foreground/50"
+      : tone === "high"
+        ? "text-success"
+        : tone === "warn"
+          ? "text-warning"
           : "";
   return (
     <div>
@@ -549,27 +607,62 @@ const ATTENTION_STYLE: Record<
   AttentionKind,
   { icon: any; label: string; ring: string; fg: string }
 > = {
-  issue: { icon: AlertTriangle, label: "Agent issue", ring: "border-destructive/35 bg-destructive/[0.04]", fg: "text-destructive" },
-  handoff: { icon: PhoneCall, label: "Human follow-up", ring: "border-warning/35 bg-warning/[0.04]", fg: "text-warning" },
-  high_intent: { icon: Flame, label: "High-intent lead", ring: "border-success/35 bg-success/[0.04]", fg: "text-success" },
-  follow_up: { icon: Clock, label: "Follow-up due", ring: "border-border", fg: "text-muted-foreground" },
+  issue: {
+    icon: AlertTriangle,
+    label: "Agent issue",
+    ring: "border-destructive/35 bg-destructive/[0.04]",
+    fg: "text-destructive",
+  },
+  handoff: {
+    icon: PhoneCall,
+    label: "Human follow-up",
+    ring: "border-warning/35 bg-warning/[0.04]",
+    fg: "text-warning",
+  },
+  high_intent: {
+    icon: Flame,
+    label: "High-intent lead",
+    ring: "border-success/35 bg-success/[0.04]",
+    fg: "text-success",
+  },
+  follow_up: {
+    icon: Clock,
+    label: "Follow-up due",
+    ring: "border-border",
+    fg: "text-muted-foreground",
+  },
   stale: { icon: Clock, label: "Going cold", ring: "border-border", fg: "text-muted-foreground" },
-  knowledge: { icon: HelpCircle, label: "Knowledge gap", ring: "border-border", fg: "text-muted-foreground" },
+  knowledge: {
+    icon: HelpCircle,
+    label: "Knowledge gap",
+    ring: "border-border",
+    fg: "text-muted-foreground",
+  },
 };
 
 function Attention({
-  items, total, className = "",
-}: { items: AttentionItem[]; total: number; className?: string }) {
+  items,
+  total,
+  className = "",
+}: {
+  items: AttentionItem[];
+  total: number;
+  className?: string;
+}) {
   return (
     <Card
       className={className}
       icon={Zap}
       title="Needs your attention"
-      badge={total > items.length ? `${items.length} of ${total}` : total ? String(total) : undefined}
+      badge={
+        total > items.length ? `${items.length} of ${total}` : total ? String(total) : undefined
+      }
     >
       {items.length === 0 ? (
         <div className="py-8 text-center">
-          <div className="text-2xl" aria-hidden>🎉</div>
+          <div className="text-2xl" aria-hidden>
+            🎉
+          </div>
           <p className="mt-2 text-sm font-medium">You're all caught up</p>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Nothing needs your attention right now.
@@ -629,8 +722,12 @@ function Attention({
 // ─── 4. AI briefing ──────────────────────────────────────────────────────────
 
 function Briefing({
-  briefing, className = "",
-}: { briefing: ClientHome["briefing"]; className?: string }) {
+  briefing,
+  className = "",
+}: {
+  briefing: ClientHome["briefing"];
+  className?: string;
+}) {
   const empty = briefing.bullets.length === 0;
 
   return (
@@ -673,8 +770,12 @@ function Briefing({
 // ─── 6. Customer signals ─────────────────────────────────────────────────────
 
 function Signals({
-  signals, className = "",
-}: { signals: ClientHome["signals"]; className?: string }) {
+  signals,
+  className = "",
+}: {
+  signals: ClientHome["signals"];
+  className?: string;
+}) {
   const max = Math.max(1, ...signals.topics.map((t) => t.count));
 
   return (
@@ -716,8 +817,12 @@ function Signals({
 // ─── 7. Agent status ─────────────────────────────────────────────────────────
 
 function AgentStatus({
-  agent, className = "",
-}: { agent: ClientHome["agent"]; className?: string }) {
+  agent,
+  className = "",
+}: {
+  agent: ClientHome["agent"];
+  className?: string;
+}) {
   return (
     <Card className={className} icon={Bot} title="Agent status">
       <div className="font-medium truncate">{agent.name}</div>
@@ -746,7 +851,11 @@ function AgentStatus({
                 : `${agent.knowledge.count} entries · ageing`
           }
         />
-        <Field label="Last call" value={agent.last_call_at ? relTime(agent.last_call_at) : null} empty="None yet" />
+        <Field
+          label="Last call"
+          value={agent.last_call_at ? relTime(agent.last_call_at) : null}
+          empty="None yet"
+        />
       </dl>
 
       <Link
@@ -760,7 +869,10 @@ function AgentStatus({
 }
 
 function Field({
-  label, value, empty = "Not set", status,
+  label,
+  value,
+  empty = "Not set",
+  status,
 }: {
   label: string;
   value: string | null;
@@ -768,7 +880,13 @@ function Field({
   status?: "good" | "warn" | "bad";
 }) {
   const dot =
-    status === "good" ? "bg-success" : status === "warn" ? "bg-warning" : status === "bad" ? "bg-destructive" : null;
+    status === "good"
+      ? "bg-success"
+      : status === "warn"
+        ? "bg-warning"
+        : status === "bad"
+          ? "bg-destructive"
+          : null;
 
   return (
     <div className="flex items-baseline justify-between gap-3">
@@ -793,8 +911,12 @@ const TIMELINE_ICON = {
 } as const;
 
 function Timeline({
-  events, className = "",
-}: { events: ClientHome["timeline"]; className?: string }) {
+  events,
+  className = "",
+}: {
+  events: ClientHome["timeline"];
+  className?: string;
+}) {
   return (
     <Card className={className} icon={Activity} title="Today">
       {events.length === 0 ? (
@@ -866,7 +988,12 @@ function QuickActions({ className = "" }: { className?: string }) {
 // ─── Shared ──────────────────────────────────────────────────────────────────
 
 function Card({
-  title, icon: Icon, badge, action, className = "", children,
+  title,
+  icon: Icon,
+  badge,
+  action,
+  className = "",
+  children,
 }: {
   title: string;
   icon?: any;
@@ -919,7 +1046,8 @@ function HomeSkeleton() {
 
 function clockTime(iso: string) {
   return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "numeric", minute: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 

@@ -24,21 +24,58 @@ export function useVoiceCall() {
   const wsRef = useRef<WebSocket | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const nodesRef = useRef<{ source?: MediaStreamAudioSourceNode; proc?: ScriptProcessorNode; sink?: GainNode }>({});
+  const nodesRef = useRef<{
+    source?: MediaStreamAudioSourceNode;
+    proc?: ScriptProcessorNode;
+    sink?: GainNode;
+  }>({});
   const playerRef = useRef<StreamPlayer | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => () => teardown(), []); // cleanup on unmount
 
   function teardown() {
-    try { if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ event: "stop" })); } catch { /* ignore */ }
-    try { wsRef.current?.close(); } catch { /* ignore */ }
-    try { nodesRef.current.proc?.disconnect(); } catch { /* ignore */ }
-    try { nodesRef.current.source?.disconnect(); } catch { /* ignore */ }
-    try { nodesRef.current.sink?.disconnect(); } catch { /* ignore */ }
-    try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    try { playerRef.current?.stop(); } catch { /* ignore */ }
-    try { ctxRef.current?.close(); } catch { /* ignore */ }
+    try {
+      if (wsRef.current?.readyState === WebSocket.OPEN)
+        wsRef.current.send(JSON.stringify({ event: "stop" }));
+    } catch {
+      /* ignore */
+    }
+    try {
+      wsRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      nodesRef.current.proc?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      nodesRef.current.source?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      nodesRef.current.sink?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* ignore */
+    }
+    try {
+      playerRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ctxRef.current?.close();
+    } catch {
+      /* ignore */
+    }
     if (tickRef.current) clearInterval(tickRef.current);
     tickRef.current = null;
     wsRef.current = null;
@@ -79,10 +116,14 @@ export function useVoiceCall() {
         const source = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(2048, 1, 1);
         const sink = ctx.createGain();
-        sink.gain.value = 0;   // muted — no mic loopback, but keeps the node running
+        sink.gain.value = 0; // muted — no mic loopback, but keeps the node running
         proc.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
-          const payload = floatToPcm16Base64(e.inputBuffer.getChannelData(0), ctx.sampleRate, 16000);
+          const payload = floatToPcm16Base64(
+            e.inputBuffer.getChannelData(0),
+            ctx.sampleRate,
+            16000,
+          );
           ws.send(JSON.stringify({ event: "media", media: { payload } }));
         };
         source.connect(proc);
@@ -94,7 +135,11 @@ export function useVoiceCall() {
 
       ws.onmessage = (ev) => {
         let msg: any;
-        try { msg = JSON.parse(ev.data); } catch { return; }
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
         if (msg.event === "media" && msg.media?.payload) {
           playerRef.current?.push(msg.media.payload);
         } else if (msg.event === "clear") {

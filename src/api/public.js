@@ -87,6 +87,10 @@ router.post('/invite/:token/accept', async (req, res) => {
   const { credential, password, full_name: fullName } = req.body || {}
   let userId = null
   let sessionToken = null
+  // Invited teammates get a real session too, so they need the refresh token as
+  // much as anyone else — without it they alone would still be signed out hourly.
+  let sessionRefresh = null
+  let sessionExpires = null
   let createdUser = false
 
   try {
@@ -109,6 +113,8 @@ router.post('/invite/:token/accept', async (req, res) => {
       }
       userId = data.user.id
       sessionToken = data.session.access_token
+      sessionRefresh = data.session.refresh_token || null
+      sessionExpires = data.session.expires_at || null
     } else if (password) {
       if (String(password).length < 8) {
         return res.status(400).json({ error: 'Password must be at least 8 characters' })
@@ -128,6 +134,8 @@ router.post('/invite/:token/accept', async (req, res) => {
         email: invite.email, password,
       })
       sessionToken = signedIn?.session?.access_token || null
+      sessionRefresh = signedIn?.session?.refresh_token || null
+      sessionExpires = signedIn?.session?.expires_at || null
     } else {
       return res.status(400).json({ error: 'Choose a password or sign in with Google' })
     }
@@ -171,6 +179,8 @@ router.post('/invite/:token/accept', async (req, res) => {
 
     res.status(201).json({
       token: sessionToken,
+      refresh_token: sessionRefresh,
+      expires_at: sessionExpires,
       role: 'client',
       tenant_role: invite.tenant_role,
       tenant_id: invite.tenant_id,

@@ -18,9 +18,12 @@ import { clearHistory, getHistory } from '../services/llm.js'
 const createVoiceConnection = createGeminiLiveConnection
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
+import { recordingNotice } from '../services/greeting.js'
 import { saveKnowledgeGaps } from '../services/rag.js'
 import { supabase } from '../api/db.js'
 import telemetry from '../services/telemetry.js'
+import { verifyDestination, isE164, xmlEscape, webhookQuery } from '../api/webhook-auth.js'
+import { randomUUID } from 'crypto'
 import 'dotenv/config'
 
 // Extract an E.164-ish number from "+1234", "sip:+1234@domain", etc.
@@ -47,9 +50,28 @@ async function findTenantByNumber(raw) {
   return data?.[0] || null
 }
 
-// Pending calls set by /answer, recovered by the WS 'start' event via a callkey
-// we pass through extraHeaders. Keyed by the call row id.
+// ─── Pending call tickets ─────────────────────────────────────────────────────
+// /answer mints a ticket and hands the key to Vobiz via extraHeaders; the WS
+// 'start' frame presents it back and consumes it. The key IS the authentication
+// for the media stream, so it has three properties that all matter:
+//
+//   unguessable — a random UUID, not the call row id. The row id would otherwise
+//                 leak an internal identifier to the provider, and anything
+//                 derived from the caller/called numbers would be guessable by
+//                 anyone who knows a business's published phone number.
+//   single-use  — consumed on the first successful start; a replayed key is dead.
+//   short-lived — swept after TICKET_TTL_MS. Previously entries were only removed
+//                 on a successful start, so every call whose stream never
+//                 connected leaked its tenant object for the process lifetime.
 const pendingCalls = new Map()
+const TICKET_TTL_MS = Number(process.env.CALL_TICKET_TTL_MS || 60_000)
+
+setInterval(() => {
+  const cutoff = Date.now() - TICKET_TTL_MS
+  for (const [key, v] of pendingCalls) {
+    if (v.createdAt < cutoff) pendingCalls.delete(key)
+  }
+}, 30_000).unref?.()
 
 // ─── /answer webhook ─────────────────────────────────────────────────────────
 // Vobiz POSTs here when a call hits one of our numbers. We resolve the tenant by
@@ -91,9 +113,13 @@ export async function vobizAnswer(req, res) {
     .select().single()
   const callInsertMs = Date.now() - tInsert0
 
-  const callkey = call?.id || `${callerNumber}-${Date.now()}`
+  // Random, not the call row id: this key authenticates the media stream, and it
+  // travels out to the provider. Deriving it from anything an outsider could know
+  // or guess — the caller's number, a timestamp — would defeat the point.
+  const callkey = randomUUID()
   pendingCalls.set(callkey, {
     tenant, callId: call?.id || null, callerNumber, providerCallId,
+    createdAt: Date.now(),
     // Webhook-phase telemetry, replayed as spans when the WS trace starts.
     telemetry: {
       webhookAt,
@@ -105,7 +131,10 @@ export async function vobizAnswer(req, res) {
   })
   telemetry.recordLatency('webhook', Date.now() - webhookAt)
 
-  const wsUrl = `wss://${process.env.NGROK_URL}/media-stream-vobiz`
+  // PUBLIC_HOST is the real deployment hostname; NGROK_URL is the dev fallback.
+  // The stream URL carries the webhook secret so the upgrade can be gated too.
+  const host = process.env.PUBLIC_HOST || process.env.NGROK_URL
+  const wsUrl = `wss://${host}/media-stream-vobiz?${webhookQuery()}`
   res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000" extraHeaders="callkey=${callkey}">
@@ -126,17 +155,42 @@ export function vobizHangup(_req, res) {
 export function vobizTransferXml(req, res) {
   const to = String(req.query.to || req.body?.to || '').trim()
   const callerId = String(req.query.callerId || req.body?.callerId || '').trim()
+  const sig = String(req.query.sig || req.body?.sig || '').trim()
   res.type('text/xml')
+
+  const empty = () => res.send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
+
   if (!to) {
     console.error('[VOBIZ] transfer XML requested without a destination number')
-    return res.send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
+    return empty()
   }
-  const callerAttr = callerId ? ` callerId="${callerId}"` : ''
+
+  // The destination made a round trip through Vobiz and came back as a query
+  // string, so it is attacker-controllable by anyone who can reach this endpoint.
+  // Only a destination we ourselves signed in handoff.js is dialled. Without this
+  // the endpoint is an open relay: ?to=<any premium-rate number> and we pay.
+  if (!verifyDestination(to, callerId, sig)) {
+    console.error(`[VOBIZ] transfer REJECTED — bad or missing signature for ${to}`)
+    telemetry.recordServiceEvent({
+      component: 'telephony', severity: 'error', kind: 'transfer_signature_rejected',
+      detail: { to, hasSig: Boolean(sig) },
+    })
+    return empty()
+  }
+
+  // Defence in depth: even a correctly signed value must still look like a phone
+  // number before it reaches the XML.
+  if (!isE164(to) || (callerId && !isE164(callerId))) {
+    console.error(`[VOBIZ] transfer REJECTED — non-E.164 value (to=${to} callerId=${callerId})`)
+    return empty()
+  }
+
+  const callerAttr = callerId ? ` callerId="${xmlEscape(callerId)}"` : ''
   return res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Speak>Please hold while I connect you to a team member.</Speak>
   <Dial${callerAttr} timeout="30">
-    <Number>${to}</Number>
+    <Number>${xmlEscape(to)}</Number>
   </Dial>
   <Speak>Sorry, no one is available right now. Please try again later. Goodbye.</Speak>
   <Hangup/>
@@ -204,24 +258,31 @@ function parseExtraHeaders(raw) {
   return out
 }
 
-// Best-effort tenant recovery from the 'start' frame. Prefer the callkey we
-// injected via extraHeaders; fall back to the called number if present.
-async function resolveTenantFromStart(msg) {
+// Tenant recovery from the 'start' frame, via the ticket /answer minted.
+//
+// There is deliberately NO fallback. There used to be one: if the callkey was
+// missing, the tenant was resolved from the phone number in the start frame — a
+// value supplied by whoever opened the socket. Since the socket itself is
+// unauthenticated, that meant anyone could connect, name a customer's published
+// business number, and be handed a full Gemini Live session on that customer's
+// agent, prompt, and knowledge base — billed to them. The number in the start
+// frame is now treated as what it is: an untrusted claim.
+//
+// If a legitimate call ever arrives without a usable callkey, the correct outcome
+// is a dropped call and a loud telemetry event, not a guessed tenant.
+function resolveTenantFromStart(msg) {
   const headers = parseExtraHeaders(
     msg.extra_headers || msg.start?.extra_headers || msg.extraHeaders || msg.start?.extraHeaders
   )
   const callkey = headers.callkey || msg.start?.callkey || msg.callkey
-  if (callkey && pendingCalls.has(callkey)) {
-    const pending = pendingCalls.get(callkey)
-    pendingCalls.delete(callkey)
-    return pending
-  }
-  const called = normalize(msg.start?.to || msg.to || msg.start?.called_number || '')
-  if (called) {
-    const tenant = await findTenantByNumber(called)
-    if (tenant) return { tenant, callId: null, callerNumber: normalize(msg.start?.from || msg.from || '') }
-  }
-  return null
+  if (!callkey) return { error: 'no_callkey' }
+
+  const pending = pendingCalls.get(callkey)
+  if (!pending) return { error: 'unknown_or_expired_callkey' }
+
+  // Read-once: consuming the ticket here means a replayed key is already dead.
+  pendingCalls.delete(callkey)
+  return { pending }
 }
 
 // ─── WS connection handler ───────────────────────────────────────────────────
@@ -241,6 +302,11 @@ export function handleVobizConnection(ws) {
   let finalized = false
   let recorder = null
   let trace = null
+  // Evidence that the disclosure went out on THIS call. "Our greeting normally
+  // says so" is not an answer about a specific call, which is the whole reason
+  // the column exists — so it has to be stamped from the same condition that
+  // decides whether to record at all.
+  let noticePlayed = false
 
   const getStreamId = () => streamId
 
@@ -254,11 +320,14 @@ export function handleVobizConnection(ws) {
       console.log('[VOBIZ] start:', JSON.stringify(msg))
       streamId = msg.streamId || msg.start?.streamId || msg.stream_id || null
 
-      const resolved = await resolveTenantFromStart(msg)
+      const { pending: resolved, error } = resolveTenantFromStart(msg)
       if (!resolved?.tenant) {
-        console.error('[VOBIZ] Could not resolve tenant for stream — closing')
+        console.error(`[VOBIZ] rejecting media stream — ${error}`)
         telemetry.incr('media_stream_failures')
-        telemetry.recordServiceEvent({ component: 'telephony', severity: 'error', kind: 'media_stream_unresolved', detail: { streamId } })
+        telemetry.recordServiceEvent({
+          component: 'telephony', severity: 'error', kind: 'media_stream_unauthenticated',
+          detail: { streamId, reason: error },
+        })
         ws.close()
         return
       }
@@ -309,7 +378,13 @@ export function handleVobizConnection(ws) {
           msg.start?.callUuid || msg.start?.CallUUID || msg.callUuid || msg.CallUUID || null,
         business_number: tm.calledNumber || null,
       }
-      recorder = new CallRecorder()
+      // Recording is OPT-IN. It is personal data under DPDP, and the caller is
+      // only told about it when the tenant has enabled it (see recordingNotice in
+      // greeting.js) — so recording while the greeting stays silent about it would
+      // be capturing a voice nobody disclosed we were capturing.
+      const recordingOn = tenantConfig.recording_enabled === true
+      noticePlayed = recordingNotice(tenantConfig) !== ''
+      recorder = recordingOn ? new CallRecorder() : null
       const sink = makeVobizSink(ws, getStreamId, recorder, trace)
 
       dg = createVoiceConnection(
@@ -383,12 +458,48 @@ export function handleVobizConnection(ws) {
       }
 
       const updSpan = trace?.span('db_call_update', { latencyOp: 'supabase' })
-      await supabase.from('calls')
-        .update({
-          status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath,
-          ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
+      const callRow = {
+        status: 'completed', transcript, duration_seconds: durationSeconds, recording_path: recordingPath,
+        consent_notice_played: noticePlayed,
+        ...telemetry.callQuality(trace),   // avg reply time + knowledge hit/ask counts
+      }
+      // Postgres rejects the ENTIRE update when a single column is missing, and this
+      // is the write that persists the transcript — the most valuable thing the call
+      // produced. Migrations in sql/ get applied late or not at all (analytics.sql and
+      // compliance.sql have both been missing in practice), and losing a transcript to
+      // a migration gap is a far worse outcome than losing a metric. So: drop whichever
+      // column the database says it does not know, and retry with the rest.
+      //
+      // ESSENTIAL is never dropped. Without these the row is not a record of the call
+      // at all, and silently writing a hollow row would be worse than failing loudly.
+      const ESSENTIAL = new Set(['status', 'transcript', 'duration_seconds'])
+      const dropped = []
+      let updErr = null
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const { error } = await supabase.from('calls').update(callRow).eq('id', callId)
+        updErr = error
+        if (!error) break
+        // PostgREST names the offending column: "Could not find the 'x' column of …"
+        const missing = /Could not find the '([^']+)' column/.exec(error.message || '')?.[1]
+        if (!missing || ESSENTIAL.has(missing) || !(missing in callRow)) break
+        delete callRow[missing]
+        dropped.push(missing)
+      }
+      if (dropped.length) {
+        console.warn(`[VOBIZ] calls table is missing ${dropped.join(', ')} — run the pending sql/ migrations. Call saved without ${dropped.length === 1 ? 'it' : 'them'}.`)
+        telemetry.recordServiceEvent({
+          component: 'telephony', severity: 'warn', kind: 'calls_schema_behind',
+          detail: { missing: dropped, callSid },
         })
-        .eq('id', callId)
+      }
+      // Previously unchecked: a failure here silently discarded the transcript.
+      if (updErr) {
+        console.error('[VOBIZ] call row update failed:', updErr.message)
+        telemetry.recordServiceEvent({
+          component: 'telephony', severity: 'error', kind: 'call_update_failed',
+          detail: { error: updErr.message, callSid },
+        })
+      }
       updSpan?.end()
 
       // Questions the agent couldn't answer, collected during the call. Surfaced
@@ -402,7 +513,17 @@ export function handleVobizConnection(ws) {
         if (history && history.length > 0) {
           const leadSpan = trace?.span('lead_extraction')
           try {
-            const lead = await extractLead(history, tenant.config || {})
+            // The live classifier measured the call language turn by turn; the
+            // extractor would otherwise re-guess it from the transcript and can
+            // get it plainly wrong. Undefined for native-audio models, which run
+            // without a LanguageManager — the extractor then falls back to its
+            // own inference, which is the best available signal in that case.
+            // dominantLanguage, not language: the latter is the live steering
+            // state, which a garbled final utterance can flip. Telugu calls were
+            // being filed as Hindi on the strength of two mistranscribed lines.
+            const lead = await extractLead(history, tenant.config || {}, {
+              knownLanguage: trace?.state?.dominantLanguage || trace?.state?.language || null,
+            })
             if (lead) await saveLead(supabase, { tenantId: tenant.id, callId, callerNumber, lead })
             leadSpan?.end({ attrs: { extracted: !!lead, intent: lead?.intent || null } })
           } catch (e) {

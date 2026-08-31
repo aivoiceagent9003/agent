@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { setToken } from "@/lib/api";
+import { setSession } from "@/lib/api";
 import { loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
 import { Phone } from "lucide-react";
@@ -19,8 +19,9 @@ function SignupPage() {
   async function onGoogle(credential: string) {
     setLoading(true);
     try {
-      const { token, is_new } = await loginWithGoogle(credential);
-      setToken(token);
+      const session = await loginWithGoogle(credential);
+      const { is_new } = session;
+      setSession(session);
       toast.success("Welcome to Vocera!");
       // New users go to onboarding to name their business; returning ones to app.
       navigate({ to: is_new ? "/onboarding" : "/app" });
@@ -61,7 +62,10 @@ function SignupPage() {
           </div>
 
           <p className="mt-8 text-xs text-muted-foreground text-center">
-            Already have an account? <Link to="/login" className="text-primary hover:underline">Sign in</Link>
+            Already have an account?{" "}
+            <Link to="/login" className="text-primary hover:underline">
+              Sign in
+            </Link>
           </p>
         </div>
       </div>

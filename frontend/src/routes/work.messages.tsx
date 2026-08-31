@@ -8,14 +8,20 @@ import { createFileRoute } from "@tanstack/react-router";
 import { MessagesPanel } from "@/components/portal/MessagesPanel";
 
 export const Route = createFileRoute("/work/messages")({
+  // ?c=<conversation id> — how a notification link opens one specific thread.
+  validateSearch: (search: Record<string, unknown>): { c?: string } => ({
+    c: typeof search.c === "string" ? search.c : undefined,
+  }),
   head: () => ({ meta: [{ title: "Messages — Vocera" }] }),
   component: WorkMessages,
 });
 
 function WorkMessages() {
+  const { c } = Route.useSearch();
+
   return (
     <div className="h-screen">
-      <MessagesPanel />
+      <MessagesPanel initialConversationId={c} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import express from 'express'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
 import { createGeminiLiveConnection } from './services/gemini-live.js'
-import { clearHistory, streamAIReply } from './services/llm.js'
+import { clearHistory } from './services/llm.js'
 import { supabase } from './api/db.js'
 import publicRoutes from './api/public.js'
 import clientRoutes from './api/client.js'
@@ -11,6 +11,7 @@ import agentRoutes from './api/agent.js'
 import authRoutes from './api/auth-routes.js'
 import signupRoutes from './api/signup.js'
 import opsRoutes from './api/ops.js'
+import dsrRoutes from './api/dsr.js'
 import { vobizAnswer, vobizHangup, handleVobizConnection, vobizTransferXml } from './telephony/vobiz.js'
 import { handleDemoConnection } from './telephony/demo.js'
 import { answerCampaign, handleCampaignConnection } from './telephony/campaign.js'
@@ -23,19 +24,75 @@ import messageRoutes from './api/messages.js'
 import notificationRoutes from './api/notifications.js'
 import hub from './services/realtime-hub.js'
 import telemetry from './services/telemetry.js'
+import { requireWebhookSecret, WEBHOOK_SECRET_SET, timingSafeStringEqual } from './api/webhook-auth.js'
+import { apiLimiter, authLimiter, instantCallLimiter } from './api/rate-limits.js'
+import { logNotifyConfig } from './services/notify.js'
+import helmet from 'helmet'
+import { mountHealth, installShutdown, installCrashHandlers, reconcileOrphanedCalls, errorHandler } from './api/lifecycle.js'
 import 'dotenv/config'
 
 const app = express()
+const IS_PROD = process.env.NODE_ENV === 'production'
 
-// CORS — allow the frontend (different origin) to call the API.
-// In production, replace '*' with your frontend domain.
+// Installed before anything else can throw, so a failure during boot is visible
+// rather than a silent exit.
+installCrashHandlers()
+
+// ─── Boot-time config gate ────────────────────────────────────────────────────
+// A missing secret must stop the deploy, not silently downgrade it. Each of these
+// fails open in a way that is invisible at runtime — a wildcard CORS header, an
+// unauthenticated webhook — so production refuses to start without them.
+if (IS_PROD) {
+  const missing = []
+  if (!process.env.FRONTEND_ORIGIN) missing.push('FRONTEND_ORIGIN (CORS would fall back to a wildcard)')
+  if (!WEBHOOK_SECRET_SET) missing.push('WEBHOOK_SECRET (telephony webhooks would be unauthenticated)')
+  if (!process.env.PUBLIC_HOST) missing.push('PUBLIC_HOST (media-stream URL would point at an ngrok tunnel)')
+  if (missing.length) {
+    console.error('[BOOT] refusing to start in production — missing required config:')
+    for (const m of missing) console.error('  • ' + m)
+    process.exit(1)
+  }
+}
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// Allow-list, never a wildcard: this API accepts an Authorization header, and
+// `Access-Control-Allow-Origin: *` alongside credentials lets any site on the
+// internet drive the dashboard API with a victim's token.
+const ALLOWED_ORIGINS = (process.env.FRONTEND_ORIGIN || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', process.env.FRONTEND_ORIGIN || '*')
+  const origin = req.headers.origin
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin)
+    // The response varies per origin, so caches must key on it.
+    res.header('Vary', 'Origin')
+  } else if (!IS_PROD && origin && !ALLOWED_ORIGINS.length) {
+    // Dev convenience only: with no allow-list configured, echo the caller so a
+    // local frontend on any port works. Unreachable in production — the boot gate
+    // above requires FRONTEND_ORIGIN there.
+    res.header('Access-Control-Allow-Origin', origin)
+    res.header('Vary', 'Origin')
+  }
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') return res.sendStatus(204)
   next()
 })
+
+// Security headers. contentSecurityPolicy is off because this process serves JSON
+// and XML, never HTML — a CSP here would protect nothing while risking breakage.
+// crossOriginResourcePolicy is relaxed so the separately-hosted dashboard can read
+// responses.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}))
+
+// Rate limiters read req.ip. Behind a proxy or load balancer every request appears
+// to come from the proxy, which would put all users in one bucket, so trust the
+// first forwarded hop.
+app.set('trust proxy', 1)
 
 app.use(express.urlencoded({ extended: false }))
 app.use(express.json())
@@ -44,12 +101,16 @@ app.use(express.json())
 app.use(express.text({ type: ['text/xml', 'application/xml', 'application/soap+xml'], limit: '1mb' }))
 
 // ─── Web API routes (for the frontend) ────────────────────────────────────────
+// apiLimiter is the backstop for everything under /api; the tighter limiters below
+// are layered on top of it for the routes that cost money or guard credentials.
+app.use('/api', apiLimiter)
+
 app.use('/api/public', publicRoutes)
-app.use('/api/auth', authRoutes)
-app.use('/api/signup', signupRoutes)
+app.use('/api/auth', authLimiter, authRoutes)
+app.use('/api/signup', authLimiter, signupRoutes)
 app.use('/api/client/agent', agentRoutes)
 app.use('/api/client/campaigns', campaignRoutes)
-app.use('/api/client/instant-call', instantRoutes)
+app.use('/api/client/instant-call', instantCallLimiter, instantRoutes)
 app.use('/api/client/whatsapp', whatsappRoutes)
 app.use('/api/client/team', teamRoutes)
 app.use('/api/client/messages', messageRoutes)
@@ -59,19 +120,28 @@ app.use('/api/client', clientRoutes)
 // Mount the Operations Center BEFORE the general admin router so /api/admin/ops/*
 // is handled by opsRoutes and not shadowed by adminRoutes' prefix.
 app.use('/api/admin/ops', opsRoutes)
+app.use('/api/admin/dsr', dsrRoutes)   // data-subject erasure (DPDP)
 app.use('/api/admin', adminRoutes)
 
 // ─── Vobiz telephony (Indian numbers) ─────────────────────────────────────────
-app.post('/answer', vobizAnswer)
-app.post('/hangup', vobizHangup)
+// Every provider webhook is gated by the shared secret carried in the URL we
+// configure in the Vobiz console (?k=…). Vobiz does not sign its requests, so this
+// is the only thing standing between these endpoints and the open internet:
+// unauthenticated, they let anyone mint call rows, start billable media sessions,
+// and dial arbitrary numbers on our account.
+const webhookGate = requireWebhookSecret()
+
+app.post('/answer', webhookGate, vobizAnswer)
+app.post('/hangup', webhookGate, vobizHangup)
 // Human-handoff transfer XML: Vobiz fetches this for the caller leg when the agent
 // hands off to a human (see transferViaVobiz in handoff.js). GET + POST since the
-// leg redirect method may be either.
-app.post('/vobiz/transfer', vobizTransferXml)
-app.get('/vobiz/transfer', vobizTransferXml)
+// leg redirect method may be either. The destination is additionally HMAC-signed —
+// the secret alone is not enough to choose who gets dialled.
+app.post('/vobiz/transfer', webhookGate, vobizTransferXml)
+app.get('/vobiz/transfer', webhookGate, vobizTransferXml)
 
 // ─── Outbound campaign answer webhook (provider fetches on answer) ────────────
-app.post('/answer-campaign', answerCampaign)
+app.post('/answer-campaign', webhookGate, answerCampaign)
 
 const server = createServer(app)
 
@@ -85,17 +155,37 @@ const demoWss = new WebSocketServer({ noServer: true })   // public "try it live
 const msgWss = new WebSocketServer({ noServer: true })   // team messaging + notifications
 
 server.on('upgrade', (req, socket, head) => {
-  let pathname
+  let pathname, query
   try {
-    pathname = new URL(req.url, `http://${req.headers.host}`).pathname
+    const u = new URL(req.url, `http://${req.headers.host}`)
+    pathname = u.pathname
+    query = u.searchParams
   } catch {
     pathname = req.url
+    query = new URLSearchParams()
   }
+
+  // Media streams carry the webhook secret in the URL we handed the provider.
+  // Rejecting here means an unauthenticated socket never reaches a call handler
+  // at all — the ticket check inside the handler is the second line, not the first.
+  const mediaAuthed = () => {
+    if (!WEBHOOK_SECRET_SET) return false
+    return timingSafeStringEqual(query.get('k') || '', process.env.WEBHOOK_SECRET || '')
+  }
+  const rejectUpgrade = (why) => {
+    console.error(`[WS] rejected upgrade to ${pathname} — ${why}`)
+    telemetry.incr('ws_upgrade_rejected')
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+    socket.destroy()
+  }
+
   if (pathname === '/test-stream') {
     testWss.handleUpgrade(req, socket, head, ws => testWss.emit('connection', ws, req))
   } else if (pathname === '/media-stream-vobiz') {
+    if (!mediaAuthed()) return rejectUpgrade('bad or missing webhook secret')
     vobizWss.handleUpgrade(req, socket, head, ws => vobizWss.emit('connection', ws, req))
   } else if (pathname === '/media-stream-campaign') {
+    if (!mediaAuthed()) return rejectUpgrade('bad or missing webhook secret')
     campaignWss.handleUpgrade(req, socket, head, ws => campaignWss.emit('connection', ws, req))
   } else if (pathname === '/ops-stream') {
     opsWss.handleUpgrade(req, socket, head, ws => opsWss.emit('connection', ws, req))
@@ -148,13 +238,22 @@ opsWss.on('connection', async (ws, req) => {
   const safeSend = (obj) => { try { if (ws.readyState === 1) ws.send(JSON.stringify(obj)) } catch {} }
 
   // Initial snapshot so the client renders immediately, then live deltas.
-  safeSend({ type: 'snapshot', snapshot: telemetry.getSnapshot(), calls: telemetry.getActiveCalls() })
+  //
+  // getOverviewSnapshot, NOT getSnapshot: this payload lands in the same client
+  // cache as GET /overview, so pushing the raw in-memory snapshot here overwrote
+  // the database-backed call counts every 5 seconds and the tiles flickered.
+  const sendSnapshot = async () => {
+    try {
+      safeSend({ type: 'snapshot', snapshot: await telemetry.getOverviewSnapshot(), calls: telemetry.getActiveCalls() })
+    } catch { /* a heartbeat is never worth throwing over */ }
+  }
+  sendSnapshot()
 
   const forward = ({ event, payload }) => safeSend({ type: 'event', event, payload })
   telemetry.bus.on('*', forward)
 
   // Periodic snapshot heartbeat (covers anything not captured by deltas + keepalive).
-  const hb = setInterval(() => safeSend({ type: 'snapshot', snapshot: telemetry.getSnapshot(), calls: telemetry.getActiveCalls() }), 5000)
+  const hb = setInterval(sendSnapshot, 5000)
 
   ws.on('close', () => { telemetry.bus.off('*', forward); clearInterval(hb) })
   ws.on('error', () => { telemetry.bus.off('*', forward); clearInterval(hb) })
@@ -300,129 +399,58 @@ testWss.on('connection', (ws) => {
   })
 })
 
-// ─── Browser test interface ───────────────────────────────────────────────────
-app.post('/api/test-turn', async (req, res) => {
-  const { message, sessionId = 'browser-test' } = req.body
-  if (!message?.trim()) return res.status(400).json({ error: 'message required' })
-
-  const t0 = Date.now()
-  let response = ''
-  try {
-    for await (const token of streamAIReply(sessionId, message, {})) {
-      response += token
-    }
-    res.json({ response, ms: Date.now() - t0 })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
+// ─── Lifecycle: drain, health, error handling ─────────────────────────────────
+// installShutdown owns the drain flag, and mountHealth reads it — a draining
+// process must fail its health check so the load balancer stops routing new calls
+// to it while it finishes the ones it already has.
+const { isDraining } = installShutdown({
+  server,
+  socketServers: [vobizWss, campaignWss, demoWss, testWss, opsWss, msgWss],
+  graceMs: Number(process.env.SHUTDOWN_GRACE_MS || 15000),
 })
 
-app.delete('/api/test-session/:id', (req, res) => {
-  clearHistory(req.params.id)
-  res.json({ ok: true })
-})
+mountHealth(app, { draining: isDraining })
 
-app.get('/test', (_req, res) => {
-  res.type('html').send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voice Agent — Browser Test</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; background: #f5f5f5; }
-  h2 { margin-bottom: 4px; }
-  small { color: #666; }
-  #chat { background: white; border-radius: 10px; padding: 16px; min-height: 200px; margin: 16px 0; border: 1px solid #ddd; }
-  .msg { margin: 8px 0; padding: 8px 12px; border-radius: 8px; max-width: 90%; }
-  .user { background: #0078d4; color: white; margin-left: auto; text-align: right; }
-  .agent { background: #e8e8e8; color: #111; }
-  .meta { font-size: 11px; opacity: 0.6; margin-top: 2px; }
-  #row { display: flex; gap: 8px; }
-  #input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; }
-  button { padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; }
-  #send { background: #0078d4; color: white; }
-  #send:disabled { opacity: 0.5; cursor: default; }
-  #clear { background: #ddd; }
-  #status { font-size: 12px; color: #888; margin-top: 6px; }
-</style>
-</head>
-<body>
-<h2>Voice Agent — Browser Test</h2>
-<small>Type what you would say. The agent replies with text + speaks it aloud.</small>
-<div id="chat"></div>
-<div id="row">
-  <input id="input" type="text" placeholder="e.g. I need help with my order" autofocus>
-  <button id="send" onclick="send()">Send</button>
-  <button id="clear" onclick="clearSession()">New call</button>
-</div>
-<div id="status">Ready</div>
-
-<script>
-const SESSION = 'test-' + Math.random().toString(36).slice(2, 8)
-const chat = document.getElementById('chat')
-const input = document.getElementById('input')
-const status = document.getElementById('status')
-const sendBtn = document.getElementById('send')
-
-function addMsg(text, role, meta) {
-  const d = document.createElement('div')
-  d.className = 'msg ' + role
-  d.innerHTML = '<div>' + text + '</div>' + (meta ? '<div class="meta">' + meta + '</div>' : '')
-  chat.appendChild(d)
-  chat.scrollTop = chat.scrollHeight
-}
-
-input.addEventListener('keydown', e => { if (e.key === 'Enter') send() })
-
-async function send() {
-  const msg = input.value.trim()
-  if (!msg) return
-  input.value = ''
-  sendBtn.disabled = true
-  status.textContent = 'Thinking...'
-  addMsg(msg, 'user')
-
-  const t0 = Date.now()
-  try {
-    const r = await fetch('/api/test-turn', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, sessionId: SESSION })
-    })
-    const { response, ms, error } = await r.json()
-    if (error) throw new Error(error)
-    addMsg(response, 'agent', ms + 'ms')
-    status.textContent = 'LLM: ' + ms + 'ms'
-    const utt = new SpeechSynthesisUtterance(response)
-    utt.lang = 'en-IN'
-    speechSynthesis.speak(utt)
-  } catch (err) {
-    addMsg('Error: ' + err.message, 'agent')
-    status.textContent = 'Error'
-  }
-  sendBtn.disabled = false
-  input.focus()
-}
-
-async function clearSession() {
-  await fetch('/api/test-session/' + SESSION, { method: 'DELETE' })
-  chat.innerHTML = ''
-  status.textContent = 'New session started'
-}
-</script>
-</body>
-</html>`)
-})
+// LAST middleware, after every route: without it a thrown handler returns
+// Express default HTML with a stack trace.
+app.use(errorHandler)
 
 const PORT = process.env.PORT || 3000
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`)
+  // Say, at boot, whether alerts can actually reach anyone. A deployment that
+  // detects every problem correctly and can report none of them looks identical
+  // to a healthy one until the night it matters.
+  logNotifyConfig()
+  // Calls stranded by a previous hard kill are cleaned up here rather than left
+  // to inflate the live-call count forever.
+  await reconcileOrphanedCalls({ olderThanHours: Number(process.env.ORPHAN_CALL_HOURS || 2) })
 })
 
-// When Redis isn't configured, run campaigns in-process (no separate worker needed).
-// Resumes running/scheduled campaigns and starts the stale-dial sweep. No-op under
-// Redis (use `npm run worker`) or when CAMPAIGN_RUNNER=off.
+// ─── Campaign runner ──────────────────────────────────────────────────────────
+// Without Redis, campaigns run in-process via the inline runner. That runner is
+// SINGLE-PROCESS ONLY by construction: it holds the dial queue in memory, so two
+// replicas would each work the full contact list and every contact would be
+// called twice. inline.js documents this constraint; nothing enforced it.
+//
+// The first time you scale to two replicas for availability, that becomes a
+// double-dial incident with real people on the other end — so production refuses
+// the in-process path outright and requires Redis plus the separate worker.
 import('./queue/inline.js')
-  .then(({ INLINE_ENABLED, startInlineRunner }) => { if (INLINE_ENABLED) return startInlineRunner() })
+  .then(({ INLINE_ENABLED, startInlineRunner }) => {
+    if (!INLINE_ENABLED) return
+    if (IS_PROD) {
+      console.error(
+        '[INLINE] refusing to start the in-process campaign runner in production. ' +
+        'It cannot run on more than one replica without double-dialling every ' +
+        'contact. Set REDIS_URL and run the worker, or set CAMPAIGN_RUNNER=off.'
+      )
+      telemetry.recordServiceEvent({
+        component: 'campaigns', severity: 'critical', kind: 'inline_runner_refused',
+        detail: { reason: 'production requires REDIS_URL + worker process' },
+      })
+      return
+    }
+    return startInlineRunner()
+  })
   .catch((e) => console.error('[INLINE] failed to start:', e.message))

@@ -91,11 +91,13 @@ export function EmployeeLeads() {
       </header>
 
       <div className="mt-6 inline-flex gap-1 p-1 rounded-xl bg-muted">
-        {([
-          ["all", `All (${counts.all})`],
-          ["mine", `My leads (${counts.mine})`],
-          ["unassigned", `Unassigned (${counts.unassigned})`],
-        ] as [Tab, string][]).map(([key, label]) => (
+        {(
+          [
+            ["all", `All (${counts.all})`],
+            ["mine", `My leads (${counts.mine})`],
+            ["unassigned", `Unassigned (${counts.unassigned})`],
+          ] as [Tab, string][]
+        ).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -109,11 +111,29 @@ export function EmployeeLeads() {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <StatusPill dot="bg-primary" label={`${counts.new} New`} onClick={() => setStatus("new")} active={status === "new"} />
-        <StatusPill dot="bg-warning" label={`${counts.contacted} Contacted`} onClick={() => setStatus("contacted")} active={status === "contacted"} />
-        <StatusPill dot="bg-success" label={`${counts.converted} Converted`} onClick={() => setStatus("converted")} active={status === "converted"} />
+        <StatusPill
+          dot="bg-primary"
+          label={`${counts.new} New`}
+          onClick={() => setStatus("new")}
+          active={status === "new"}
+        />
+        <StatusPill
+          dot="bg-warning"
+          label={`${counts.contacted} Contacted`}
+          onClick={() => setStatus("contacted")}
+          active={status === "contacted"}
+        />
+        <StatusPill
+          dot="bg-success"
+          label={`${counts.converted} Converted`}
+          onClick={() => setStatus("converted")}
+          active={status === "converted"}
+        />
         {status && (
-          <button onClick={() => setStatus("")} className="text-xs text-primary hover:underline px-2">
+          <button
+            onClick={() => setStatus("")}
+            className="text-xs text-primary hover:underline px-2"
+          >
             Clear
           </button>
         )}
@@ -136,7 +156,9 @@ export function EmployeeLeads() {
         >
           <option value="">All statuses</option>
           {LEAD_STATUSES.map((s) => (
-            <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+            <option key={s} value={s}>
+              {STATUS_LABEL[s]}
+            </option>
           ))}
         </select>
         <select
@@ -146,7 +168,9 @@ export function EmployeeLeads() {
         >
           <option value="">All sentiments</option>
           {["positive", "neutral", "frustrated", "angry"].map((s) => (
-            <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
+            <option key={s} value={s}>
+              {s[0].toUpperCase() + s.slice(1)}
+            </option>
           ))}
         </select>
         <button
@@ -181,8 +205,16 @@ export function EmployeeLeads() {
 }
 
 function StatusPill({
-  dot, label, onClick, active,
-}: { dot: string; label: string; onClick: () => void; active: boolean }) {
+  dot,
+  label,
+  onClick,
+  active,
+}: {
+  dot: string;
+  label: string;
+  onClick: () => void;
+  active: boolean;
+}) {
   return (
     <button
       onClick={onClick}
@@ -238,7 +270,9 @@ function LeadCard({ lead, meId }: { lead: Lead; meId?: string }) {
           <p className="text-sm text-muted-foreground">{lead.caller_number || lead.contact_info}</p>
         </div>
         <div className="text-right shrink-0">
-          <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_BADGE[status]}`}>
+          <span
+            className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_BADGE[status]}`}
+          >
             {STATUS_LABEL[status]}
           </span>
           <p className="text-xs text-muted-foreground mt-1">{timeAgo(lead.created_at)}</p>
@@ -250,10 +284,14 @@ function LeadCard({ lead, meId }: { lead: Lead; meId?: string }) {
       {details.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {details.slice(0, 3).map((d, i) => (
-            <span key={i} className="rounded-full bg-muted px-2.5 py-1 text-xs">{d}</span>
+            <span key={i} className="rounded-full bg-muted px-2.5 py-1 text-xs">
+              {d}
+            </span>
           ))}
           {details.length > 3 && (
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs">+{details.length - 3} more</span>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs">
+              +{details.length - 3} more
+            </span>
           )}
         </div>
       )}
@@ -344,7 +382,10 @@ function LeadCard({ lead, meId }: { lead: Lead; meId?: string }) {
               Save note
             </button>
             <button
-              onClick={() => { setNote(lead.notes || ""); setNoteOpen(false); }}
+              onClick={() => {
+                setNote(lead.notes || "");
+                setNoteOpen(false);
+              }}
               className="text-sm text-muted-foreground px-2"
             >
               Cancel

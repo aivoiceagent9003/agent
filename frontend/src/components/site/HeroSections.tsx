@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Check, PhoneIncoming, Languages, CalendarCheck, UserCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  PhoneIncoming,
+  Languages,
+  CalendarCheck,
+  UserCheck,
+} from "lucide-react";
 import { Reveal } from "@/components/Motion";
 
 // ─── Interactive call simulation ─────────────────────────────────────────────
@@ -9,9 +16,15 @@ const SCRIPT: { who: "customer" | "agent"; text: string }[] = [
   { who: "customer", text: "Hi, do you have 3BHK apartments in Kokapet?" },
   { who: "agent", text: "We do. May I ask your budget range, sir?" },
   { who: "customer", text: "Around 2.4 crore." },
-  { who: "agent", text: "My Home Apas starts at 2.4 crore in Kokapet. Shall I arrange a site visit this weekend?" },
+  {
+    who: "agent",
+    text: "My Home Apas starts at 2.4 crore in Kokapet. Shall I arrange a site visit this weekend?",
+  },
   { who: "customer", text: "Yes, Saturday morning works." },
-  { who: "agent", text: "Booked for Saturday, 11 AM. You'll get a confirmation on WhatsApp shortly." },
+  {
+    who: "agent",
+    text: "Booked for Saturday, 11 AM. You'll get a confirmation on WhatsApp shortly.",
+  },
 ];
 
 function useCallPlayer() {
@@ -35,9 +48,7 @@ function useCallPlayer() {
         timers.current.push(window.setTimeout(() => setShown(i + 1), 1100 + i * 1700));
       });
       // loop
-      timers.current.push(
-        window.setTimeout(run, 1100 + SCRIPT.length * 1700 + 4200),
-      );
+      timers.current.push(window.setTimeout(run, 1100 + SCRIPT.length * 1700 + 4200));
     }
     run();
     return () => timers.current.forEach(clearTimeout);
@@ -81,23 +92,32 @@ function CallSimulation() {
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success">
             <span className="w-1.5 h-1.5 rounded-full bg-success animate-live" /> Live
           </span>
-          <span className="text-xs tabular-nums text-muted-foreground">{mm}:{ss}</span>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {mm}:{ss}
+          </span>
         </div>
       </div>
 
       {/* Transcript */}
       <div className="px-5 py-4 space-y-2.5 min-h-[244px]">
         {SCRIPT.slice(0, shown).map((line, i) => (
-          <div key={i} className={`flex ${line.who === "agent" ? "justify-end" : "justify-start"} animate-fade-up`}>
+          <div
+            key={i}
+            className={`flex ${line.who === "agent" ? "justify-end" : "justify-start"} animate-fade-up`}
+          >
             <div className="max-w-[82%]">
-              <div className={`text-[10px] uppercase tracking-wider mb-1 ${line.who === "agent" ? "text-right text-primary-glow" : "text-muted-foreground"}`}>
+              <div
+                className={`text-[10px] uppercase tracking-wider mb-1 ${line.who === "agent" ? "text-right text-primary-glow" : "text-muted-foreground"}`}
+              >
                 {line.who === "agent" ? "Vocera" : "Caller"}
               </div>
-              <div className={`rounded-2xl px-3.5 py-2 text-sm ${
-                line.who === "agent"
-                  ? "bg-primary text-primary-foreground rounded-br-sm"
-                  : "bg-secondary text-foreground rounded-bl-sm"
-              }`}>
+              <div
+                className={`rounded-2xl px-3.5 py-2 text-sm ${
+                  line.who === "agent"
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                    : "bg-secondary text-foreground rounded-bl-sm"
+                }`}
+              >
                 {line.text}
               </div>
             </div>
@@ -121,7 +141,9 @@ function CallSimulation() {
             <Outcome icon={Languages} label="English" />
           </>
         ) : (
-          <span className="text-xs text-muted-foreground">Listening · extracting intent, budget, and contact…</span>
+          <span className="text-xs text-muted-foreground">
+            Listening · extracting intent, budget, and contact…
+          </span>
         )}
       </div>
     </div>
@@ -148,17 +170,24 @@ export function Hero() {
           </div>
           <h1 className="mt-5 text-4xl md:text-6xl font-semibold tracking-tight leading-[1.05]">
             Your best employee
-            <br />answers every call.
+            <br />
+            answers every call.
           </h1>
           <p className="mt-5 text-lg text-muted-foreground max-w-xl">
-            Vocera picks up every call, qualifies the lead, books the meeting, and hands off to
-            your team when it counts — day and night, in any language. Never miss a lead again.
+            Vocera picks up every call, qualifies the lead, books the meeting, and hands off to your
+            team when it counts — day and night, in any language. Never miss a lead again.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link to="/signup" className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground font-medium rounded-lg px-5 py-2.5 text-sm shadow-glow hover:opacity-95 transition">
+            <Link
+              to="/signup"
+              className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground font-medium rounded-lg px-5 py-2.5 text-sm shadow-glow hover:opacity-95 transition"
+            >
               Start free <ArrowRight className="w-4 h-4" />
             </Link>
-            <a href="#how" className="inline-flex items-center gap-2 border border-border bg-card rounded-lg px-5 py-2.5 text-sm hover:bg-secondary transition">
+            <a
+              href="#how"
+              className="inline-flex items-center gap-2 border border-border bg-card rounded-lg px-5 py-2.5 text-sm hover:bg-secondary transition"
+            >
               See how it works
             </a>
           </div>
@@ -188,10 +217,26 @@ function Stat({ label }: { label: string }) {
 // ─── How it works — a quiet, connected timeline (no floating cards) ──────────
 export function HowItWorks() {
   const steps = [
-    { n: "01", title: "The call comes in", desc: "Forwarded from your business line — answered before the second ring." },
-    { n: "02", title: "Vocera handles it", desc: "Understands the caller, answers from your knowledge base, and stays on-brand in their language." },
-    { n: "03", title: "The outcome is captured", desc: "Intent, budget, sentiment, and contact details are extracted into a clean lead." },
-    { n: "04", title: "Your team takes over", desc: "Qualified conversations are handed to a human the moment they matter." },
+    {
+      n: "01",
+      title: "The call comes in",
+      desc: "Forwarded from your business line — answered before the second ring.",
+    },
+    {
+      n: "02",
+      title: "Vocera handles it",
+      desc: "Understands the caller, answers from your knowledge base, and stays on-brand in their language.",
+    },
+    {
+      n: "03",
+      title: "The outcome is captured",
+      desc: "Intent, budget, sentiment, and contact details are extracted into a clean lead.",
+    },
+    {
+      n: "04",
+      title: "Your team takes over",
+      desc: "Qualified conversations are handed to a human the moment they matter.",
+    },
   ];
   return (
     <section id="how" className="py-24 border-t border-border bg-background">
@@ -205,7 +250,9 @@ export function HowItWorks() {
             <Reveal key={s.n} delay={i * 110}>
               <div className="group relative rounded-xl p-4 -m-4 hover-glow border border-transparent">
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium tabular-nums text-muted-foreground">{s.n}</span>
+                  <span className="text-sm font-medium tabular-nums text-muted-foreground">
+                    {s.n}
+                  </span>
                   <span className="h-px flex-1 bg-border group-hover:bg-[var(--color-ring)] transition-colors" />
                 </div>
                 <h3 className="mt-4 font-medium">{s.title}</h3>

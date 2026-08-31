@@ -92,7 +92,11 @@ function resampleFloat(pcm: Float32Array, srcRate: number, dstRate: number): Flo
 export class StreamPlayer {
   private node: AudioWorkletNode;
 
-  private constructor(private ctx: AudioContext, node: AudioWorkletNode, private srcRate: number) {
+  private constructor(
+    private ctx: AudioContext,
+    node: AudioWorkletNode,
+    private srcRate: number,
+  ) {
     this.node = node;
   }
 
@@ -106,7 +110,10 @@ export class StreamPlayer {
     } finally {
       URL.revokeObjectURL(url);
     }
-    const node = new AudioWorkletNode(ctx, "pcm-ring", { numberOfInputs: 0, outputChannelCount: [1] });
+    const node = new AudioWorkletNode(ctx, "pcm-ring", {
+      numberOfInputs: 0,
+      outputChannelCount: [1],
+    });
     node.connect(ctx.destination);
     return new StreamPlayer(ctx, node, srcRate);
   }
@@ -128,6 +135,10 @@ export class StreamPlayer {
   }
 
   stop() {
-    try { this.node.disconnect(); } catch { /* already gone */ }
+    try {
+      this.node.disconnect();
+    } catch {
+      /* already gone */
+    }
   }
 }

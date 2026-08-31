@@ -20,6 +20,7 @@ import { buildSystemPrompt, getHistory } from './llm.js'
 import { buildLookupTools, runLookup } from './lookups.js'
 import { retrieveKnowledge, warmupRAG } from './rag.js'
 import { resolveGreeting } from './greeting.js'
+import { addToDnd } from './dnd.js'
 import { whatsappReady, resolveCfg, tenantWa, sendDocument, sendConfirmation, logWhatsApp } from './whatsapp.js'
 import { resolveSendable } from './sendables.js'
 import { detectHandoffKeyword, transferToHuman } from './handoff.js'
@@ -43,28 +44,38 @@ const GEMINI_VOICE = process.env.GEMINI_VOICE || 'Aoede'   // fallback prebuilt 
 const IS_NATIVE_AUDIO = /native-audio/i.test(GEMINI_MODEL)
 
 // ─── Audio helpers ───────────────────────────────────────────────────────────
+// G.711 μ-law → linear PCM16, as a 256-entry table because this runs on every
+// inbound frame of every call.
+//
+// Per ITU-T G.711: bias 0x84 (132), mantissa shifted left 3, then left by the
+// exponent. The previous implementation used bias 33 and shifted by exp-1, which
+// is not G.711. It peaked at 20383 where the standard peaks at 32124, and — the
+// part that actually mattered — it was non-linear against the real curve, landing
+// anywhere from 0.25x to 1.94x of the correct sample depending on its value. That
+// is waveform distortion, not quiet audio, and it sat on the INBOUND path: every
+// word a caller spoke reached the model misshapen.
+//
+// pcm16ToMulaw below has always used the standard bias, so the two never agreed
+// with each other. decode(encode(x)) !== x, which is what the round-trip test in
+// tests/audio.test.js caught.
 const MULAW_DECODE = (() => {
   const t = new Int16Array(256)
   for (let i = 0; i < 256; i++) {
-    let u = ~i & 0xFF
-    const sign = u & 0x80
-    const exp = (u >> 4) & 0x07
-    let mant = (u & 0x0F) << 1
-    mant += 33
-    if (exp > 0) mant += 0x100
-    if (exp > 1) mant <<= exp - 1
-    t[i] = sign ? 33 - mant : mant - 33
+    const u = ~i & 0xFF
+    let m = ((u & 0x0F) << 3) + 0x84   // mantissa + bias
+    m <<= (u & 0x70) >> 4              // scale by exponent
+    t[i] = (u & 0x80) ? (0x84 - m) : (m - 0x84)
   }
   return t
 })()
 
-function mulawToPcm16(mulawBuf) {
+export function mulawToPcm16(mulawBuf) {
   const pcm = Buffer.alloc(mulawBuf.length * 2)
   for (let i = 0; i < mulawBuf.length; i++) pcm.writeInt16LE(MULAW_DECODE[mulawBuf[i]], i * 2)
   return pcm
 }
 
-function pcm16ToMulaw(pcmBuf) {
+export function pcm16ToMulaw(pcmBuf) {
   const samples = pcmBuf.length >> 1
   const out = Buffer.alloc(samples)
   for (let i = 0; i < samples; i++) {
@@ -82,7 +93,7 @@ function pcm16ToMulaw(pcmBuf) {
 }
 
 // 8kHz → 16kHz: linear interpolation (one extra sample between each pair).
-function upsample8to16(pcm8) {
+export function upsample8to16(pcm8) {
   const n = pcm8.length >> 1
   const out = Buffer.alloc(n * 4)
   for (let i = 0; i < n; i++) {
@@ -95,7 +106,7 @@ function upsample8to16(pcm8) {
 }
 
 // 24kHz → 8kHz: average each group of 3 samples (cheap anti-alias).
-function downsample24to8(pcm24) {
+export function downsample24to8(pcm24) {
   const n = pcm24.length >> 1
   const outN = Math.floor(n / 3)
   const out = Buffer.alloc(outN * 2)
@@ -126,6 +137,21 @@ function buildGeminiTools(tenantConfig) {
       },
     })
   }
+  // Always declared, on every call. The right to ask not to be called again does
+  // not depend on which features the tenant enabled, and someone on an INBOUND
+  // call may equally want off the outbound list.
+  decls.push({
+    name: 'add_to_dnd',
+    description: "Record that this person does NOT want to be contacted again, and stop calling them. Call this the moment they say anything meaning 'do not call me again', 'remove me from your list', 'stop calling', or 'unsubscribe'. Do not argue, do not try to persuade them to stay, and do not ask why. Confirm warmly that they have been removed, then end the call politely.",
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: "Optional: their stated reason, in their own words, if they gave one. Leave out if they did not." },
+      },
+      required: [],
+    },
+  })
+
   if (whatsappReady(tenantConfig)) {
     decls.push({
       name: 'send_whatsapp',
@@ -256,7 +282,7 @@ function buildInstructions(tenantConfig, lockedLang, openingLang) {
   // ("nenu flat kavali") reads as Latin text but sounds unmistakably Telugu. So
   // mirroring stays primary; this only fills the vacuum when there's no signal yet.
   const openingNote = openingLang
-    ? `\n\nDEFAULT LANGUAGE (fallback only): while you still cannot tell what language the caller speaks — before they have said anything, or when their words are too short or ambiguous to judge — use ${openingLang}, the language of your greeting. The moment you CAN tell what language they are speaking, speak THAT instead, starting with your very first reply to them. Never pick a third language that neither of you has used.`
+    ? `\n\nDEFAULT LANGUAGE (fallback only): while you still cannot tell what language the caller speaks — before they have said anything, or when their words are too short, garbled or ambiguous to judge — use ${openingLang}, the language of your greeting. The moment you CAN tell what language they are speaking, speak THAT instead, starting with your very first reply to them. NEVER pick a third language that neither of you has used — in particular, do NOT fall back to Hindi just because the caller sounds Indian or their words were unclear.`
     : ''
 
   const lockedNote = lockedLang
@@ -369,7 +395,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   // The language the caller will actually HEAR first. Anchors turn one, which the
   // LanguageManager cannot: it has no verdict until the first substantive utterance.
   // Null for native-audio models — they mirror language natively and aren't steered.
-  const openingLang = langMgr ? langMgr.guessLanguage(resolveGreeting(tenantConfig)) : null
+  // Without the recording notice: it is a fixed English sentence, and letting it
+  // into the sample would pull the guess toward English on a call whose greeting
+  // is Hindi or Telugu.
+  const openingLang = langMgr ? langMgr.guessLanguage(resolveGreeting(tenantConfig, { includeNotice: false })) : null
   if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG()
 
   const sendAudioToCaller = (mulawB64) => {
@@ -541,6 +570,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
           // language-detection latency histogram (only when the classifier ran),
           // plus aggregate counters for the Language Analytics dashboard.
           if (langMgr.current) trace?.set('language', langMgr.current)
+          // Separate from 'language' (which the Operations Center shows live):
+          // this is what the CALL gets filed under, and it must survive a late
+          // mis-detection. See LanguageManager.dominant.
+          if (langMgr.dominant) trace?.set('dominantLanguage', langMgr.dominant)
           if (d?.classifierUsed && d?.classifierLatencyMs) {
             telemetry.recordLatency('language_detection', d.classifierLatencyMs, { tenantId: trace?.tenantId })
             telemetry.incr('lang_classifier_used')
@@ -713,6 +746,18 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
               const seen = trace.state.knowledgeMisses || []
               if (q && !seen.includes(q)) trace.set('knowledgeMisses', [...seen, q].slice(0, 20))
             }
+          } else if (fc.name === 'add_to_dnd') {
+            const res = await addToDnd({
+              tenantId: tenantConfig.tenant_id,
+              phone: callerNumber,
+              source: 'caller_request',
+              reason: fc.args?.reason || null,
+            })
+            output = res.ok
+              ? 'Done — they have been removed and will not be contacted again. Confirm this warmly, then say goodbye and end the call.'
+              : 'Could not record that automatically. Apologise, assure them it will be handled, and end the call politely.'
+            console.log(`[GEMINI] 🚫 add_to_dnd(${res.phone}) → ${res.ok ? (res.alreadyListed ? 'already listed' : 'added') : 'FAILED'}`)
+            trace?.set('optedOut', res.ok)
           } else if (fc.name === 'send_whatsapp') {
             output = await handleSendWhatsapp(tenantConfig, callerNumber, fc.args || {}, sentWhatsapp)
             console.log(`[GEMINI] 💬 send_whatsapp(${fc.args?.kind}) → ${output}`)

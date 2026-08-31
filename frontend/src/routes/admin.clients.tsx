@@ -15,7 +15,10 @@ function ClientsList() {
           <h1 className="text-3xl font-bold">Clients</h1>
           <p className="text-sm text-muted-foreground mt-1">{tenants.length} active clients.</p>
         </div>
-        <Link to="/admin/clients/new" className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium shadow-glow hover:opacity-90">
+        <Link
+          to="/admin/clients/new"
+          className="inline-flex items-center gap-2 bg-gradient-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium shadow-glow hover:opacity-90"
+        >
           <Plus className="w-4 h-4" /> Add client
         </Link>
       </header>
@@ -42,7 +45,13 @@ function ClientsList() {
                   <td className="px-5 py-3">{t.stats.total_minutes}</td>
                   <td className="px-5 py-3">{t.stats.total_leads}</td>
                   <td className="px-5 py-3 text-right">
-                    <Link to="/admin/clients/$id" params={{ id: t.id }} className="text-primary hover:underline text-sm">Edit</Link>
+                    <Link
+                      to="/admin/clients/$id"
+                      params={{ id: t.id }}
+                      className="text-primary hover:underline text-sm"
+                    >
+                      Edit
+                    </Link>
                   </td>
                 </tr>
               );

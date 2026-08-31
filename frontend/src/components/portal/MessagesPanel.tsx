@@ -15,33 +15,61 @@ import {
   useMarkConversationRead,
   type Conversation,
   type Message,
+  type Teammate,
 } from "@/lib/messages";
 import { useMe } from "@/lib/team";
-import { Search, PenSquare, Send, Users, LifeBuoy, ArrowLeft } from "lucide-react";
+import { Search, Send, Users, LifeBuoy, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 type Filter = "all" | "team" | "direct" | "support";
 
 export function MessagesPanel({
   onActiveChange,
+  initialConversationId,
 }: {
   /** Lets the shell mute the chime for the thread currently on screen. */
   onActiveChange?: (id: string | null) => void;
+  /** From ?c=… — the thread a notification link asked us to open. */
+  initialConversationId?: string;
 }) {
-  const { data } = useConversations();
+  const { data, isLoading: loadingConversations } = useConversations();
   const { data: me } = useMe();
+  const { data: teammates = [] } = useTeammates();
   const conversations = data?.conversations ?? [];
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const [composing, setComposing] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
   const markRead = useMarkConversationRead();
+  const openDirect = useOpenDirect();
 
-  // Open the most recent thread on first load so the pane is never empty.
+  // Open (or reuse) the 1:1 thread with someone and jump straight into it.
+  // useOpenDirect awaits its own cache invalidation, so by the time this resolves
+  // the new thread is already in `conversations` and setActiveId can find it.
+  async function messagePerson(profileId: string) {
+    setOpening(profileId);
+    try {
+      setActiveId(await openDirect.mutateAsync(profileId));
+    } catch (e: any) {
+      toast.error(e.message || "Could not open that conversation");
+    } finally {
+      setOpening(null);
+    }
+  }
+
+  // A notification link names the thread to open. Keyed on the value, so clicking
+  // a second notification switches threads instead of leaving you on the first.
   useEffect(() => {
-    if (!activeId && conversations.length) setActiveId(conversations[0].id);
-  }, [conversations, activeId]);
+    if (initialConversationId) setActiveId(initialConversationId);
+  }, [initialConversationId]);
+
+  // Otherwise open the most recent thread on first load, so the pane is never empty.
+  useEffect(() => {
+    if (!activeId && !initialConversationId && conversations.length) {
+      setActiveId(conversations[0].id);
+    }
+  }, [conversations, activeId, initialConversationId]);
 
   useEffect(() => {
     onActiveChange?.(activeId);
@@ -60,11 +88,26 @@ export function MessagesPanel({
       if (filter !== "all" && c.kind !== filter) return false;
       if (!q) return true;
       return (
-        c.title.toLowerCase().includes(q) ||
-        (c.last_message?.body || "").toLowerCase().includes(q)
+        c.title.toLowerCase().includes(q) || (c.last_message?.body || "").toLowerCase().includes(q)
       );
     });
   }, [conversations, filter, search]);
+
+  // Teammates you have no direct thread with yet. Without these, someone you had
+  // never messaged was invisible here — they existed only inside the team group,
+  // with no way to peel off into a 1:1.
+  const startable = useMemo(() => {
+    if (filter === "team" || filter === "support") return [];
+    const withThread = new Set(
+      conversations.filter((c) => c.kind === "direct").flatMap((c) => c.members.map((m) => m.id)),
+    );
+    const q = search.trim().toLowerCase();
+    return teammates.filter(
+      (p) =>
+        !withThread.has(p.id) &&
+        (!q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)),
+    );
+  }, [teammates, conversations, filter, search]);
 
   const active = conversations.find((c) => c.id === activeId) || null;
 
@@ -76,15 +119,8 @@ export function MessagesPanel({
           activeId ? "hidden sm:flex" : "flex"
         }`}
       >
-        <div className="p-5 flex items-center justify-between">
+        <div className="p-5">
           <h1 className="text-xl font-bold">Messages</h1>
-          <button
-            onClick={() => setComposing((v) => !v)}
-            aria-label="New direct message"
-            className="p-2 rounded-lg border border-border hover:bg-muted transition"
-          >
-            <PenSquare className="w-4 h-4" />
-          </button>
         </div>
 
         <div className="px-5">
@@ -115,10 +151,8 @@ export function MessagesPanel({
           ))}
         </div>
 
-        {composing && <NewDirect onOpened={(id) => { setActiveId(id); setComposing(false); }} />}
-
         <div className="mt-2 flex-1 overflow-y-auto min-h-0">
-          {visible.length === 0 ? (
+          {visible.length === 0 && startable.length === 0 ? (
             <p className="px-5 py-8 text-sm text-muted-foreground text-center">
               No conversations{search ? " match your search" : " yet"}.
             </p>
@@ -132,16 +166,42 @@ export function MessagesPanel({
               />
             ))
           )}
+
+          {startable.length > 0 && (
+            <>
+              <p className="px-5 pt-5 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Team members
+              </p>
+              {startable.map((p) => (
+                <PersonRow
+                  key={p.id}
+                  person={p}
+                  busy={opening === p.id}
+                  onClick={() => messagePerson(p.id)}
+                />
+              ))}
+            </>
+          )}
         </div>
       </aside>
 
       {/* ── Thread ── */}
       <section className={`flex-1 flex flex-col min-h-0 ${activeId ? "flex" : "hidden sm:flex"}`}>
         {active ? (
-          <Thread convo={active} meId={me?.user_id} onBack={() => setActiveId(null)} />
+          <Thread
+            convo={active}
+            meId={me?.user_id}
+            onBack={() => setActiveId(null)}
+            onMessagePerson={messagePerson}
+          />
         ) : (
           <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
-            Pick a conversation to start reading.
+            {/* activeId set but not in the list yet = a brand-new 1:1 whose refetch
+                is still in flight. Saying "pick a conversation" there reads as a
+                dead end for something that is about to appear. */}
+            {activeId && (loadingConversations || openDirect.isPending)
+              ? "Opening…"
+              : "Pick a conversation to start reading."}
           </div>
         )}
       </section>
@@ -159,8 +219,12 @@ function initials(name: string) {
 
 // Stable per-name colour, so the same person is always the same shade.
 const AVATAR_COLORS = [
-  "bg-primary", "bg-emerald-600", "bg-orange-500",
-  "bg-sky-600", "bg-violet-600", "bg-rose-500",
+  "bg-primary",
+  "bg-emerald-600",
+  "bg-orange-500",
+  "bg-sky-600",
+  "bg-violet-600",
+  "bg-rose-500",
 ];
 function avatarColor(seed: string) {
   let n = 0;
@@ -207,9 +271,7 @@ function ConversationRow({
     <button
       onClick={onClick}
       className={`w-full text-left px-5 py-3 flex gap-3 items-start transition border-l-2 ${
-        active
-          ? "bg-primary/5 border-primary"
-          : "border-transparent hover:bg-muted/50"
+        active ? "bg-primary/5 border-primary" : "border-transparent hover:bg-muted/50"
       }`}
     >
       {convo.kind === "support" ? (
@@ -239,42 +301,40 @@ function ConversationRow({
   );
 }
 
-function NewDirect({ onOpened }: { onOpened: (conversationId: string) => void }) {
-  const { data: people = [] } = useTeammates();
-  const openDirect = useOpenDirect();
-
+// A teammate you have no thread with yet, rendered in the sidebar alongside real
+// conversations. Everyone on the team is therefore always one click from a 1:1,
+// whether or not anybody has messaged them before.
+function PersonRow({
+  person,
+  busy,
+  onClick,
+}: {
+  person: Teammate;
+  busy: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="mx-5 mt-3 border border-border rounded-lg overflow-hidden">
-      <p className="px-3 py-2 text-xs text-muted-foreground bg-muted/50">Start a direct message</p>
-      {people.length === 0 ? (
-        <p className="px-3 py-3 text-xs text-muted-foreground">
-          Nobody else on your team yet.
-        </p>
-      ) : (
-        people.map((p) => (
-          <button
-            key={p.id}
-            onClick={async () => {
-              try {
-                onOpened(await openDirect.mutateAsync(p.id));
-              } catch (e: any) {
-                toast.error(e.message);
-              }
-            }}
-            className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-muted/60 transition"
-          >
-            <span className="relative">
-              <Avatar name={p.name} size="sm" />
-              {p.online && (
-                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-background" />
-              )}
-            </span>
-            <span className="truncate">{p.name}</span>
-            <span className="ml-auto text-xs text-muted-foreground capitalize">{p.role}</span>
-          </button>
-        ))
-      )}
-    </div>
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="w-full text-left px-5 py-3 flex gap-3 items-center transition border-l-2 border-transparent hover:bg-muted/50 disabled:opacity-50"
+    >
+      <span className="relative shrink-0">
+        <Avatar name={person.name} />
+        {person.online && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="font-medium text-sm truncate">{person.name}</span>
+          <span className="text-xs text-muted-foreground shrink-0 capitalize">{person.role}</span>
+        </div>
+        <span className="block text-xs text-muted-foreground truncate mt-0.5">
+          {busy ? "Opening…" : person.online ? "Online — send a message" : "Send a message"}
+        </span>
+      </div>
+    </button>
   );
 }
 
@@ -282,15 +342,21 @@ function Thread({
   convo,
   meId,
   onBack,
+  onMessagePerson,
 }: {
   convo: Conversation;
   meId?: string;
   onBack: () => void;
+  onMessagePerson: (profileId: string) => void;
 }) {
   const { data: messages = [], isLoading } = useMessages(convo.id);
   const send = useSendMessage();
   const [draft, setDraft] = useState("");
+  const [showMembers, setShowMembers] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Switching threads shouldn't carry the roster panel over with it.
+  useEffect(() => setShowMembers(false), [convo.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -334,8 +400,53 @@ function Thread({
                   : "Direct message"}
           </p>
         </div>
-        {convo.kind === "team" && <Users className="w-5 h-5 text-muted-foreground ml-auto" />}
+        {convo.kind === "team" && (
+          <button
+            onClick={() => setShowMembers((v) => !v)}
+            aria-expanded={showMembers}
+            aria-label="Team members"
+            className={`ml-auto p-2 rounded-lg border transition hover:bg-muted ${
+              showMembers ? "border-primary text-primary" : "border-border text-muted-foreground"
+            }`}
+          >
+            <Users className="w-4 h-4" />
+          </button>
+        )}
       </header>
+
+      {/* The group is where you first meet a colleague, so it is also where you
+          should be able to peel off into a private thread with them. */}
+      {showMembers && convo.kind === "team" && (
+        <div className="border-b border-border bg-muted/30 px-5 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+            In this group
+          </p>
+          {convo.members.length === 0 ? (
+            <p className="text-sm text-muted-foreground">You're the only one here so far.</p>
+          ) : (
+            <ul className="space-y-2">
+              {convo.members.map((m) => (
+                <li key={m.id} className="flex items-center gap-3">
+                  <Avatar name={m.name} size="sm" />
+                  <span className="text-sm truncate">{m.name}</span>
+                  <span className="text-xs text-muted-foreground capitalize shrink-0">
+                    {m.role}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setShowMembers(false);
+                      onMessagePerson(m.id);
+                    }}
+                    className="ml-auto text-xs font-medium text-primary hover:underline shrink-0"
+                  >
+                    Message
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto min-h-0 px-5 py-4">
         {isLoading ? (
@@ -414,7 +525,10 @@ function MessageList({
                   {m.body}
                 </div>
                 <span className="text-[11px] text-muted-foreground mt-1">
-                  {new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  {new Date(m.created_at).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
                 </span>
               </div>
             ) : (
@@ -429,7 +543,10 @@ function MessageList({
                       {m.body}
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      {new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      {new Date(m.created_at).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
                     </p>
                   </div>
                 </div>

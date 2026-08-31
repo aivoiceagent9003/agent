@@ -15,20 +15,57 @@ export function VoiceTester({ config }: { config: any }) {
   const wsRef = useRef<WebSocket | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const nodesRef = useRef<{ source?: MediaStreamAudioSourceNode; proc?: ScriptProcessorNode; sink?: GainNode }>({});
+  const nodesRef = useRef<{
+    source?: MediaStreamAudioSourceNode;
+    proc?: ScriptProcessorNode;
+    sink?: GainNode;
+  }>({});
   const playerRef = useRef<StreamPlayer | null>(null);
 
   useEffect(() => () => teardown(), []); // cleanup on unmount
 
   function teardown() {
-    try { wsRef.current?.readyState === WebSocket.OPEN && wsRef.current.send(JSON.stringify({ event: "stop" })); } catch { /* ignore */ }
-    try { wsRef.current?.close(); } catch { /* ignore */ }
-    try { nodesRef.current.proc?.disconnect(); } catch { /* ignore */ }
-    try { nodesRef.current.source?.disconnect(); } catch { /* ignore */ }
-    try { nodesRef.current.sink?.disconnect(); } catch { /* ignore */ }
-    try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    try { playerRef.current?.stop(); } catch { /* ignore */ }
-    try { ctxRef.current?.close(); } catch { /* ignore */ }
+    try {
+      wsRef.current?.readyState === WebSocket.OPEN &&
+        wsRef.current.send(JSON.stringify({ event: "stop" }));
+    } catch {
+      /* ignore */
+    }
+    try {
+      wsRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      nodesRef.current.proc?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      nodesRef.current.source?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      nodesRef.current.sink?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* ignore */
+    }
+    try {
+      playerRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ctxRef.current?.close();
+    } catch {
+      /* ignore */
+    }
     wsRef.current = null;
     ctxRef.current = null;
     streamRef.current = null;
@@ -62,7 +99,12 @@ export function VoiceTester({ config }: { config: any }) {
 
       ws.onopen = () => {
         // Authenticate + start the engine with the (possibly unsaved) draft config.
-        ws.send(JSON.stringify({ event: "start", start: { token: getToken(), streamSid: "web", config } }));
+        ws.send(
+          JSON.stringify({
+            event: "start",
+            start: { token: getToken(), streamSid: "web", config },
+          }),
+        );
 
         // Capture mic → 16kHz PCM16 frames (Gemini's native input). ScriptProcessor
         // must be connected to the graph to run, so route it through a muted gain
@@ -73,7 +115,11 @@ export function VoiceTester({ config }: { config: any }) {
         sink.gain.value = 0;
         proc.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
-          const payload = floatToPcm16Base64(e.inputBuffer.getChannelData(0), ctx.sampleRate, 16000);
+          const payload = floatToPcm16Base64(
+            e.inputBuffer.getChannelData(0),
+            ctx.sampleRate,
+            16000,
+          );
           ws.send(JSON.stringify({ event: "media", media: { payload } }));
         };
         source.connect(proc);
@@ -85,14 +131,22 @@ export function VoiceTester({ config }: { config: any }) {
 
       ws.onmessage = (ev) => {
         let msg: any;
-        try { msg = JSON.parse(ev.data); } catch { return; }
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
         if (msg.event === "media" && msg.media?.payload) {
           playerRef.current?.push(msg.media.payload);
         } else if (msg.event === "clear") {
           // Barge-in: drop the agent's queued audio so it stops when you speak.
           playerRef.current?.clear();
         } else if (msg.event === "error") {
-          setError(msg.error === "unauthorized" ? "Session expired — please sign in again." : "Test failed");
+          setError(
+            msg.error === "unauthorized"
+              ? "Session expired — please sign in again."
+              : "Test failed",
+          );
           stop();
         }
       };
@@ -100,7 +154,11 @@ export function VoiceTester({ config }: { config: any }) {
       ws.onerror = () => setError("Connection error");
       ws.onclose = () => setStatus((s) => (s === "idle" ? s : "idle"));
     } catch (e: any) {
-      setError(e?.name === "NotAllowedError" ? "Microphone permission denied." : e?.message || "Could not start the call");
+      setError(
+        e?.name === "NotAllowedError"
+          ? "Microphone permission denied."
+          : e?.message || "Could not start the call",
+      );
       teardown();
       setStatus("idle");
     }
@@ -110,7 +168,9 @@ export function VoiceTester({ config }: { config: any }) {
 
   return (
     <div className="bg-card border border-border rounded-xl shadow-card p-8 flex flex-col items-center gap-5 h-[420px] justify-center">
-      <div className={`w-24 h-24 rounded-full grid place-items-center shadow-glow transition ${live ? "bg-gradient-primary animate-pulse" : "bg-muted"}`}>
+      <div
+        className={`w-24 h-24 rounded-full grid place-items-center shadow-glow transition ${live ? "bg-gradient-primary animate-pulse" : "bg-muted"}`}
+      >
         {status === "connecting" ? (
           <Loader2 className="w-9 h-9 text-primary-foreground animate-spin" />
         ) : live ? (
@@ -122,7 +182,11 @@ export function VoiceTester({ config }: { config: any }) {
 
       <div className="text-center">
         <div className="font-medium">
-          {status === "connecting" ? "Connecting…" : live ? "Connected — talk to your agent" : "Ready to test"}
+          {status === "connecting"
+            ? "Connecting…"
+            : live
+              ? "Connected — talk to your agent"
+              : "Ready to test"}
         </div>
         <p className="text-sm text-muted-foreground mt-1 max-w-sm">
           {live

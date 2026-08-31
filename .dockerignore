@@ -1,0 +1,23 @@
+# Never let secrets or local state into the build context — anything copied in is
+# recoverable from the image layers even if a later step deletes it.
+.env
+.env.*
+!.env.example
+*-service-account*.json
+aivoiceagent-*.json
+**/credentials.json
+
+node_modules
+frontend
+.git
+.github
+dist
+*.log
+*.mulaw
+*.wav
+*.mp3
+*.pcm
+*.exe
+test-api.js
+*.md
+!README.md

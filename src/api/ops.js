@@ -24,10 +24,12 @@ const DEFAULT_COST_PER_MIN = Number(process.env.COST_PER_MIN_USD || 0.08)
 const DEFAULT_PRICE_PER_MIN = Number(process.env.PRICE_PER_MIN_USD || 0.30)
 
 // ─── Section 1: Executive Operations Dashboard ────────────────────────────────
-router.get('/overview', (_req, res) => {
+router.get('/overview', async (_req, res) => {
   try {
+    // Shared with the ops-stream heartbeat so the socket cannot contradict this
+    // response five seconds later — see getOverviewSnapshot.
     res.json({
-      ...telemetry.getSnapshot(),
+      ...(await telemetry.getOverviewSnapshot()),
       series: telemetry.getTimeSeries(180),   // ~15 min of 5s samples for live charts
     })
   } catch (e) {
@@ -53,23 +55,27 @@ router.get('/calls/live', (_req, res) => {
 })
 
 // Recently completed calls (for the console's "recent" tab + trace entry points).
-router.get('/calls/recent', (req, res) => {
+router.get('/calls/recent', async (req, res) => {
   const limit = Math.min(500, parseInt(req.query.limit) || 100)
-  res.json({ calls: telemetry.getRecentTraces(limit) })
+  // Reads persisted history, not just this process's memory — see getRecentTraces.
+  res.json({ calls: await telemetry.getRecentTraces(limit) })
 })
 
 // ─── Section 3: Distributed Tracing ───────────────────────────────────────────
-router.get('/calls/:callSid/trace', (req, res) => {
-  const detail = telemetry.getTraceDetail(req.params.callSid)
-  if (!detail) return res.status(404).json({ error: 'Trace not found (it may have aged out of the buffer)' })
+router.get('/calls/:callSid/trace', async (req, res) => {
+  const detail = await telemetry.getTraceDetail(req.params.callSid)
+  if (!detail) return res.status(404).json({ error: 'Trace not found' })
   res.json(detail)
 })
 
 // ─── Section 4: Latency Dashboard ─────────────────────────────────────────────
-router.get('/latency', (req, res) => {
+router.get('/latency', async (req, res) => {
   try {
-    if (req.query.op) return res.json({ op: req.query.op, ...telemetry.getLatencyStats(req.query.op) })
-    res.json(telemetry.getLatencyStats())
+    // Merged, not raw: getLatencyStats() reads the in-memory rings, which are empty
+    // after a restart — so this page showed nothing at all until a call came in,
+    // while metric_rollups held two months of samples.
+    if (req.query.op) return res.json({ op: req.query.op, ...(await telemetry.getLatencyStatsMerged(req.query.op)) })
+    res.json(await telemetry.getLatencyStatsMerged())
   } catch (e) {
     console.error('[OPS] latency error:', e.message)
     res.status(500).json({ error: 'Could not load latency' })

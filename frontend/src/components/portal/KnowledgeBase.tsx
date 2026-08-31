@@ -1,12 +1,7 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Trash2, Upload } from "lucide-react";
-import {
-  useKnowledge,
-  useAddKnowledge,
-  useDeleteChunk,
-  useClearKnowledge,
-} from "@/lib/data";
+import { useKnowledge, useAddKnowledge, useDeleteChunk, useClearKnowledge } from "@/lib/data";
 
 export function KnowledgeBase({ tenantId }: { tenantId: string }) {
   const { data: chunks = [] } = useKnowledge(tenantId);
@@ -70,7 +65,13 @@ export function KnowledgeBase({ tenantId }: { tenantId: string }) {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <label className="inline-flex items-center gap-2 text-sm border border-border rounded-lg px-3 py-2 cursor-pointer hover:bg-muted">
             <Upload className="w-4 h-4" /> Upload .txt
-            <input ref={fileRef} type="file" accept=".txt,text/plain" onChange={onFile} className="hidden" />
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".txt,text/plain"
+              onChange={onFile}
+              className="hidden"
+            />
           </label>
           <button
             disabled={busy || !text.trim()}
@@ -86,20 +87,29 @@ export function KnowledgeBase({ tenantId }: { tenantId: string }) {
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">{chunks.length} chunks</h3>
           {chunks.length > 0 && (
-            <button onClick={clearAll} className="text-sm text-destructive hover:underline">Clear all</button>
+            <button onClick={clearAll} className="text-sm text-destructive hover:underline">
+              Clear all
+            </button>
           )}
         </div>
         <div className="mt-4 divide-y divide-border">
           {chunks.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No knowledge yet — add some above.</div>
-          ) : chunks.map((c) => (
-            <div key={c.id} className="flex items-start gap-3 py-3">
-              <p className="flex-1 text-sm">{c.text}</p>
-              <button onClick={() => removeChunk(c.id)} className="text-muted-foreground hover:text-destructive p-1">
-                <Trash2 className="w-4 h-4" />
-              </button>
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No knowledge yet — add some above.
             </div>
-          ))}
+          ) : (
+            chunks.map((c) => (
+              <div key={c.id} className="flex items-start gap-3 py-3">
+                <p className="flex-1 text-sm">{c.text}</p>
+                <button
+                  onClick={() => removeChunk(c.id)}
+                  className="text-muted-foreground hover:text-destructive p-1"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

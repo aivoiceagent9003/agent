@@ -20,14 +20,19 @@ function CallDetail() {
     return (
       <div className="p-8">
         <p>Call not found.</p>
-        <Link to="/app/calls" className="text-primary hover:underline">← Back</Link>
+        <Link to="/app/calls" className="text-primary hover:underline">
+          ← Back
+        </Link>
       </div>
     );
   }
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
-      <Link to="/app/calls" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+      <Link
+        to="/app/calls"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
+      >
         <ArrowLeft className="w-4 h-4" /> Back to calls
       </Link>
 
@@ -38,11 +43,15 @@ function CallDetail() {
           </div>
           <div className="flex-1">
             <h1 className="text-xl font-bold">{call.caller_number}</h1>
-            <p className="text-sm text-muted-foreground">{new Date(call.created_at).toLocaleString()}</p>
+            <p className="text-sm text-muted-foreground">
+              {new Date(call.created_at).toLocaleString()}
+            </p>
           </div>
           <div className="text-right text-sm">
             <div className="text-muted-foreground">Duration</div>
-            <div className="font-medium">{Math.floor(call.duration_seconds / 60)}m {call.duration_seconds % 60}s</div>
+            <div className="font-medium">
+              {Math.floor(call.duration_seconds / 60)}m {call.duration_seconds % 60}s
+            </div>
           </div>
         </div>
       </div>
@@ -83,13 +92,17 @@ function CallDetail() {
               <div className="mt-5">
                 <div className="text-xs text-muted-foreground uppercase mb-2">Highlights</div>
                 <ul className="text-sm space-y-1.5 list-disc list-inside marker:text-primary">
-                  {lead.key_details.map((d, i) => <li key={i}>{d}</li>)}
+                  {lead.key_details.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
                 </ul>
               </div>
             ) : null}
           </>
         ) : (
-          <div className="text-sm text-muted-foreground">No summary was extracted from this call.</div>
+          <div className="text-sm text-muted-foreground">
+            No summary was extracted from this call.
+          </div>
         )}
       </div>
     </div>
@@ -102,7 +115,11 @@ function prettyIntent(intent?: string | null) {
 }
 
 const LANG_NAMES: Record<string, string> = {
-  en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada",
+  en: "English",
+  hi: "Hindi",
+  te: "Telugu",
+  ta: "Tamil",
+  kn: "Kannada",
 };
 function prettyLang(lang?: string | null) {
   if (!lang) return "—";

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { setToken, clearToken } from "@/lib/api";
+import { setSession, clearToken } from "@/lib/api";
 import { login } from "@/lib/data";
 import { toast } from "sonner";
 import { Shield } from "lucide-react";
@@ -23,12 +23,12 @@ function AdminLogin() {
       const email = String(fd.get("email"));
       const password = String(fd.get("password"));
       if (!email || !password) throw new Error("Email and password required");
-      const { token, role } = await login(email, password);
-      if (role !== "admin") {
+      const session = await login(email, password);
+      if (session.role !== "admin") {
         clearToken();
         throw new Error("This account is not an admin");
       }
-      setToken(token);
+      setSession(session);
       toast.success("Welcome, admin");
       navigate({ to: "/admin" });
     } catch (err: any) {
@@ -46,13 +46,32 @@ function AdminLogin() {
         </div>
         <h1 className="mt-2 text-2xl font-bold">Vocera Admin</h1>
         <form onSubmit={onSubmit} className="mt-6 grid gap-4">
-          <input name="email" type="email" required placeholder="Email" className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <input name="password" type="password" required placeholder="Password" className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <button disabled={loading} className="bg-gradient-primary text-primary-foreground font-medium rounded-lg px-4 py-2.5 shadow-glow disabled:opacity-60">
+          <input
+            name="email"
+            type="email"
+            required
+            placeholder="Email"
+            className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <input
+            name="password"
+            type="password"
+            required
+            placeholder="Password"
+            className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            disabled={loading}
+            className="bg-gradient-primary text-primary-foreground font-medium rounded-lg px-4 py-2.5 shadow-glow disabled:opacity-60"
+          >
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="mt-4 text-xs text-muted-foreground text-center"><Link to="/" className="hover:text-foreground">← Back to site</Link></p>
+        <p className="mt-4 text-xs text-muted-foreground text-center">
+          <Link to="/" className="hover:text-foreground">
+            ← Back to site
+          </Link>
+        </p>
       </div>
     </div>
   );

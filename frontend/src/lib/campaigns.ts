@@ -9,7 +9,13 @@ import { apiFetch, BASE_URL, getToken } from "./api";
 const isBrowser = typeof window !== "undefined";
 
 export type CampaignType = "broadcast" | "ai_sales" | "ai_followup" | "event";
-export type CampaignStatus = "draft" | "scheduled" | "running" | "paused" | "completed" | "archived";
+export type CampaignStatus =
+  | "draft"
+  | "scheduled"
+  | "running"
+  | "paused"
+  | "completed"
+  | "archived";
 
 export interface Campaign {
   id: string;
@@ -40,9 +46,17 @@ export interface CampaignContact {
 }
 
 export interface CampaignMetrics {
-  calls: number; answered: number; conversations: number; ai_minutes: number;
-  human_transfers: number; qualified_leads: number; meetings_booked: number;
-  no_answer: number; failed: number; cost: number; revenue: number;
+  calls: number;
+  answered: number;
+  conversations: number;
+  ai_minutes: number;
+  human_transfers: number;
+  qualified_leads: number;
+  meetings_booked: number;
+  no_answer: number;
+  failed: number;
+  cost: number;
+  revenue: number;
   language_dist: Record<string, number>;
 }
 
@@ -51,7 +65,8 @@ export function useCampaigns() {
   return useQuery({
     queryKey: ["campaigns"],
     enabled: isBrowser,
-    queryFn: async (): Promise<Campaign[]> => (await apiFetch("/api/client/campaigns")).campaigns || [],
+    queryFn: async (): Promise<Campaign[]> =>
+      (await apiFetch("/api/client/campaigns")).campaigns || [],
   });
 }
 
@@ -76,7 +91,8 @@ export function useCampaignAnalytics(id: string) {
     queryKey: ["campaign", id, "analytics"],
     enabled: isBrowser && !!id,
     refetchInterval: 8000,
-    queryFn: async (): Promise<CampaignMetrics> => (await apiFetch(`/api/client/campaigns/${id}/analytics`)).metrics,
+    queryFn: async (): Promise<CampaignMetrics> =>
+      (await apiFetch(`/api/client/campaigns/${id}/analytics`)).metrics,
   });
 }
 
@@ -110,7 +126,8 @@ export function useDialerInfo() {
 export function useCreateCampaign() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<Campaign>) => apiFetch("/api/client/campaigns", { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: (body: Partial<Campaign>) =>
+      apiFetch("/api/client/campaigns", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["campaigns"] }),
   });
 }
@@ -118,8 +135,12 @@ export function useCreateCampaign() {
 export function useUpdateCampaign(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<Campaign>) => apiFetch(`/api/client/campaigns/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["campaign", id] }); qc.invalidateQueries({ queryKey: ["campaigns"] }); },
+    mutationFn: (body: Partial<Campaign>) =>
+      apiFetch(`/api/client/campaigns/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", id] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+    },
   });
 }
 
@@ -128,7 +149,10 @@ export function useCampaignAction(id: string) {
   return useMutation({
     mutationFn: (action: "start" | "pause" | "resume" | "stop" | "duplicate" | "unschedule") =>
       apiFetch(`/api/client/campaigns/${id}/${action}`, { method: "POST" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["campaign", id] }); qc.invalidateQueries({ queryKey: ["campaigns"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", id] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+    },
   });
 }
 
@@ -137,8 +161,14 @@ export function useScheduleStart(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (startAt: string) =>
-      apiFetch(`/api/client/campaigns/${id}/start`, { method: "POST", body: JSON.stringify({ start_at: startAt }) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["campaign", id] }); qc.invalidateQueries({ queryKey: ["campaigns"] }); },
+      apiFetch(`/api/client/campaigns/${id}/start`, {
+        method: "POST",
+        body: JSON.stringify({ start_at: startAt }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", id] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+    },
   });
 }
 
@@ -153,7 +183,11 @@ export function useDeleteCampaign() {
 export function usePasteContacts(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (text: string) => apiFetch(`/api/client/campaigns/${id}/contacts/paste`, { method: "POST", body: JSON.stringify({ text }) }),
+    mutationFn: (text: string) =>
+      apiFetch(`/api/client/campaigns/${id}/contacts/paste`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["campaign", id, "contacts"] }),
   });
 }
@@ -191,7 +225,8 @@ export function useSources(campaignId: string) {
     queryKey: ["campaign", campaignId, "sources"],
     enabled: isBrowser && !!campaignId,
     refetchInterval: 10000,
-    queryFn: async (): Promise<ContactSource[]> => (await apiFetch(`/api/client/campaigns/${campaignId}/sources`)).sources || [],
+    queryFn: async (): Promise<ContactSource[]> =>
+      (await apiFetch(`/api/client/campaigns/${campaignId}/sources`)).sources || [],
   });
 }
 
@@ -199,7 +234,10 @@ export function useCreateSource(campaignId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { kind: string; name?: string; config: any }) =>
-      apiFetch(`/api/client/campaigns/${campaignId}/sources`, { method: "POST", body: JSON.stringify(body) }),
+      apiFetch(`/api/client/campaigns/${campaignId}/sources`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["campaign", campaignId, "sources"] });
       qc.invalidateQueries({ queryKey: ["campaign", campaignId, "contacts"] });
@@ -238,7 +276,10 @@ export function useSetPreset(campaignId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (preset: string) =>
-      apiFetch(`/api/client/campaigns/${campaignId}/trigger/preset`, { method: "PUT", body: JSON.stringify({ preset }) }),
+      apiFetch(`/api/client/campaigns/${campaignId}/trigger/preset`, {
+        method: "PUT",
+        body: JSON.stringify({ preset }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["campaign", campaignId, "trigger"] }),
   });
 }

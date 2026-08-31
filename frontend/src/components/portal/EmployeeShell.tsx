@@ -6,14 +6,14 @@
 // Owners and managers keep the full dashboard in PortalShell.
 
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
-import { Users, Phone, MessageSquare, Settings, Bell, Building2, LogOut, Activity, X } from "lucide-react";
+import { Users, Phone, MessageSquare, Settings, Building2, LogOut, Activity } from "lucide-react";
 import { clearToken } from "@/lib/api";
 import { closeRealtime } from "@/lib/realtime";
-import { useConversations, useNotifications, useMarkNotificationsRead } from "@/lib/messages";
+import { useConversations } from "@/lib/messages";
 import { ROLE_LABEL, type Me } from "@/lib/team";
-import { soundEnabled, setSoundEnabled, playNotificationSound } from "@/lib/sound";
+import { NotificationsButton, NotificationsPanel } from "./Notifications";
 
 const NAV = [
   { to: "/work/leads", label: "Leads", icon: Users },
@@ -88,18 +88,15 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
         </nav>
 
         <div className="px-3 pb-3 shrink-0">
-          <button
-            aria-expanded={bellOpen}
-            onClick={() => setBellOpen((v) => !v)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${
+          <NotificationsButton
+            open={bellOpen}
+            onToggle={() => setBellOpen((v) => !v)}
+            className={
               bellOpen
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            <NotificationBell />
-            Notifications
-          </button>
+            }
+          />
         </div>
 
         <div className="p-3 shrink-0 border-t border-border space-y-3">
@@ -116,7 +113,10 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
           <div className="flex items-center gap-2 px-1">
             <div className="w-8 h-8 rounded-full bg-primary grid place-items-center text-primary-foreground text-xs font-semibold shrink-0">
               {(me?.full_name || me?.email || "?")
-                .split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((w) => w[0]?.toUpperCase())
+                .join("")}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{me?.full_name || "You"}</p>
@@ -140,125 +140,7 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
           to the rail and could never rise above <main> — the panel came out
           underneath the page content. As a sibling of <main> it sits in the root
           stacking context and z-50 means what it says. */}
-      {bellOpen && <NotificationList onClose={() => setBellOpen(false)} />}
+      {bellOpen && <NotificationsPanel base="/work" onClose={() => setBellOpen(false)} />}
     </div>
-  );
-}
-
-function NotificationBell() {
-  const { data } = useNotifications();
-  const unread = data?.unread ?? 0;
-  return (
-    <span className="relative">
-      <Bell className="w-4 h-4" />
-      {unread > 0 && (
-        <span className="absolute -top-2 -right-2 min-w-4 h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold grid place-items-center">
-          {unread > 9 ? "9+" : unread}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/**
- * Popover anchored to the right of the sidebar, level with the bell.
- *
- * It used to render inline in the sidebar column, which meant a 16rem-wide panel
- * and — on a short window — pushing Sign out off the bottom. Floating it clear of
- * the rail gives it room and leaves the sidebar's own layout alone.
- */
-function NotificationList({ onClose }: { onClose: () => void }) {
-  const { data } = useNotifications();
-  const markRead = useMarkNotificationsRead();
-  const [sound, setSound] = useState(soundEnabled());
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const items = data?.notifications ?? [];
-
-  return (
-    <>
-      {/* A real backdrop, not a document click listener. Listening for outside
-          clicks closed the panel but let the SAME click land on whatever was
-          underneath — so dismissing it opened a lead. This swallows the click. */}
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} aria-hidden />
-
-      {/* Sits just clear of the 16rem rail, bottom-aligned with the bell that
-          opened it. Fixed, so page scroll can't drag it away.
-
-          bg-background (a solid token) rather than bg-popover, which carries alpha
-          in the dark theme — floating over page content that read as frosted glass
-          and the text was unreadable. The themed tint moves to the inner layer,
-          where it has something opaque behind it. */}
-      <div
-        role="dialog"
-        aria-label="Notifications"
-        className="fixed z-50 bottom-4 left-[16.75rem] w-80 max-w-[calc(100vw-18rem)] rounded-xl border border-border bg-background text-popover-foreground shadow-glow overflow-hidden animate-fade-up"
-      >
-        <div className="bg-popover">
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border">
-            <span className="text-xs font-semibold">Notifications</span>
-            <div className="flex items-center gap-2">
-              {items.length > 0 && (
-                <button
-                  onClick={() => markRead.mutate(undefined)}
-                  className="text-xs text-primary hover:underline"
-                >
-                  Mark all read
-                </button>
-              )}
-              <button
-                onClick={onClose}
-                aria-label="Close notifications"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="max-h-80 overflow-y-auto">
-            {items.length === 0 ? (
-              <p className="px-3 py-6 text-xs text-muted-foreground text-center">Nothing new.</p>
-            ) : (
-              items.slice(0, 12).map((n) => (
-                <div
-                  key={n.id}
-                  className={`px-3 py-2 border-b border-border last:border-0 ${
-                    n.read_at ? "opacity-60" : "bg-primary/5"
-                  }`}
-                >
-                  <p className="text-xs font-medium">{n.title}</p>
-                  {n.body && (
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.body}</p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Sound is a per-device preference, so it belongs next to the bell
-              rather than in account settings that follow you to another machine. */}
-          <label className="flex items-center justify-between gap-2 px-3 py-2 border-t border-border text-xs">
-            <span className="text-muted-foreground">Alert sound</span>
-            <input
-              type="checkbox"
-              checked={sound}
-              onChange={(e) => {
-                setSound(e.target.checked);
-                setSoundEnabled(e.target.checked);
-                if (e.target.checked) playNotificationSound(); // confirm it audibly
-              }}
-              className="accent-current"
-            />
-          </label>
-        </div>
-      </div>
-    </>
   );
 }

@@ -17,7 +17,7 @@
 
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { setToken } from "@/lib/api";
+import { setSession } from "@/lib/api";
 import { fetchInvite, acceptInvite, ROLE_LABEL, ROLE_DESCRIPTION } from "@/lib/team";
 import type { InvitePreview } from "@/lib/team";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
@@ -96,7 +96,13 @@ function Join() {
     setSubmitting(true);
     try {
       const res = await acceptInvite(token, input);
-      if (res.token) setToken(res.token);
+      if (res.token) {
+        setSession({
+          token: res.token,
+          refresh_token: (res as any).refresh_token ?? null,
+          expires_at: (res as any).expires_at ?? null,
+        });
+      }
       toast.success(`Welcome to ${invite?.business_name ?? "the team"}`);
       // Employees land straight in the dashboard — never in onboarding, which is
       // the owner's job and which they have no permission to complete. If no

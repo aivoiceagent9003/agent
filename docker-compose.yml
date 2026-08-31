@@ -1,0 +1,39 @@
+# Local stack: api + worker + redis.
+#
+# With REDIS_URL set, campaigns run in the worker rather than in-process. That
+# mirrors production, where the in-process runner is refused outright because it
+# cannot run on two replicas without double-dialling every contact.
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+    ports: ["3000:3000"]
+    depends_on:
+      redis: { condition: service_healthy }
+    # Must exceed SHUTDOWN_GRACE_MS, or the drain is cut short and live calls
+    # lose their transcripts anyway.
+    stop_grace_period: 30s
+
+  worker:
+    build: .
+    command: ["node", "src/worker.js"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis: { condition: service_healthy }
+    stop_grace_period: 30s

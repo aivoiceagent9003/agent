@@ -23,6 +23,7 @@ import { takePending, peekPending } from './campaign-registry.js'
 import { enqueueAnalytics } from '../queue/queues.js'
 import { supabase } from '../api/db.js'
 import telemetry from '../services/telemetry.js'
+import { webhookQuery } from '../api/webhook-auth.js'
 import 'dotenv/config'
 
 // AI Sales calls run on Gemini Live speech-to-speech; Template ('broadcast')
@@ -99,7 +100,7 @@ export async function answerCampaign(req, res) {
     res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
     return
   }
-  const wsUrl = `wss://${process.env.PUBLIC_HOST || process.env.NGROK_URL}/media-stream-campaign`
+  const wsUrl = `wss://${process.env.PUBLIC_HOST || process.env.NGROK_URL}/media-stream-campaign?${webhookQuery()}`
   res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000" extraHeaders="correlation_id=${cid}">
@@ -131,7 +132,9 @@ export function handleCampaignConnection(ws) {
       callId = ctx.callId || null
       callSid = streamId || callId || `campaign-${Date.now()}`
       callStart = Date.now()
-      recorder = new CallRecorder()
+      // Opt-in, same as inbound — see the note in vobiz.js.
+      const recordingOn = (ctx.config || {}).recording_enabled === true
+      recorder = recordingOn ? new CallRecorder() : null
       trace = telemetry.startTrace({
         callSid, tenantId: ctx.tenantId, tenantName: ctx.tenantName,
         callerNumber: ctx.phone, businessNumber: ctx.fromNumber,
@@ -212,7 +215,12 @@ export function handleCampaignConnection(ws) {
       if (ctx.type !== 'broadcast') {
         const history = getHistory(callSid)
         if (history && history.length > 0) {
-          const lead = await extractLead(history, ctx.config || {})
+          // Same measured language the inbound path uses — without it the
+          // extractor re-guesses from a transcript whose caller lines are a
+          // known-unreliable side-channel, and lands on Hindi far too often.
+          const lead = await extractLead(history, ctx.config || {}, {
+            knownLanguage: trace?.state?.dominantLanguage || trace?.state?.language || null,
+          })
           if (lead) savedLead = await saveLead(supabase, { tenantId: ctx.tenantId, callId, callerNumber: ctx.phone, lead })
         }
       }

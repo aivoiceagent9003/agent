@@ -1,7 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useAdminOverview } from "@/lib/data";
 import { Users, PhoneCall, Clock, ArrowRightLeft } from "lucide-react";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 export const Route = createFileRoute("/admin/")({
   component: AdminHome,
@@ -30,8 +38,20 @@ function AdminHome() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
               <XAxis dataKey="day" stroke="var(--color-muted-foreground)" fontSize={12} />
               <YAxis stroke="var(--color-muted-foreground)" fontSize={12} />
-              <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 8 }} />
-              <Line type="monotone" dataKey="calls" stroke="var(--color-primary)" strokeWidth={2} dot={{ fill: "var(--color-primary)" }} />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--color-card)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 8,
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="calls"
+                stroke="var(--color-primary)"
+                strokeWidth={2}
+                dot={{ fill: "var(--color-primary)" }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -40,16 +60,22 @@ function AdminHome() {
       <div className="mt-8 bg-card border border-border rounded-xl p-6 shadow-card">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Recent calls</h2>
-          <Link to="/admin/clients" className="text-sm text-primary hover:underline">All clients →</Link>
+          <Link to="/admin/clients" className="text-sm text-primary hover:underline">
+            All clients →
+          </Link>
         </div>
         <div className="mt-4 divide-y divide-border">
           {o.recent_calls.map((c) => (
             <div key={c.id} className="flex items-center justify-between py-3">
               <div>
                 <div className="font-medium">{c.caller_number}</div>
-                <div className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">
+                  {new Date(c.created_at).toLocaleString()}
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground">{Math.round(c.duration_seconds / 60)}m</div>
+              <div className="text-sm text-muted-foreground">
+                {Math.round(c.duration_seconds / 60)}m
+              </div>
             </div>
           ))}
         </div>

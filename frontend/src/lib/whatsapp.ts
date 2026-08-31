@@ -10,7 +10,7 @@ const isBrowser = typeof window !== "undefined";
 // document, so it's never chunked/embedded and image-only PDFs are fine.
 export interface SendableDoc {
   id: string;
-  topic: string;   // what callers ask for: project name, "menu", "price list"…
+  topic: string; // what callers ask for: project name, "menu", "price list"…
   filename: string;
   mime_type?: string | null;
   size_bytes?: number | null;
@@ -18,9 +18,9 @@ export interface SendableDoc {
 }
 
 export interface WhatsappSettings {
-  platform_enabled: boolean;   // shared platform sender is configured on the server
-  enabled: boolean;            // this tenant wants WhatsApp on
-  display_phone: string;       // client's contact number, shown in the message
+  platform_enabled: boolean; // shared platform sender is configured on the server
+  enabled: boolean; // this tenant wants WhatsApp on
+  display_phone: string; // client's contact number, shown in the message
   // advanced (enterprise bring-your-own-number)
   own_number: boolean;
   provider: "meta" | "360dialog";
@@ -96,7 +96,10 @@ export function useRenameSendableDoc() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, topic }: { id: string; topic: string }) =>
-      apiFetch(`/api/client/whatsapp/documents/${id}`, { method: "PUT", body: JSON.stringify({ topic }) }),
+      apiFetch(`/api/client/whatsapp/documents/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ topic }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["whatsapp-docs"] }),
   });
 }
@@ -104,7 +107,8 @@ export function useRenameSendableDoc() {
 export function useDeleteSendableDoc() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/client/whatsapp/documents/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      apiFetch(`/api/client/whatsapp/documents/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["whatsapp-docs"] }),
   });
 }

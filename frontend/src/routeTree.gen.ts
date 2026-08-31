@@ -10,8 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkRouteImport } from './routes/work'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as JoinRouteImport } from './routes/join'
@@ -35,6 +37,7 @@ import { Route as AppInstantRouteImport } from './routes/app.instant'
 import { Route as AppCampaignsRouteImport } from './routes/app.campaigns'
 import { Route as AppCallsRouteImport } from './routes/app.calls'
 import { Route as AppAnalyticsRouteImport } from './routes/app.analytics'
+import { Route as AdminSupportRouteImport } from './routes/admin.support'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminOpsRouteImport } from './routes/admin.ops'
 import { Route as AdminClientsRouteImport } from './routes/admin.clients'
@@ -60,6 +63,11 @@ const WorkRoute = WorkRouteImport.update({
   path: '/work',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -68,6 +76,11 @@ const SignupRoute = SignupRouteImport.update({
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -185,6 +198,11 @@ const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => AppRoute,
 } as any)
+const AdminSupportRoute = AdminSupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -291,12 +309,15 @@ export interface FileRoutesByFullPath {
   '/join': typeof JoinRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/terms': typeof TermsRoute
   '/work': typeof WorkRouteWithChildren
   '/admin/clients': typeof AdminClientsRouteWithChildren
   '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
@@ -336,12 +357,15 @@ export interface FileRoutesByTo {
   '/join': typeof JoinRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/terms': typeof TermsRoute
   '/work': typeof WorkRouteWithChildren
   '/admin/clients': typeof AdminClientsRouteWithChildren
   '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
@@ -384,12 +408,15 @@ export interface FileRoutesById {
   '/join': typeof JoinRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/terms': typeof TermsRoute
   '/work': typeof WorkRouteWithChildren
   '/admin/clients': typeof AdminClientsRouteWithChildren
   '/admin/ops': typeof AdminOpsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
@@ -433,12 +460,15 @@ export interface FileRouteTypes {
     | '/join'
     | '/login'
     | '/onboarding'
+    | '/privacy'
     | '/reset-password'
     | '/signup'
+    | '/terms'
     | '/work'
     | '/admin/clients'
     | '/admin/ops'
     | '/admin/settings'
+    | '/admin/support'
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
@@ -478,12 +508,15 @@ export interface FileRouteTypes {
     | '/join'
     | '/login'
     | '/onboarding'
+    | '/privacy'
     | '/reset-password'
     | '/signup'
+    | '/terms'
     | '/work'
     | '/admin/clients'
     | '/admin/ops'
     | '/admin/settings'
+    | '/admin/support'
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
@@ -525,12 +558,15 @@ export interface FileRouteTypes {
     | '/join'
     | '/login'
     | '/onboarding'
+    | '/privacy'
     | '/reset-password'
     | '/signup'
+    | '/terms'
     | '/work'
     | '/admin/clients'
     | '/admin/ops'
     | '/admin/settings'
+    | '/admin/support'
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
@@ -573,8 +609,10 @@ export interface RootRouteChildren {
   JoinRoute: typeof JoinRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
+  PrivacyRoute: typeof PrivacyRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
+  TermsRoute: typeof TermsRoute
   WorkRoute: typeof WorkRouteWithChildren
 }
 
@@ -585,6 +623,13 @@ declare module '@tanstack/react-router' {
       path: '/work'
       fullPath: '/work'
       preLoaderRoute: typeof WorkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/signup': {
@@ -599,6 +644,13 @@ declare module '@tanstack/react-router' {
       path: '/reset-password'
       fullPath: '/reset-password'
       preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -761,6 +813,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/analytics'
       preLoaderRoute: typeof AppAnalyticsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/admin/support': {
+      id: '/admin/support'
+      path: '/support'
+      fullPath: '/admin/support'
+      preLoaderRoute: typeof AdminSupportRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/settings': {
       id: '/admin/settings'
@@ -942,6 +1001,7 @@ interface AdminRouteChildren {
   AdminClientsRoute: typeof AdminClientsRouteWithChildren
   AdminOpsRoute: typeof AdminOpsRouteWithChildren
   AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminSupportRoute: typeof AdminSupportRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -949,6 +1009,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminClientsRoute: AdminClientsRouteWithChildren,
   AdminOpsRoute: AdminOpsRouteWithChildren,
   AdminSettingsRoute: AdminSettingsRoute,
+  AdminSupportRoute: AdminSupportRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 
@@ -1038,8 +1099,10 @@ const rootRouteChildren: RootRouteChildren = {
   JoinRoute: JoinRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
+  PrivacyRoute: PrivacyRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
+  TermsRoute: TermsRoute,
   WorkRoute: WorkRouteWithChildren,
 }
 export const routeTree = rootRouteImport

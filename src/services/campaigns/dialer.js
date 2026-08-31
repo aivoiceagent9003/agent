@@ -11,7 +11,8 @@
 import 'dotenv/config'
 
 // Public base URL the provider calls back to (answer webhook) / streams to (WS).
-// Reuses NGROK_URL like the inbound path.
+// Prefers PUBLIC_HOST (the real deployment hostname); NGROK_URL is the dev-only
+// fallback, same as the inbound path.
 const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NGROK_URL || ''
 
 // Vobiz's carrier requires BOTH numbers in full E.164. A national-format caller ID

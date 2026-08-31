@@ -11,6 +11,7 @@
 // code changes. The engine self-starts on import (unref'd timer).
 
 import telemetry from './telemetry.js'
+import { notify } from './notify.js'
 
 const N = (env, dflt) => Number(process.env[env] ?? dflt)
 
@@ -131,6 +132,21 @@ function tick() {
         telemetry.recordServiceEvent({ component: rule.group, severity: rule.severity, kind: `alert:${rule.id}`, detail: { value: r.value, threshold: r.threshold } })
         telemetry.bus.emit('alert', { event: 'fired', alert })
         telemetry.bus.emit('*', { event: 'alert', payload: { event: 'fired', alert } })
+        // Reach a human. Until this existed the two lines above were the whole
+        // story: an in-memory map and a websocket event, visible only to someone
+        // already watching the dashboard. notify() applies its own severity
+        // filter and cooldown, and never throws — the tick is unaffected either
+        // way, so this is deliberately not awaited.
+        notify({
+          title: `${alert.label} — ${alert.message}`,
+          body: `Rule ${rule.id} crossed its threshold.
+
+Value: ${r.value}
+Threshold: ${r.threshold}
+Group: ${rule.group}`,
+          severity: rule.severity,
+          key: `alert:${rule.id}`,
+        })
       } else if (r.firing && wasActive) {
         const a = active.get(rule.id); a.value = r.value; a.message = rule.describe(r.value)
       } else if (!r.firing && wasActive) {
@@ -140,6 +156,15 @@ function tick() {
         pushHistory(resolved)
         telemetry.bus.emit('alert', { event: 'resolved', alert: resolved })
         telemetry.bus.emit('*', { event: 'alert', payload: { event: 'resolved', alert: resolved } })
+        // Recovery is worth sending too, and on its own cooldown key: someone woken
+        // by an alert needs to know it cleared without having to open a dashboard.
+        // A pager that only ever reports bad news makes people check manually.
+        notify({
+          title: `RESOLVED: ${resolved.label}`,
+          body: `Cleared after ${Math.round(resolved.durationMs / 1000)}s.`,
+          severity: rule.severity,
+          key: `resolved:${rule.id}`,
+        })
       }
     }
 

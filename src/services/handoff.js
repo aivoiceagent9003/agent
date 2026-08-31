@@ -2,6 +2,7 @@
 // When the AI can't help, transfer the live call to a human agent's phone over
 // Vobiz (Plivo-compatible): the Call API redirects the caller leg to <Dial> XML.
 
+import { signDestination, isE164, webhookQuery } from '../api/webhook-auth.js'
 import 'dotenv/config'
 
 // ─── Handoff intent detection ─────────────────────────────────────────────────
@@ -103,10 +104,26 @@ async function transferViaVobiz(callUuid, handoffNumber, businessNumber) {
   const dest = toE164India(handoffNumber)
   const callerId = toE164India(businessNumber)
 
+  // Refuse to build a transfer for anything that isn't a phone number, so a bad
+  // handoff_number in a tenant's config can never reach the dial XML.
+  if (!isE164(dest)) {
+    console.error(`[HANDOFF] ❌ handoff number is not E.164 after normalisation: ${dest}`)
+    return false
+  }
+
   // The URL Vobiz fetches for the caller leg: returns <Dial> to the human.
+  //
+  // Two credentials ride along, and they do different jobs. `k` is the shared
+  // webhook secret that gates the endpoint at all. `sig` is an HMAC over this
+  // specific (to, callerId) pair — so even someone holding `k` cannot swap in
+  // their own destination, which is what turns the endpoint from an open relay
+  // into one that only dials numbers we chose.
+  const sig = signDestination(dest, callerId)
   const alegUrl =
-    `https://${host}/vobiz/transfer?to=${encodeURIComponent(dest)}` +
-    (callerId ? `&callerId=${encodeURIComponent(callerId)}` : '')
+    `https://${host}/vobiz/transfer?${webhookQuery()}` +
+    `&to=${encodeURIComponent(dest)}` +
+    (callerId ? `&callerId=${encodeURIComponent(callerId)}` : '') +
+    `&sig=${sig}`
 
   const url = process.env.VOBIZ_TRANSFER_URL
     ? process.env.VOBIZ_TRANSFER_URL.replace('{call_uuid}', encodeURIComponent(callUuid))
