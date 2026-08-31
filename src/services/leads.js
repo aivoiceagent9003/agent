@@ -4,6 +4,7 @@
 // Runs POST-call so it adds ZERO latency to the live conversation.
 
 import OpenAI from 'openai'
+import { toCode } from './language-manager.js'
 import 'dotenv/config'
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -11,13 +12,13 @@ const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 // ─── Extraction prompt ────────────────────────────────────────────────────────
 // We ask the LLM to return STRICT JSON only — no prose, no markdown.
 
-// LanguageManager reports full names; the lead schema stores short codes. The
-// same five languages appear on both sides, so this map is total.
-const LANG_CODE = { English: 'en', Hindi: 'hi', Telugu: 'te', Tamil: 'ta', Kannada: 'kn' }
+// The LanguageManager is canonical in ISO codes now, but calls recorded before
+// that change persisted full names ('Telugu'). toCode() accepts either, so a
+// call started on the old build still resolves correctly.
 
 function buildExtractionPrompt(tenantConfig = {}, knownLanguage = null) {
   const businessName = tenantConfig.business_name || 'the business'
-  const knownCode = knownLanguage ? LANG_CODE[knownLanguage] : null
+  const knownCode = toCode(knownLanguage)
   // When the live classifier reached a verdict it is a direct measurement of the
   // audio. Asking the model to re-derive it from a transcript can only be worse,
   // and in practice was: a call conducted entirely in English came back as "hi".
@@ -138,9 +139,10 @@ export async function extractLead(history, tenantConfig = {}, { knownLanguage = 
     // as getting: this same model was told to read the language off the agent's
     // turns and still returned "hi" for a call conducted entirely in English.
     // Where a measurement exists it is not a hint to the model, it is the answer.
-    if (knownLanguage && LANG_CODE[knownLanguage]) {
+    const measured = toCode(knownLanguage)
+    if (measured) {
       const guessed = lead.language
-      lead.language = LANG_CODE[knownLanguage]
+      lead.language = measured
       if (guessed && guessed !== lead.language) {
         console.warn(`[LEAD] language guess ${JSON.stringify(guessed)} overridden by measured ${lead.language}`)
       }

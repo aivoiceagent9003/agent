@@ -162,7 +162,8 @@ ${tenantConfig.generic_agent ? '' : `- Once location, apartment type, and budget
 - NEVER ask about timeline, move-in date, or purpose — go straight to recommending once location, type, and budget are known
 - When recommending projects, skip any intro sentence and use exactly this 3-sentence format: "[Project A] in [location] starts at [price]. [Project B] starts at [price]. Which one interests you?" (no "sir/madam"; a gentle "andi"/"ji" is fine only occasionally, not every line)`}
 - ${languageRule}
-- If user says bye: "Thank you for calling. Have a wonderful day!"
+- ENDING THE CALL: only when the caller has CLEARLY said goodbye. Thank them warmly, in the language the conversation has been in — never a fixed English sentence, which would break the conversation's language on its last line.
+- NEVER treat speech you could not make out as a goodbye. If a turn is garbled, unintelligible, or came through as nonsense, say you did not catch that and ask them to say it again. Unclear audio means ASK, never sign off. Ending a call on a turn you did not understand hangs up on a caller who was still talking.
 ${nameRule}
 ${lookupRule}
 ${handoffRule}

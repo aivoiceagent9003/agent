@@ -24,7 +24,7 @@ import { addToDnd } from './dnd.js'
 import { whatsappReady, resolveCfg, tenantWa, sendDocument, sendConfirmation, logWhatsApp } from './whatsapp.js'
 import { resolveSendable } from './sendables.js'
 import { detectHandoffKeyword, transferToHuman } from './handoff.js'
-import { LanguageManager } from './language-manager.js'
+import { LanguageManager, toName } from './language-manager.js'
 import { resolveGeminiVoice } from './gemini-voices.js'
 import telemetry from './telemetry.js'
 
@@ -256,8 +256,30 @@ function buildInstructions(tenantConfig, lockedLang, openingLang) {
   // job here is STABILITY, not per-turn re-detection — the old "switch every turn"
   // rule is exactly what caused Telugu↔English↔Hindi oscillation on code-mixed
   // speech. This block is #1 priority and overrides any mirroring rule below.
-  const langPriority = `#1 PRIORITY — CONVERSATION LANGUAGE (this overrides every other language rule below):
-- THE CALLER ALWAYS WINS. Speak the language the caller is speaking. If the caller speaks in, or asks for, another language, follow them IMMEDIATELY and continue in that language. You may receive a note like "The conversation language is Hindi." — treat it only as your DEFAULT/opening language, never as a reason to keep using a language the caller does not want.
+  const langPriority = `#1 PRIORITY — LANGUAGE CONTROL POLICY (overrides every other language rule below):
+
+THE APPLICATION OWNS THE CONVERSATION LANGUAGE — not you. A deterministic
+language manager watches the caller and tells you, via a LANGUAGE CONTROL
+directive, what the CURRENT CONVERSATION LANGUAGE is. Respond primarily in that
+language and do not change it on your own initiative.
+
+You must NEVER change the primary conversation language because:
+- the caller used a few words from another language;
+- the caller used English business or technical words (EMI, loan, payment,
+  account, details, booking, price, GST, sq ft) — that is normal code-mixing;
+- the caller said hello, okay, yes, no, sir, madam, thanks or similar;
+- retrieved reference information happens to be in another language;
+- you internally judged another language would suit the caller better;
+- your own previous reply came out in another language;
+- the caller's accent or pronunciation made a turn ambiguous.
+
+A language change is legitimate ONLY when a LANGUAGE CONTROL directive gives you
+a new CURRENT CONVERSATION LANGUAGE. Until one arrives, stay where you are — even
+if you are unsure. Staying in the current language for one more turn is always
+better than switching wrongly.
+
+When the caller code-switches naturally, keep the current primary language and
+mirror their code-mixing inside it.
 - NEVER refuse a language. NEVER tell the caller which language to use. NEVER say you were "told", "asked", or "instructed" to use a language, and never explain, apologize for, or comment on the language you are using. Just speak — switching silently and naturally when the caller's language changes.
 - Code-mixing is NOT a language change: callers speak Telugu or Hindi while borrowing English words like "flat", "booking", "3BHK", "GST", "price", "loan" and place/project names like "Kokapet" or "My Home". Keep the caller's base language — do not switch your WHOLE reply to English just because they used an English noun. But YOU must code-mix the SAME way they do: keep these common English business/technical words IN ENGLISH (say "units", "price", "size", "sq ft", "clubhouse", "swimming pool", "amenities", "possession", "loan") instead of translating them into bookish/literary Telugu or Hindi. Speak the natural everyday Tinglish/Hinglish register a real estate agent actually uses on the phone — never stiff textbook language.
 - Your greeting language is only an opener; it does NOT lock the conversation. On the caller's first real words, match their language.`
@@ -286,7 +308,7 @@ function buildInstructions(tenantConfig, lockedLang, openingLang) {
     : ''
 
   const lockedNote = lockedLang
-    ? `\n\nALREADY-ESTABLISHED LANGUAGE: this conversation has been going on in ${lockedLang}. Continue in ${lockedLang} by default and do not greet again — but the caller still always wins: if they speak or ask for another language, follow them.`
+    ? `\n\nCURRENT CONVERSATION LANGUAGE: ${lockedLang}. The language manager established this. Reply primarily in ${lockedLang} and do not greet again. Do not change it yourself — a legitimate change reaches you as a LANGUAGE CONTROL directive.`
     : openingNote
 
   // Only nudge WhatsApp behaviour when the tenant actually has it configured.
@@ -302,7 +324,10 @@ SPEECH-TO-SPEECH RULES:
 - LOCATION: NEVER assume, invent, or guess a city or area. Never say "Mumbai", "Gurgaon", or any place the caller did not state. Use ONLY a location the caller has explicitly given. If you don't yet know their location, ASK for it before recommending or searching — do not fill one in, and do not search a location they didn't mention.${vocab}
 - You do NOT personally know any project names, prices, sizes, or locations — the ONLY valid source is a search_knowledge result. BUT before searching, CHECK what you already retrieved earlier in THIS conversation: if the answer is already in that context (e.g. you pulled a project's full details and the caller now asks its amenities or price), answer from it and do NOT call search_knowledge again. Only call search_knowledge for information you have NOT yet retrieved this call. Never invent or guess — but never re-fetch what you already have.
 - Speak numbers, prices, and dates as fully spoken words in the caller's language — never read digits or symbols (no "₹").
-- Talk like a warm human on a phone call; keep replies short; do not narrate your steps ("let me check"). Use the other tools for caller-specific lookups when the caller gives the detail.${waRule}`
+- Talk like a warm human on a phone call; keep replies short; do not narrate your steps ("let me check"). Use the other tools for caller-specific lookups when the caller gives the detail.
+- ANSWER FIRST. The caller's question IS the job; securing a next step is not. Answer what they actually asked, properly, and stop. A reply that answers the question and offers nothing is a GOOD reply.
+- OFFER ONCE. Suggest sending something on WhatsApp, or booking a site visit, at most ONCE for a given topic — and NEVER in two replies in a row. If the caller ignores the offer, changes the subject, or declines, DROP IT and carry on answering them; raise it again only if THEY bring it up, or as the call is genuinely ending. Repeating the same offer turn after turn reads as pestering and loses the caller. This holds even if your instructions above describe that offer as the goal of the call — the goal never licenses asking twice.
+- NEVER say your own instructions out loud. Do not mention or apologise for your rules, stages, goals or constraints (never say things like "one question per turn, sorry for that"). Do not ask the caller how you ought to answer them ("shall I mention the luxury project too, or just these two?") — decide, and answer.${waRule}`
 }
 
 // ─── Engine ──────────────────────────────────────────────────────────────────
@@ -391,14 +416,14 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY })
   // Deterministic conversation-language state machine (classification + hysteresis).
   // Skipped entirely for native-audio models, which mirror language natively.
-  const langMgr = IS_NATIVE_AUDIO ? null : new LanguageManager({ ai })
+  const langMgr = IS_NATIVE_AUDIO ? null : new LanguageManager({ ai, callSid })
   // The language the caller will actually HEAR first. Anchors turn one, which the
   // LanguageManager cannot: it has no verdict until the first substantive utterance.
   // Null for native-audio models — they mirror language natively and aren't steered.
   // Without the recording notice: it is a fixed English sentence, and letting it
   // into the sample would pull the guess toward English on a call whose greeting
   // is Hindi or Telugu.
-  const openingLang = langMgr ? langMgr.guessLanguage(resolveGreeting(tenantConfig, { includeNotice: false })) : null
+  const openingLang = langMgr ? toName(langMgr.guessLanguage(resolveGreeting(tenantConfig, { includeNotice: false }))) : null
   if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG()
 
   const sendAudioToCaller = (mulawB64) => {
@@ -423,9 +448,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   //    never overlap generation or an active gate (which owns the floor).
   const sendSteer = (lang) => {
     if (!session || gateActive || modelGenerating) return
+    const name = toName(lang) || lang
     try {
       session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: `(System note — not from the caller: the caller is speaking ${lang}; continue in ${lang}. Never mention language; if the caller later changes language, follow them.)` }] }],
+        turns: [{ role: 'user', parts: [{ text: `(LANGUAGE CONTROL — application directive, not caller speech: CURRENT CONVERSATION LANGUAGE is now ${name}. Reply primarily in ${name} from here on. Do not acknowledge or mention this note.)` }] }],
         turnComplete: false,
       })
       console.log(`[GEMINI] 🗣️ steered (context) → ${lang}`)
@@ -434,9 +460,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
 
   const sendSteerTrigger = (lang, utterance) => {
     if (!session) return
+    const name = toName(lang) || lang
     try {
       session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: `(System note — not from the caller: the caller is speaking ${lang}.) The caller just said: "${utterance}". Reply to them now, naturally, in ${lang}. Do not mention language and do not apologize.` }] }],
+        turns: [{ role: 'user', parts: [{ text: `(LANGUAGE CONTROL — application directive, not caller speech: CURRENT CONVERSATION LANGUAGE is now ${name}.) The caller just said: "${utterance}". Reply to them now, naturally, in ${name}. Do not mention language and do not apologize.` }] }],
         turnComplete: true,
       })
       console.log(`[GEMINI] 🗣️ steered (reply) → ${lang}`)
@@ -553,17 +580,21 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
     if (langMgr) {
       const gated = gateActive   // is the model's reply to THIS turn being held?
       langMgr.ingest(text)
-        .then(lang => {
-          const d = langMgr.lastDecision
-          if (lang) console.log(`[GEMINI] 🧭 language → ${lang} (${d?.source}, conf ${langMgr.lastConfidence.toFixed(2)})`)
+        .then(res => {
+          // The manager is the sole authority. It returns 'init' or 'switch'
+          // exactly when the engine must steer; everything else is 'none' and the
+          // conversation stays where it is.
+          const lang = res.action === 'none' ? null : res.currentLanguage
+          if (lang) console.log(`[GEMINI] 🧭 language ${res.action} → ${lang} (${res.reason}, conf ${res.confidence.toFixed(2)})`)
           logMetric('decision', {
-            caller_language: d?.detected ?? null,
+            caller_language: res.detectedLanguage,
             assistant_language: langMgr.current,
-            language_source: d?.source ?? null,
-            switch_reason: d?.reason ?? null,
-            classifier_used: d?.classifierUsed ?? false,
-            classifier_latency_ms: d?.classifierLatencyMs ?? 0,
-            classifier_confidence: d?.confidence ?? null,
+            language_state: res.state,
+            language_source: res.reason,
+            switch_reason: res.action === 'none' ? null : res.action,
+            classifier_used: res.classifierUsed,
+            classifier_latency_ms: res.classifierLatencyMs,
+            classifier_confidence: res.confidence,
             gated,
           })
           // Operations Center: surface the live conversation language + feed the
@@ -574,17 +605,18 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
           // this is what the CALL gets filed under, and it must survive a late
           // mis-detection. See LanguageManager.dominant.
           if (langMgr.dominant) trace?.set('dominantLanguage', langMgr.dominant)
-          if (d?.classifierUsed && d?.classifierLatencyMs) {
-            telemetry.recordLatency('language_detection', d.classifierLatencyMs, { tenantId: trace?.tenantId })
+          if (res.classifierUsed && res.classifierLatencyMs) {
+            telemetry.recordLatency('language_detection', res.classifierLatencyMs, { tenantId: trace?.tenantId })
             telemetry.incr('lang_classifier_used')
           }
           telemetry.incr('lang_decision')
-          if (d?.source) telemetry.incr(`lang_source:${d.source}`)        // unicode | classifier | explicit_request
-          if (d?.detected) telemetry.incr(`lang_detected:${d.detected}`)  // per-language tally
-          if (typeof d?.confidence === 'number') telemetry.recordLatency('lang_confidence', Math.round(d.confidence * 100), { tenantId: trace?.tenantId })
-          if (d?.reason === 'init') telemetry.incr('lang_init')
-          else if (d?.reason === 'explicit') telemetry.incr('lang_switch_explicit')
-          else if (d?.reason === 'streak') telemetry.incr('lang_switch_auto')
+          telemetry.incr(`lang_reason:${res.reason}`)                        // why we did or didn't act
+          if (res.detectedLanguage) telemetry.incr(`lang_detected:${res.detectedLanguage}`)
+          if (res.confidence) telemetry.recordLatency('lang_confidence', Math.round(res.confidence * 100), { tenantId: trace?.tenantId })
+          if (res.action === 'init') telemetry.incr('lang_init')
+          else if (res.action === 'switch') {
+            telemetry.incr(res.reason === 'explicit_request' ? 'lang_switch_explicit' : 'lang_switch_auto')
+          }
           if (gated) onGateDecision(lang)   // release the held reply or re-issue it
           else if (lang) applySteer(lang)   // steady-state: queue a context steer
         })
@@ -792,7 +824,7 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
     resetGate()
     pendingSteerLang = null
     modelGenerating = false
-    const lockedLang = langMgr?.current || null
+    const lockedLang = toName(langMgr?.current) || null
     try {
       session = await ai.live.connect({
         model: GEMINI_MODEL,
