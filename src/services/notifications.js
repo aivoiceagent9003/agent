@@ -10,6 +10,13 @@ import hub from './realtime-hub.js'
 // Create notifications for several people at once and push them live.
 // NEVER throws: a failed notification must not roll back the action that caused it
 // (assigning a lead should still succeed if the bell feed write fails).
+//
+// `link` must be SHELL-RELATIVE — "/leads", "/messages?c=<id>" — never "/app/…"
+// or "/work/…". One row here is delivered to several people at once, and an owner
+// reads it in the /app shell while an agent reads the same event in /work. The
+// reader's own shell adds the prefix at click time (resolveLink in
+// frontend/src/components/portal/Notifications.tsx). A link written with a prefix
+// baked in is wrong for half its recipients.
 export async function notify(profileIds, { tenantId, kind, title, body, link }) {
   const ids = [...new Set((profileIds || []).filter(Boolean))]
   if (!ids.length) return []

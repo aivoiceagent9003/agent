@@ -3,7 +3,7 @@
 // Three kinds of thread (see sql/messaging.sql):
 //   team    — one per business, everyone is a member. Created on first visit.
 //   direct  — 1:1 between two members of the same business, de-duped by member pair.
-//   support — the business ↔ Vocera staff. Answered from the admin panel.
+//   support — ONE PER PERSON ↔ Vocera staff. Answered from the admin panel.
 //
 // Threads are provisioned LAZILY (on first open of the Messages screen) rather than
 // at signup, so businesses that never message never accumulate empty rows — and so
@@ -57,22 +57,39 @@ async function syncTeamMembers(conversationId, tenantId) {
   )
 }
 
-// The support thread. Only tenant members are members — Vocera staff reply through
-// the admin panel, which reads by tenant rather than by membership.
-export async function ensureSupportConversation(tenantId) {
+// A support thread belongs to ONE PERSON, identified by conversations.created_by,
+// and they are its only member.
+//
+// It used to be one thread per business with every member joined, which meant an
+// employee raising a problem with Vocera did it in front of their employer.
+// Support is exactly where someone needs to be able to speak privately, so the
+// thread is now per person. Vocera staff still answer from the admin panel, which
+// addresses threads by id and never relies on membership.
+export async function ensureSupportConversation(tenantId, profileId) {
   let { data: convo } = await supabase
     .from('conversations').select('*')
-    .eq('tenant_id', tenantId).eq('kind', 'support').maybeSingle()
+    .eq('tenant_id', tenantId).eq('kind', 'support').eq('created_by', profileId).maybeSingle()
 
   if (!convo) {
     const { data, error } = await supabase.from('conversations').insert({
-      tenant_id: tenantId, kind: 'support', title: 'Vocera Support',
+      tenant_id: tenantId, kind: 'support', created_by: profileId, title: 'Vocera Support',
     }).select().single()
+
     if (error) {
+      // Either a concurrent first-open won the race, or sql/support-private.sql
+      // has not been run yet and the old one-thread-per-tenant unique index is
+      // still rejecting this. Re-read; if there is genuinely nothing, warn and
+      // carry on — a missing support thread must not 500 the whole Messages page.
       const { data: existing } = await supabase
         .from('conversations').select('*')
-        .eq('tenant_id', tenantId).eq('kind', 'support').maybeSingle()
-      if (!existing) throw error
+        .eq('tenant_id', tenantId).eq('kind', 'support').eq('created_by', profileId).maybeSingle()
+      if (!existing) {
+        console.warn(
+          '[CONVERSATIONS] could not provision a private support thread ' +
+          '(has sql/support-private.sql been run?):', error.message
+        )
+        return null
+      }
       convo = existing
     } else {
       convo = data
@@ -87,7 +104,14 @@ export async function ensureSupportConversation(tenantId) {
     }
   }
 
-  await syncTeamMembers(convo.id, tenantId)
+  // Membership is exactly one person. The delete is the privacy boundary made
+  // self-healing: whatever left extra members on this thread — the old shared
+  // model, a half-applied migration — they are gone on the next open.
+  await supabase.from('conversation_members')
+    .upsert({ conversation_id: convo.id, profile_id: profileId }, { ignoreDuplicates: true })
+  await supabase.from('conversation_members')
+    .delete().eq('conversation_id', convo.id).neq('profile_id', profileId)
+
   return convo
 }
 

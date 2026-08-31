@@ -26,9 +26,12 @@ import {
 } from "lucide-react";
 import { clearToken } from "@/lib/api";
 import { closeRealtime } from "@/lib/realtime";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Me } from "@/lib/team";
 import { useAwaitingReplyCount } from "@/lib/support";
+import { useConversations } from "@/lib/messages";
+import { NotificationsButton, NotificationsPanel } from "./Notifications";
 
 // `perm` is the permission a user must hold for the item to appear. Items without
 // one are visible to every signed-in member. Hiding nav is cosmetic — the backend
@@ -54,6 +57,11 @@ export function PortalShell({
 }) {
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [bellOpen, setBellOpen] = useState(false);
+
+  // Admins have no tenant profile, so /api/client/notifications is not theirs to
+  // call. Not rendering the bell is what keeps its hooks from running at all.
+  const showBell = kind === "client";
 
   function logout() {
     // Matches EmployeeShell: don't leave a live socket open for whoever signs in
@@ -93,6 +101,20 @@ export function PortalShell({
             <NavLink key={item.to} item={item} pathname={pathname} />
           ))}
         </nav>
+        {showBell && (
+          <div className="px-3 pb-3 shrink-0">
+            <NotificationsButton
+              open={bellOpen}
+              onToggle={() => setBellOpen((v) => !v)}
+              className={
+                bellOpen
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+              }
+            />
+          </div>
+        )}
+
         <div className="p-3 shrink-0 border-t border-sidebar-border">
           <button
             onClick={logout}
@@ -103,6 +125,12 @@ export function PortalShell({
         </div>
       </aside>
       <main className="flex-1 min-w-0">{children}</main>
+
+      {/* Sibling of <main>, not of the nav — see the stacking-context note in
+          Notifications.tsx. */}
+      {showBell && bellOpen && (
+        <NotificationsPanel base="/app" onClose={() => setBellOpen(false)} />
+      )}
     </div>
   );
 }
@@ -117,12 +145,18 @@ export const clientNav: NavItem[] = [
   { to: "/app/analytics", label: "Analytics", icon: LineChart, perm: "calls:read" },
   // No perm: messaging is open to every member of a business — a manager needs to
   // reach their agents regardless of what else they can see.
-  { to: "/app/messages", label: "Messages", icon: MessageSquare },
+  { to: "/app/messages", label: "Messages", icon: MessageSquare, useBadge: useMessagesUnread },
   { to: "/app/knowledge", label: "Knowledge", icon: BookOpen, perm: "knowledge:read" },
   { to: "/app/whatsapp", label: "WhatsApp", icon: MessageCircle, perm: "whatsapp:read" },
   { to: "/app/team", label: "Team", icon: UsersRound, perm: "team:manage" },
   { to: "/onboarding", label: "Agent settings", icon: Settings, perm: "agent:write" },
 ];
+
+// Unread direct + group messages, for the nav badge. Mirrors the employee shell,
+// which has carried this badge since messaging shipped.
+function useMessagesUnread() {
+  return useConversations().data?.total_unread ?? 0;
+}
 
 // Filter a nav list down to what this member may actually open. Called with
 // `undefined` while /me is still loading, in which case nothing is shown yet —

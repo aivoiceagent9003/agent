@@ -215,7 +215,12 @@ export function handleCampaignConnection(ws) {
       if (ctx.type !== 'broadcast') {
         const history = getHistory(callSid)
         if (history && history.length > 0) {
-          const lead = await extractLead(history, ctx.config || {})
+          // Same measured language the inbound path uses — without it the
+          // extractor re-guesses from a transcript whose caller lines are a
+          // known-unreliable side-channel, and lands on Hindi far too often.
+          const lead = await extractLead(history, ctx.config || {}, {
+            knownLanguage: trace?.state?.dominantLanguage || trace?.state?.language || null,
+          })
           if (lead) savedLead = await saveLead(supabase, { tenantId: ctx.tenantId, callId, callerNumber: ctx.phone, lead })
         }
       }

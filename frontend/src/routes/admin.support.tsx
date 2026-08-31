@@ -48,9 +48,9 @@ function SupportInbox() {
           {isLoading
             ? "Loading conversations…"
             : threads.length === 0
-              ? "No businesses have messaged yet."
+              ? "Nobody has messaged yet."
               : waitingCount > 0
-                ? `${waitingCount} ${waitingCount === 1 ? "business is" : "businesses are"} waiting on a reply.`
+                ? `${waitingCount} ${waitingCount === 1 ? "conversation is" : "conversations are"} waiting on a reply.`
                 : "Everything answered."}
         </p>
       </header>
@@ -92,7 +92,11 @@ function ThreadList({
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <span className="font-medium text-sm truncate">{t.business_name}</span>
+                  {/* One row is one PERSON's thread. Lead with them — a company
+                      with three staff would otherwise be three identical rows. */}
+                  <span className="font-medium text-sm truncate">
+                    {t.person_name ?? "Unknown person"}
+                  </span>
                   {/* The queue signal: the last word was the customer's. */}
                   {t.awaiting_reply && (
                     <span className="shrink-0 mt-0.5 text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 bg-primary/15 text-primary">
@@ -100,6 +104,10 @@ function ThreadList({
                     </span>
                   )}
                 </div>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {t.business_name}
+                  {t.person_role ? " · " + t.person_role : ""}
+                </p>
                 <p className="text-xs text-muted-foreground truncate mt-1">
                   {t.last_message ?? "No messages yet"}
                 </p>
@@ -143,9 +151,17 @@ function ThreadView({ conversationId }: { conversationId: string | null }) {
   return (
     <section className="bg-card border border-border rounded-xl shadow-card flex flex-col h-[calc(100vh-16rem)]">
       <div className="px-5 py-3 border-b border-border">
-        <h2 className="font-semibold text-sm">{data?.business_name ?? "…"}</h2>
+        <h2 className="font-semibold text-sm">
+          {data?.person_name ?? "…"}
+          {data?.business_name ? (
+            <span className="font-normal text-muted-foreground"> · {data.business_name}</span>
+          ) : null}
+        </h2>
+        {/* Staff need to know this thread is private to one person: what they say
+            here is not visible to the rest of that business. */}
         <p className="text-xs text-muted-foreground">
-          Replies are sent as Vocera Support, not under your own name.
+          Private to {data?.person_name ?? "this person"}. Replies are sent as Vocera Support, not
+          under your own name.
         </p>
       </div>
 

@@ -282,7 +282,7 @@ function buildInstructions(tenantConfig, lockedLang, openingLang) {
   // ("nenu flat kavali") reads as Latin text but sounds unmistakably Telugu. So
   // mirroring stays primary; this only fills the vacuum when there's no signal yet.
   const openingNote = openingLang
-    ? `\n\nDEFAULT LANGUAGE (fallback only): while you still cannot tell what language the caller speaks — before they have said anything, or when their words are too short or ambiguous to judge — use ${openingLang}, the language of your greeting. The moment you CAN tell what language they are speaking, speak THAT instead, starting with your very first reply to them. Never pick a third language that neither of you has used.`
+    ? `\n\nDEFAULT LANGUAGE (fallback only): while you still cannot tell what language the caller speaks — before they have said anything, or when their words are too short, garbled or ambiguous to judge — use ${openingLang}, the language of your greeting. The moment you CAN tell what language they are speaking, speak THAT instead, starting with your very first reply to them. NEVER pick a third language that neither of you has used — in particular, do NOT fall back to Hindi just because the caller sounds Indian or their words were unclear.`
     : ''
 
   const lockedNote = lockedLang
@@ -570,6 +570,10 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
           // language-detection latency histogram (only when the classifier ran),
           // plus aggregate counters for the Language Analytics dashboard.
           if (langMgr.current) trace?.set('language', langMgr.current)
+          // Separate from 'language' (which the Operations Center shows live):
+          // this is what the CALL gets filed under, and it must survive a late
+          // mis-detection. See LanguageManager.dominant.
+          if (langMgr.dominant) trace?.set('dominantLanguage', langMgr.dominant)
           if (d?.classifierUsed && d?.classifierLatencyMs) {
             telemetry.recordLatency('language_detection', d.classifierLatencyMs, { tenantId: trace?.tenantId })
             telemetry.incr('lang_classifier_used')

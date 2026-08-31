@@ -34,8 +34,8 @@ router.use(requireClient())
 const MAX_BODY = 4000
 
 // ─── GET / — the conversation sidebar ────────────────────────────────────────
-// Provisions the team + support threads on first visit, so no backfill was needed
-// for businesses that existed before messaging shipped.
+// Provisions this person's team + support threads on first visit, so no backfill
+// was needed for businesses that existed before messaging shipped.
 router.get('/', async (req, res) => {
   const { tenantId, userId } = req.auth
   try {
@@ -43,7 +43,8 @@ router.get('/', async (req, res) => {
       .from('tenants').select('name, config').eq('id', tenantId).single()
 
     await ensureTeamConversation(tenantId, tenant?.config?.business_name || tenant?.name)
-    await ensureSupportConversation(tenantId)
+    // Per person, not per business — see services/conversations.js.
+    await ensureSupportConversation(tenantId, userId)
 
     const conversations = await listConversations(tenantId, userId)
     res.json({
@@ -60,11 +61,15 @@ router.get('/', async (req, res) => {
 router.get('/people', async (req, res) => {
   const { tenantId, userId } = req.auth
   try {
-    const { data } = await supabase
+    // Errors are re-thrown rather than falling through to an empty array: a
+    // failed query and a one-person business used to look identical to the UI,
+    // which is exactly what made "nobody shows up here" hard to diagnose.
+    const { data, error } = await supabase
       .from('profiles')
       .select('id, full_name, email, tenant_role')
       .eq('tenant_id', tenantId).eq('status', 'active').neq('id', userId)
       .order('full_name', { ascending: true })
+    if (error) throw error
 
     res.json({
       people: (data || []).map(p => ({

@@ -518,8 +518,11 @@ export function handleVobizConnection(ws) {
             // get it plainly wrong. Undefined for native-audio models, which run
             // without a LanguageManager — the extractor then falls back to its
             // own inference, which is the best available signal in that case.
+            // dominantLanguage, not language: the latter is the live steering
+            // state, which a garbled final utterance can flip. Telugu calls were
+            // being filed as Hindi on the strength of two mistranscribed lines.
             const lead = await extractLead(history, tenant.config || {}, {
-              knownLanguage: trace?.state?.language || null,
+              knownLanguage: trace?.state?.dominantLanguage || trace?.state?.language || null,
             })
             if (lead) await saveLead(supabase, { tenantId: tenant.id, callId, callerNumber, lead })
             leadSpan?.end({ attrs: { extracted: !!lead, intent: lead?.intent || null } })

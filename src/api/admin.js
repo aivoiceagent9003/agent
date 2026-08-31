@@ -171,23 +171,36 @@ router.delete('/tenants/:id/knowledge', async (req, res) => {
 })
 
 // ─── Support inbox ────────────────────────────────────────────────────────────
-// The other end of the "Vocera Support" thread every business sees in Messages.
+// The other end of the "Vocera Support" thread every person sees in Messages.
 // Without this, that thread would be a box customers shout into.
 //
+// Support threads are PER PERSON (conversations.created_by), not per business, so
+// an employee can raise something without their employer reading it. That means a
+// single business can appear here several times — every thread is labelled with
+// who it is from, or staff would be answering identical-looking rows.
+//
 // Admins are not conversation_members (they belong to no tenant), so these routes
-// address support threads by TENANT rather than by membership.
+// address support threads by id rather than by membership.
 
 // GET /api/admin/support — every support thread, most recently active first
 router.get('/support', async (_req, res) => {
   try {
     const { data: convos } = await supabase
       .from('conversations')
-      .select('id, tenant_id, last_message_at, tenants(name)')
+      .select('id, tenant_id, created_by, last_message_at, tenants(name)')
       .eq('kind', 'support')
       .order('last_message_at', { ascending: false })
       .limit(100)
 
     if (!convos?.length) return res.json({ threads: [] })
+
+    // Whose thread each one is. Without this the inbox is a list of businesses
+    // repeated once per employee, with no way to tell them apart.
+    const ownerIds = [...new Set(convos.map(c => c.created_by).filter(Boolean))]
+    const { data: owners } = ownerIds.length
+      ? await supabase.from('profiles').select('id, full_name, email, tenant_role').in('id', ownerIds)
+      : { data: [] }
+    const ownerById = new Map((owners || []).map(p => [p.id, p]))
 
     // Latest message per thread, for the preview line.
     const ids = convos.map(c => c.id)
@@ -206,10 +219,13 @@ router.get('/support', async (_req, res) => {
     res.json({
       threads: convos.map(c => {
         const last = lastByConvo.get(c.id)
+        const person = ownerById.get(c.created_by)
         return {
           conversation_id: c.id,
           tenant_id: c.tenant_id,
           business_name: c.tenants?.name || 'Unknown business',
+          person_name: person ? person.full_name || person.email : null,
+          person_role: person?.tenant_role || null,
           last_message_at: c.last_message_at,
           last_message: last?.body || null,
           // A customer message that nobody has replied to yet is what an admin
@@ -228,13 +244,25 @@ router.get('/support', async (_req, res) => {
 router.get('/support/:conversationId', async (req, res) => {
   try {
     const { data: convo } = await supabase
-      .from('conversations').select('id, tenant_id, kind, tenants(name)')
+      .from('conversations').select('id, tenant_id, kind, created_by, tenants(name)')
       .eq('id', req.params.conversationId).maybeSingle()
     if (!convo || convo.kind !== 'support') {
       return res.status(404).json({ error: 'Support thread not found' })
     }
+
+    const { data: person } = convo.created_by
+      ? await supabase.from('profiles')
+          .select('full_name, email, tenant_role').eq('id', convo.created_by).maybeSingle()
+      : { data: null }
+
     const messages = await listMessages(convo.id, { limit: 200 })
-    res.json({ business_name: convo.tenants?.name || null, tenant_id: convo.tenant_id, messages })
+    res.json({
+      business_name: convo.tenants?.name || null,
+      tenant_id: convo.tenant_id,
+      person_name: person ? person.full_name || person.email : null,
+      person_role: person?.tenant_role || null,
+      messages,
+    })
   } catch (e) {
     console.error('[ADMIN] support thread error:', e.message)
     res.status(500).json({ error: 'Could not load that thread' })

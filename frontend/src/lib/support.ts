@@ -5,8 +5,12 @@
 // the backend endpoints to answer it were built too. Nothing ever read them, so
 // every message a customer sent went into a thread no one could open.
 //
-// Addressed by TENANT rather than by membership: Vocera staff are not members of
-// the conversation, which is why this can't reuse the client messages layer.
+// Addressed by conversation id rather than by membership: Vocera staff are not
+// members of the conversation, which is why this can't reuse the client messages
+// layer.
+//
+// Threads are PER PERSON, not per business, so one company can appear in this
+// inbox several times — hence person_name on every row.
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./api";
@@ -16,6 +20,9 @@ export type SupportThread = {
   conversation_id: string;
   tenant_id: string;
   business_name: string;
+  /** Whose thread this is. Null only for a legacy thread nobody has claimed. */
+  person_name: string | null;
+  person_role: string | null;
   last_message_at: string;
   last_message: string | null;
   /** Last message came from the customer, so nobody has answered it yet. */
@@ -25,6 +32,8 @@ export type SupportThread = {
 export type SupportThreadDetail = {
   business_name: string | null;
   tenant_id: string;
+  person_name: string | null;
+  person_role: string | null;
   messages: Message[];
 };
 

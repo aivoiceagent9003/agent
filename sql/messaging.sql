@@ -14,7 +14,7 @@
 -- kind:
 --   team    — one per tenant, everyone in the business is a member
 --   direct  — 1:1 between two members of the same tenant
---   support — the business talking to Vocera staff (answered in the admin panel)
+--   support — ONE PER PERSON talking to Vocera staff (answered in the admin panel)
 create table if not exists public.conversations (
   id              uuid primary key default gen_random_uuid(),
   tenant_id       uuid not null references public.tenants(id) on delete cascade,
@@ -34,12 +34,18 @@ exception when duplicate_object then null; end $$;
 create index if not exists conversations_tenant_idx
   on public.conversations (tenant_id, last_message_at desc);
 
--- Exactly one team thread and one support thread per business. Direct threads are
--- unconstrained here (the app de-dupes them by member pair — see conversations.js).
+-- Exactly one team thread per business, and one support thread per PERSON
+-- (created_by is whose it is). Direct threads are unconstrained here — the app
+-- de-dupes them by member pair, see conversations.js.
 create unique index if not exists conversations_one_team_idx
   on public.conversations (tenant_id) where kind = 'team';
-create unique index if not exists conversations_one_support_idx
-  on public.conversations (tenant_id) where kind = 'support';
+
+-- Support used to be one thread per business with everyone in it, which let an
+-- employer read their employee's support messages. sql/support-private.sql
+-- migrates existing databases; this drop keeps a re-run of this file idempotent.
+drop index if exists public.conversations_one_support_idx;
+create unique index if not exists conversations_one_support_per_person_idx
+  on public.conversations (tenant_id, created_by) where kind = 'support';
 
 -- ─── 2. conversation_members ─────────────────────────────────────────────────
 -- last_read_at is what drives unread badges: count messages newer than it.

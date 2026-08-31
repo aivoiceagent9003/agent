@@ -107,6 +107,10 @@ export class LanguageManager {
     this.pendingCount = 0         // consecutive confident signals for pendingLanguage
     this.lastConfidence = 0       // confidence of the most recent classification
     this.languageLocked = false   // true once the caller EXPLICITLY chose a language
+    // How many finalized utterances were spoken under each committed language.
+    // This — not whatever happened to be current when the call ended — is what
+    // describes the call. See the `dominant` getter.
+    this.languageTurns = new Map()
 
     // ── Observability ─────────────────────────────────────────────────────────
     // Populated on every ingest() so the engine can emit telemetry. Never on the
@@ -119,6 +123,23 @@ export class LanguageManager {
 
   /** The committed conversation language (null until the first substantive utterance). */
   get current() { return this.currentLanguage }
+
+  /**
+   * The language the conversation was actually CONDUCTED in: the one committed for
+   * the most finalized utterances.
+   *
+   * `current` is the live steering state and is the wrong thing to file a call
+   * under. The caller transcription is a noisy side-channel that regularly emits
+   * the wrong script entirely (Devanagari for Telugu speech, and worse), so two
+   * garbled lines at the end of a long Telugu call could flip `current` to Hindi
+   * and that was the value the whole call got labelled with. Weighing every turn
+   * makes a late mis-detection cost one vote instead of rewriting history.
+   */
+  get dominant() {
+    let best = null, bestN = 0
+    for (const [lang, n] of this.languageTurns) if (n > bestN) { bestN = n; best = lang }
+    return best || this.currentLanguage
+  }
 
   _resetPending() { this.pendingLanguage = null; this.pendingCount = 0 }
 
@@ -292,6 +313,15 @@ export class LanguageManager {
    * not held waiting on a model round-trip.
    */
   async ingest(text) {
+    const steer = await this._ingest(text)
+    // One vote per finalized utterance, for the language in force at the time.
+    if (this.currentLanguage) {
+      this.languageTurns.set(this.currentLanguage, (this.languageTurns.get(this.currentLanguage) || 0) + 1)
+    }
+    return steer
+  }
+
+  async _ingest(text) {
     const clean = String(text || '').trim()
     this._classifierUsed = false
     this._classifierMs = 0
