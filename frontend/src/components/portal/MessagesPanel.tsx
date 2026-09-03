@@ -2,7 +2,7 @@
 // and the owner/manager dashboard), so a manager and an agent are in the same
 // conversation rather than two parallel systems.
 //
-// Three thread kinds: the whole team, 1:1 directs, and Vocera Support (answered
+// Three thread kinds: the whole team, 1:1 directs, and AnswerLabs Support (answered
 // from the admin panel).
 
 import { useEffect, useMemo, useRef, useState } from "react";

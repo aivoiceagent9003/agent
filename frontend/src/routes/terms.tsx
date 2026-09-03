@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LegalPage, Section } from "@/components/site/LegalPage";
 
 export const Route = createFileRoute("/terms")({
-  head: () => ({ meta: [{ title: "Terms of Service — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Terms of Service — AnswerLabs" }] }),
   component: Terms,
 });
 
@@ -11,7 +11,7 @@ function Terms() {
     <LegalPage title="Terms of Service" updated="22 August 2026">
       <Section heading="The service">
         <p>
-          Vocera provides AI voice agents that answer your inbound calls and, where you configure
+          AnswerLabs provides AI voice agents that answer your inbound calls and, where you configure
           it, place outbound calls on your behalf. You configure what the agent knows and how it
           behaves; we run it.
         </p>

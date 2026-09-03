@@ -26,7 +26,7 @@ import { useClientAnalytics, type Breakdown } from "@/lib/data";
 import { useMe } from "@/lib/team";
 
 export const Route = createFileRoute("/app/analytics")({
-  head: () => ({ meta: [{ title: "Analytics — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Analytics — AnswerLabs" }] }),
   component: Analytics,
 });
 

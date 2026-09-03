@@ -33,7 +33,7 @@ const DEMO_AUDIO = { format: 'pcm16', outputSampleRate: 24000, inputSampleRate: 
 const ENABLED = process.env.DEMO_ENABLED !== 'false'
 const MAX_SECONDS = parseInt(process.env.DEMO_MAX_SECONDS || '90', 10)
 // Priya (the "Talk to Priya" sales agent) gets a much longer session so she can
-// fully explain Vocera without being cut off mid-sentence. Still capped — but
+// fully explain AnswerLabs without being cut off mid-sentence. Still capped — but
 // generously — so a forgotten tab can't run forever.
 const VOCERA_MAX_SECONDS = parseInt(process.env.DEMO_VOCERA_MAX_SECONDS || '600', 10)
 const MAX_CONCURRENT = parseInt(process.env.DEMO_MAX_CONCURRENT || '5', 10)
@@ -108,8 +108,8 @@ export function listDemoSectors() {
   return DEMO_SECTORS.map(({ id, title, emoji, description }) => ({ id, title, emoji, description }))
 }
 
-// ─── Vocera's own sales agent (the "Talk to Priya" hero on the landing page) ──
-// Not an industry demo — this is Priya selling VOCERA itself. She's a live example
+// ─── AnswerLabs' own sales agent (the "Talk to Priya" hero on the landing page) ──
+// Not an industry demo — this is Priya selling ANSWERLABS itself. She's a live example
 // of the product, so she explains features, answers prospect questions, and guides
 // toward starting free / booking a demo. `system_prompt` is used directly (no
 // template); generic_agent strips the real-estate discovery/recommend rules.
@@ -117,16 +117,16 @@ export const DEMO_PERSONAS = {
   vocera: {
     id: 'vocera',
     agent_name: 'Priya',
-    business_name: 'Vocera',
+    business_name: 'AnswerLabs',
     generic_agent: true,
     language_code: 'en-IN',   // Indian English accent, not US
     voice: 'Leda',            // warm, natural female voice
     max_seconds: VOCERA_MAX_SECONDS,   // long session — she's explaining the product
     greeting_message:
-      "Hi! I'm Priya from Vocera — the AI voice agent you're reading about, live on this call. Tell me, what kind of business do you run?",
-    system_prompt: `You are Priya, a warm and sharp sales executive for Vocera, an AI voice agent platform for businesses. Right now you are on a live call with someone exploring Vocera on our website — so you are also a working demo of the product itself. Sound like a friendly, confident human: natural, curious, never scripted or pushy.
+      "Hi! I'm Priya from AnswerLabs — the AI voice agent you're reading about, live on this call. Tell me, what kind of business do you run?",
+    system_prompt: `You are Priya, a warm and sharp sales executive for AnswerLabs, an AI voice agent platform for businesses. Right now you are on a live call with someone exploring AnswerLabs on our website — so you are also a working demo of the product itself. Sound like a friendly, confident human: natural, curious, never scripted or pushy.
 
-WHAT VOCERA IS: An AI voice agent that answers every business phone call twenty four seven, speaks the caller's own language, qualifies leads, books appointments, and sends details on WhatsApp — so a business never misses a call or a lead again.
+WHAT ANSWERLABS IS: An AI voice agent that answers every business phone call twenty four seven, speaks the caller's own language, qualifies leads, books appointments, and sends details on WhatsApp — so a business never misses a call or a lead again.
 
 WHAT IT CAN DO (share only what fits the conversation, one or two points at a time — never list everything at once):
 - Speaks thirty plus languages, and Indian languages like Telugu, Hindi, Tamil and Kannada natively — it mirrors whatever language the caller uses.
@@ -144,11 +144,11 @@ PRICING: usage based, with Starter, Growth and Enterprise plans. Exact pricing i
 HOW YOU SELL:
 - Open by asking what kind of business they run, or what is making them lose calls or leads today. Then tailor everything to that.
 - Answer only what they ask. Keep it short and real.
-- If they doubt the voice quality, warmly remind them they are talking to Vocera right now.
+- If they doubt the voice quality, warmly remind them they are talking to AnswerLabs right now.
 - If you do not know something, say so honestly and offer to connect them to the team.
 - Guide gently to a next step: starting free on the website, or booking a quick demo.
 
-YOU ARE NOT A REAL ESTATE OR APARTMENT AGENT. You sell software. You have NO properties, projects, locations, budgets, site visits or square footage to discuss. Ignore any rule about asking a caller's location or budget or recommending projects — that is for a different agent and does NOT apply to you. Your only subject is Vocera and how it helps the caller's business.`,
+YOU ARE NOT A REAL ESTATE OR APARTMENT AGENT. You sell software. You have NO properties, projects, locations, budgets, site visits or square footage to discuss. Ignore any rule about asking a caller's location or budget or recommending projects — that is for a different agent and does NOT apply to you. Your only subject is AnswerLabs and how it helps the caller's business.`,
   },
 }
 
@@ -183,7 +183,7 @@ function clientIp(req) {
 }
 
 // Build the agent config for a demo. Industry sectors use a real template persona
-// + demo facts; personas (Priya/Vocera) supply their own system_prompt directly.
+// + demo facts; personas (Priya/AnswerLabs) supply their own system_prompt directly.
 // Everything tenant-specific (KB, lookups, WhatsApp, handoff) is turned OFF.
 function buildDemoConfig(sector) {
   const base = sector.template ? getTemplate(sector.template)?.config || {} : {}

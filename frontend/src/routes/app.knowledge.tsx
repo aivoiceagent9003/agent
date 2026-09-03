@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { KnowledgeManager } from "@/components/portal/KnowledgeManager";
 
 export const Route = createFileRoute("/app/knowledge")({
-  head: () => ({ meta: [{ title: "Knowledge — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Knowledge — AnswerLabs" }] }),
   component: KnowledgePage,
 });
 

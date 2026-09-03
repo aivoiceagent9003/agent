@@ -1,15 +1,15 @@
--- sql/support-private.sql — make "Vocera Support" a PRIVATE thread per person.
+-- sql/support-private.sql — make "AnswerLabs Support" a PRIVATE thread per person.
 --
 -- THE BUG
 --   Support threads were provisioned one per BUSINESS, with every active member
---   joined via syncTeamMembers(). So when an employee asked Vocera a question,
+--   joined via syncTeamMembers(). So when an employee asked AnswerLabs a question,
 --   their employer was sitting in the thread reading it. Support is where someone
 --   raises a problem they may not want to raise in front of their boss; it has to
 --   be private.
 --
 -- THE SHAPE AFTER THIS
 --   conversations.created_by identifies WHOSE support thread it is, and that
---   person is its only member. Vocera staff still answer from the admin panel,
+--   person is its only member. AnswerLabs staff still answer from the admin panel,
 --   which addresses threads by id and does not rely on membership.
 --
 -- RUN THIS BEFORE (or with) the matching code change. Until it runs, the old

@@ -30,7 +30,7 @@ export function SiteNav() {
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
             <Phone className="w-4 h-4 text-primary-foreground" />
           </div>
-          Vocera
+          AnswerLabs
         </Link>
         <nav className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
           <a href="#features" className="hover:text-foreground transition">
@@ -81,7 +81,7 @@ export function SiteFooter() {
       <div className="mx-auto max-w-7xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded bg-gradient-primary" />
-          <span>© {new Date().getFullYear()} Vocera. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} AnswerLabs. All rights reserved.</span>
         </div>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
           <Link to="/privacy" className="hover:text-foreground">

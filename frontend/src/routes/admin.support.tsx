@@ -9,7 +9,7 @@ import {
 } from "@/lib/support";
 
 export const Route = createFileRoute("/admin/support")({
-  head: () => ({ meta: [{ title: "Support — Vocera Admin" }] }),
+  head: () => ({ meta: [{ title: "Support — AnswerLabs Admin" }] }),
   component: SupportInbox,
 });
 
@@ -160,7 +160,7 @@ function ThreadView({ conversationId }: { conversationId: string | null }) {
         {/* Staff need to know this thread is private to one person: what they say
             here is not visible to the rest of that business. */}
         <p className="text-xs text-muted-foreground">
-          Private to {data?.person_name ?? "this person"}. Replies are sent as Vocera Support, not
+          Private to {data?.person_name ?? "this person"}. Replies are sent as AnswerLabs Support, not
           under your own name.
         </p>
       </div>
@@ -169,7 +169,7 @@ function ThreadView({ conversationId }: { conversationId: string | null }) {
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {data?.messages.map((m) => {
           // is_system marks our side of the thread — the customer sees one
-          // consistent "Vocera Support" identity regardless of which admin replies.
+          // consistent "AnswerLabs Support" identity regardless of which admin replies.
           const ours = m.is_system;
           return (
             <div key={m.id} className={`flex ${ours ? "justify-end" : "justify-start"}`}>
@@ -179,7 +179,7 @@ function ThreadView({ conversationId }: { conversationId: string | null }) {
                 }`}
               >
                 <div className="text-[11px] opacity-70 mb-0.5">
-                  {ours ? "Vocera Support" : m.sender_name || "Customer"} · {timeAgo(m.created_at)}
+                  {ours ? "AnswerLabs Support" : m.sender_name || "Customer"} · {timeAgo(m.created_at)}
                 </div>
                 <p className="whitespace-pre-wrap break-words">{m.body}</p>
               </div>

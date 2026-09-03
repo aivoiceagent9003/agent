@@ -10,7 +10,7 @@ import { useClientCalls, parseTranscript } from "@/lib/data";
 import { PhoneCall, Clock, ChevronDown } from "lucide-react";
 
 export const Route = createFileRoute("/work/calls")({
-  head: () => ({ meta: [{ title: "Calls — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Calls — AnswerLabs" }] }),
   component: WorkCalls,
 });
 

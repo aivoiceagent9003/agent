@@ -11,7 +11,7 @@ export const Route = createFileRoute("/app/messages")({
   validateSearch: (search: Record<string, unknown>): { c?: string } => ({
     c: typeof search.c === "string" ? search.c : undefined,
   }),
-  head: () => ({ meta: [{ title: "Messages — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Messages — AnswerLabs" }] }),
   component: AppMessages,
 });
 

@@ -41,7 +41,7 @@ import {
 } from "@/lib/data";
 
 export const Route = createFileRoute("/onboarding")({
-  head: () => ({ meta: [{ title: "Set up your agent — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Set up your agent — AnswerLabs" }] }),
   component: Onboarding,
 });
 
@@ -276,7 +276,7 @@ function Onboarding() {
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
             <Phone className="w-4 h-4 text-primary-foreground" />
           </div>
-          Vocera
+          AnswerLabs
         </div>
       </header>
 

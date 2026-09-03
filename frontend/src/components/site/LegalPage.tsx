@@ -25,7 +25,7 @@ export function LegalPage({
       <main className="mx-auto max-w-3xl px-6 py-16">
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 mb-10 text-sm">
           <strong className="font-semibold">Draft — pending legal review.</strong> This describes
-          how Vocera actually handles data today, but it has not yet been reviewed by a lawyer and
+          how AnswerLabs actually handles data today, but it has not yet been reviewed by a lawyer and
           is not a substitute for advice.
         </div>
 

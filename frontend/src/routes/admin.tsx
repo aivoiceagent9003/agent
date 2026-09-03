@@ -4,7 +4,7 @@ import { PortalShell, adminNav } from "@/components/portal/PortalShell";
 import { useRequireAdmin } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/admin")({
-  head: () => ({ meta: [{ title: "Admin — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Admin — AnswerLabs" }] }),
   // Guarded here rather than in a useEffect. An effect cannot run until after the
   // first render, so an unauthenticated visitor already had the layout mounted and
   // its queries dispatched before anything redirected them. beforeLoad runs before

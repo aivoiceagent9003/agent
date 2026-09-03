@@ -21,7 +21,7 @@ import { UserPlus, MailCheck, RotateCw, X, ShieldCheck, Copy, Check } from "luci
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/team")({
-  head: () => ({ meta: [{ title: "Team — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Team — AnswerLabs" }] }),
   component: TeamPage,
 });
 

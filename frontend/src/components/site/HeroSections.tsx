@@ -109,7 +109,7 @@ function CallSimulation() {
               <div
                 className={`text-[10px] uppercase tracking-wider mb-1 ${line.who === "agent" ? "text-right text-primary-glow" : "text-muted-foreground"}`}
               >
-                {line.who === "agent" ? "Vocera" : "Caller"}
+                {line.who === "agent" ? "AnswerLabs" : "Caller"}
               </div>
               <div
                 className={`rounded-2xl px-3.5 py-2 text-sm ${
@@ -126,7 +126,7 @@ function CallSimulation() {
         {!done && lastWho === "customer" && (
           <div className="flex justify-end animate-fade-in">
             <div className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-xs text-muted-foreground">
-              <Equalizer /> Vocera is responding
+              <Equalizer /> AnswerLabs is responding
             </div>
           </div>
         )}
@@ -174,7 +174,7 @@ export function Hero() {
             answers every call.
           </h1>
           <p className="mt-5 text-lg text-muted-foreground max-w-xl">
-            Vocera picks up every call, qualifies the lead, books the meeting, and hands off to your
+            AnswerLabs picks up every call, qualifies the lead, books the meeting, and hands off to your
             team when it counts — day and night, in any language. Never miss a lead again.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -224,7 +224,7 @@ export function HowItWorks() {
     },
     {
       n: "02",
-      title: "Vocera handles it",
+      title: "AnswerLabs handles it",
       desc: "Understands the caller, answers from your knowledge base, and stays on-brand in their language.",
     },
     {

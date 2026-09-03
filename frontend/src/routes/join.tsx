@@ -27,7 +27,7 @@ import { Users, AlertCircle } from "lucide-react";
 export const Route = createFileRoute("/join")({
   head: () => ({
     meta: [
-      { title: "Join your team — Vocera" },
+      { title: "Join your team — AnswerLabs" },
       // Belt and braces alongside the fragment: never send a Referer from this
       // page, so no third-party resource can learn the URL it was loaded with.
       { name: "referrer", content: "no-referrer" },

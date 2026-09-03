@@ -52,7 +52,7 @@ if (kind === 'invite') {
   console.log('─── sending ───')
   console.log('to      :', to)
   console.log('subject :', subject)
-  console.log('from    : "Sunrise Realty via Vocera" <' + (process.env.EMAIL_FROM || process.env.SMTP_USER) + '>')
+  console.log('from    : "Sunrise Realty via AnswerLabs" <' + (process.env.EMAIL_FROM || process.env.SMTP_USER) + '>')
   console.log('replyTo : owner@sunriserealty.in')
   console.log('link    :', sampleUrl)
   console.log()

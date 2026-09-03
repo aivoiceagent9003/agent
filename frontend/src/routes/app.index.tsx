@@ -49,7 +49,7 @@ import { useMe } from "@/lib/team";
 import { Reveal, CountUp } from "@/components/Motion";
 
 export const Route = createFileRoute("/app/")({
-  head: () => ({ meta: [{ title: "Home — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Home — AnswerLabs" }] }),
   component: Home,
 });
 
@@ -152,7 +152,7 @@ function Setup({
               </div>
 
               <h1 className="mt-5 text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05]">
-                Welcome to Vocera,
+                Welcome to AnswerLabs,
                 <br />
                 <span className="text-iridescent">{name}.</span>
               </h1>
@@ -368,7 +368,7 @@ function QuickLink({
 
 function firstName(full?: string | null) {
   const n = (full || "").trim().split(/\s+/)[0];
-  // "Welcome to Vocera, there." still reads as a greeting with no name on file.
+  // "Welcome to AnswerLabs, there." still reads as a greeting with no name on file.
   return n || "there";
 }
 

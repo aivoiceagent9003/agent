@@ -1,11 +1,11 @@
 // support.ts — admin-side data layer for customer support threads.
 //
-// The customer half of this already existed: businesses have had a "Vocera
+// The customer half of this already existed: businesses have had a "AnswerLabs
 // Support" thread in their Messages page since the messaging feature shipped, and
 // the backend endpoints to answer it were built too. Nothing ever read them, so
 // every message a customer sent went into a thread no one could open.
 //
-// Addressed by conversation id rather than by membership: Vocera staff are not
+// Addressed by conversation id rather than by membership: AnswerLabs staff are not
 // members of the conversation, which is why this can't reuse the client messages
 // layer.
 //

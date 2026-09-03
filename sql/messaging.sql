@@ -1,7 +1,7 @@
 -- sql/messaging.sql — Internal team messaging + notifications for the employee view.
 --
 -- WHAT THIS ADDS
---   1. conversations        — a thread: the whole team, a 1:1 direct, or Vocera support
+--   1. conversations        — a thread: the whole team, a 1:1 direct, or AnswerLabs support
 --   2. conversation_members — who is in a thread + how far they have read
 --   3. messages             — the messages themselves
 --   4. notifications        — the bell feed (lead assigned, new message, …)
@@ -14,7 +14,7 @@
 -- kind:
 --   team    — one per tenant, everyone in the business is a member
 --   direct  — 1:1 between two members of the same tenant
---   support — ONE PER PERSON talking to Vocera staff (answered in the admin panel)
+--   support — ONE PER PERSON talking to AnswerLabs staff (answered in the admin panel)
 create table if not exists public.conversations (
   id              uuid primary key default gen_random_uuid(),
   tenant_id       uuid not null references public.tenants(id) on delete cascade,
@@ -68,7 +68,7 @@ create table if not exists public.messages (
   conversation_id uuid not null references public.conversations(id) on delete cascade,
   tenant_id       uuid not null references public.tenants(id) on delete cascade,
   sender_id       uuid,
-  -- Null sender + is_system marks "Vocera Support" replies and automated notices.
+  -- Null sender + is_system marks "AnswerLabs Support" replies and automated notices.
   is_system       boolean not null default false,
   body            text not null,
   created_at      timestamptz not null default now()

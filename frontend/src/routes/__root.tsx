@@ -75,7 +75,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Vocera — AI Voice Agents That Never Miss a Call" },
+      { title: "AnswerLabs — AI Voice Agents That Never Miss a Call" },
       {
         name: "description",
         content:

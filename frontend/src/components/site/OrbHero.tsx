@@ -5,7 +5,7 @@ import { orbPulse } from "./orbBus";
 import { useVoiceCall } from "@/lib/useVoiceCall";
 
 export function OrbHero() {
-  // "Talk to Priya" is a REAL voice call to Vocera's own sales agent.
+  // "Talk to Priya" is a REAL voice call to AnswerLabs' own sales agent.
   const { status, error, start, stop } = useVoiceCall();
   const talking = status !== "idle";
 
@@ -91,7 +91,7 @@ export function OrbHero() {
             </div>
           )}
           <p className="text-xs text-muted-foreground max-w-sm">
-            Priya is Vocera's own AI voice agent — talk to her live and hear exactly how your
+            Priya is AnswerLabs' own AI voice agent — talk to her live and hear exactly how your
             business's agent would sound.
           </p>
           {error && <p className="text-xs text-destructive">{error}</p>}

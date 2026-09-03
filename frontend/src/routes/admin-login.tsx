@@ -7,7 +7,7 @@ import { Shield } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/admin-login")({
-  head: () => ({ meta: [{ title: "Admin sign in — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Admin sign in — AnswerLabs" }] }),
   component: AdminLogin,
 });
 
@@ -44,7 +44,7 @@ function AdminLogin() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Shield className="w-4 h-4 text-primary" /> Admin portal
         </div>
-        <h1 className="mt-2 text-2xl font-bold">Vocera Admin</h1>
+        <h1 className="mt-2 text-2xl font-bold">AnswerLabs Admin</h1>
         <form onSubmit={onSubmit} className="mt-6 grid gap-4">
           <input
             name="email"

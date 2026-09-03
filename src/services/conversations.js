@@ -3,7 +3,7 @@
 // Three kinds of thread (see sql/messaging.sql):
 //   team    — one per business, everyone is a member. Created on first visit.
 //   direct  — 1:1 between two members of the same business, de-duped by member pair.
-//   support — ONE PER PERSON ↔ Vocera staff. Answered from the admin panel.
+//   support — ONE PER PERSON ↔ AnswerLabs staff. Answered from the admin panel.
 //
 // Threads are provisioned LAZILY (on first open of the Messages screen) rather than
 // at signup, so businesses that never message never accumulate empty rows — and so
@@ -61,9 +61,9 @@ async function syncTeamMembers(conversationId, tenantId) {
 // and they are its only member.
 //
 // It used to be one thread per business with every member joined, which meant an
-// employee raising a problem with Vocera did it in front of their employer.
+// employee raising a problem with AnswerLabs did it in front of their employer.
 // Support is exactly where someone needs to be able to speak privately, so the
-// thread is now per person. Vocera staff still answer from the admin panel, which
+// thread is now per person. AnswerLabs staff still answer from the admin panel, which
 // addresses threads by id and never relies on membership.
 export async function ensureSupportConversation(tenantId, profileId) {
   let { data: convo } = await supabase
@@ -72,7 +72,7 @@ export async function ensureSupportConversation(tenantId, profileId) {
 
   if (!convo) {
     const { data, error } = await supabase.from('conversations').insert({
-      tenant_id: tenantId, kind: 'support', created_by: profileId, title: 'Vocera Support',
+      tenant_id: tenantId, kind: 'support', created_by: profileId, title: 'AnswerLabs Support',
     }).select().single()
 
     if (error) {
@@ -99,7 +99,7 @@ export async function ensureSupportConversation(tenantId, profileId) {
         conversation_id: convo.id,
         tenant_id: tenantId,
         is_system: true,
-        body: "Hi! This is Vocera Support. Ask us anything about your agent, your numbers, or your account and we'll get back to you here.",
+        body: "Hi! This is AnswerLabs Support. Ask us anything about your agent, your numbers, or your account and we'll get back to you here.",
       })
     }
   }
@@ -209,7 +209,7 @@ export async function listConversations(tenantId, profileId) {
     const title =
       c.kind === 'direct'
         ? (others[0]?.full_name || others[0]?.email || 'Direct message')
-        : (c.title || (c.kind === 'support' ? 'Vocera Support' : 'Team'))
+        : (c.title || (c.kind === 'support' ? 'AnswerLabs Support' : 'Team'))
 
     return {
       id: c.id,
@@ -276,7 +276,7 @@ export async function listMessages(conversationId, { limit = 100, before } = {})
 
   return rows.map(m => ({
     ...m,
-    sender_name: m.is_system ? 'Vocera Support' : (byId.get(m.sender_id) || 'Someone'),
+    sender_name: m.is_system ? 'AnswerLabs Support' : (byId.get(m.sender_id) || 'Someone'),
   }))
 }
 

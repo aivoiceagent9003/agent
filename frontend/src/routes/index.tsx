@@ -10,13 +10,13 @@ import { Reveal } from "@/components/Motion";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Vocera — AI Voice Agents That Never Miss a Call" },
+      { title: "AnswerLabs — AI Voice Agents That Never Miss a Call" },
       {
         name: "description",
         content:
           "AI voice agents that answer, qualify, and hand off calls in English and every major Indian language — built for modern businesses.",
       },
-      { property: "og:title", content: "Vocera — AI Voice Agents" },
+      { property: "og:title", content: "AnswerLabs — AI Voice Agents" },
       {
         property: "og:description",
         content: "Answer every call. Capture every lead. In English and every Indian language.",

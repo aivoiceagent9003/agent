@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { KeyRound, AlertCircle } from "lucide-react";
 
 export const Route = createFileRoute("/reset-password")({
-  head: () => ({ meta: [{ title: "Set a new password — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Set a new password — AnswerLabs" }] }),
   component: ResetPassword,
 });
 

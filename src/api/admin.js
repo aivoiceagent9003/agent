@@ -171,7 +171,7 @@ router.delete('/tenants/:id/knowledge', async (req, res) => {
 })
 
 // ─── Support inbox ────────────────────────────────────────────────────────────
-// The other end of the "Vocera Support" thread every person sees in Messages.
+// The other end of the "AnswerLabs Support" thread every person sees in Messages.
 // Without this, that thread would be a box customers shout into.
 //
 // Support threads are PER PERSON (conversations.created_by), not per business, so
@@ -269,7 +269,7 @@ router.get('/support/:conversationId', async (req, res) => {
   }
 })
 
-// POST /api/admin/support/:conversationId { body } — reply as Vocera Support
+// POST /api/admin/support/:conversationId { body } — reply as AnswerLabs Support
 router.post('/support/:conversationId', async (req, res) => {
   const body = String(req.body?.body || '').trim()
   if (!body) return res.status(400).json({ error: 'Message cannot be empty' })
@@ -282,7 +282,7 @@ router.post('/support/:conversationId', async (req, res) => {
       return res.status(404).json({ error: 'Support thread not found' })
     }
 
-    // is_system marks it as "Vocera Support" rather than a named person, so the
+    // is_system marks it as "AnswerLabs Support" rather than a named person, so the
     // customer sees a consistent identity no matter which admin replies.
     const { data: message, error } = await supabase.from('messages').insert({
       conversation_id: convo.id,
@@ -292,7 +292,7 @@ router.post('/support/:conversationId', async (req, res) => {
     }).select('id, sender_id, is_system, body, created_at').single()
     if (error) throw error
 
-    const enriched = { ...message, sender_name: 'Vocera Support', conversation_id: convo.id }
+    const enriched = { ...message, sender_name: 'AnswerLabs Support', conversation_id: convo.id }
     const recipients = await recipientsOf(convo.id, null)
     hub.publishMany(recipients, { type: 'message', message: enriched })
 
@@ -301,7 +301,7 @@ router.post('/support/:conversationId', async (req, res) => {
       await notify(offline, {
         tenantId: convo.tenant_id,
         kind: 'message',
-        title: 'Vocera Support replied',
+        title: 'AnswerLabs Support replied',
         body: body.slice(0, 140),
         link: `/messages?c=${convo.id}`,
       })

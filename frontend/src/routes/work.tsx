@@ -16,7 +16,7 @@ import { primeSound } from "@/lib/sound";
 import { Clock } from "lucide-react";
 
 export const Route = createFileRoute("/work")({
-  head: () => ({ meta: [{ title: "Vocera — Employee" }] }),
+  head: () => ({ meta: [{ title: "AnswerLabs — Employee" }] }),
   component: WorkLayout,
 });
 

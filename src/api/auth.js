@@ -3,7 +3,7 @@
 // user's profile (role + tenant_id + tenant_role), and attaches it to req.auth.
 //
 // TWO SEPARATE ROLE FIELDS, deliberately:
-//   role        — platform level: 'admin' (Vocera staff) vs 'client' (a tenant user)
+//   role        — platform level: 'admin' (AnswerLabs staff) vs 'client' (a tenant user)
 //   tenantRole  — inside a business: 'owner' | 'manager' | 'agent'
 // Authorization for tenant features lives in permissions.js and reads tenantRole.
 

@@ -13,7 +13,7 @@ import { Download, Search, MessageSquarePlus, Check } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/work/leads/")({
-  head: () => ({ meta: [{ title: "Leads — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Leads — AnswerLabs" }] }),
   component: EmployeeLeads,
 });
 

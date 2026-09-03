@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { WhatsAppSettings } from "@/components/portal/WhatsAppSettings";
 
 export const Route = createFileRoute("/app/whatsapp")({
-  head: () => ({ meta: [{ title: "WhatsApp — Vocera" }] }),
+  head: () => ({ meta: [{ title: "WhatsApp — AnswerLabs" }] }),
   component: WhatsAppPage,
 });
 

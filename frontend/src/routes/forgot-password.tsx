@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { MailCheck, ArrowLeft } from "lucide-react";
 
 export const Route = createFileRoute("/forgot-password")({
-  head: () => ({ meta: [{ title: "Reset your password — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Reset your password — AnswerLabs" }] }),
   component: ForgotPassword,
 });
 
@@ -48,7 +48,7 @@ function ForgotPassword() {
             </div>
             <h1 className="mt-4 text-2xl font-bold">Check your email</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              If <span className="text-foreground">{email}</span> has a Vocera account, a reset link
+              If <span className="text-foreground">{email}</span> has an AnswerLabs account, a reset link
               is on its way. It expires in an hour.
             </p>
             <button

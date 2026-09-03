@@ -89,7 +89,7 @@ export function PortalShell({
               <Phone className="w-4 h-4 text-primary-foreground" />
             )}
           </div>
-          Vocera{" "}
+          AnswerLabs{" "}
           {kind === "admin" && (
             <span className="text-xs font-normal text-muted-foreground">Admin</span>
           )}

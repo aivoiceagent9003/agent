@@ -28,7 +28,7 @@ export function ContactForm() {
       <div className="text-center">
         <h2 className="text-4xl md:text-5xl font-bold">Book a demo</h2>
         <p className="mt-3 text-muted-foreground">
-          Tell us about your business — we'll show you Vocera live.
+          Tell us about your business — we'll show you AnswerLabs live.
         </p>
       </div>
       <form
@@ -45,7 +45,7 @@ export function ContactForm() {
         </div>
         <div className="grid gap-1.5">
           <label className="text-sm text-muted-foreground">
-            What do you want to use Vocera for?
+            What do you want to use AnswerLabs for?
           </label>
           <textarea
             name="message"

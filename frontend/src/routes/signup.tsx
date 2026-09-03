@@ -8,7 +8,7 @@ import { Link } from "@tanstack/react-router";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export const Route = createFileRoute("/signup")({
-  head: () => ({ meta: [{ title: "Create your account — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Create your account — AnswerLabs" }] }),
   component: SignupPage,
 });
 
@@ -22,7 +22,7 @@ function SignupPage() {
       const session = await loginWithGoogle(credential);
       const { is_new } = session;
       setSession(session);
-      toast.success("Welcome to Vocera!");
+      toast.success("Welcome to AnswerLabs!");
       // New users go to onboarding to name their business; returning ones to app.
       navigate({ to: is_new ? "/onboarding" : "/app" });
     } catch (err: any) {
@@ -39,7 +39,7 @@ function SignupPage() {
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
             <Phone className="w-4 h-4 text-primary-foreground" />
           </div>
-          Vocera
+          AnswerLabs
         </Link>
         <div className="z-10">
           <p className="text-2xl font-display max-w-md leading-snug">

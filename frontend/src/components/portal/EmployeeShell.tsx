@@ -52,7 +52,7 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
             <div className="w-8 h-8 rounded-lg bg-gradient-primary grid place-items-center shadow-glow">
               <Activity className="w-4 h-4 text-primary-foreground" />
             </div>
-            Vocera
+            AnswerLabs
           </Link>
           <p className="mt-2 text-[11px] font-semibold tracking-wider text-muted-foreground">
             EMPLOYEE VIEW

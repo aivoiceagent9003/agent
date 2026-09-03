@@ -10,7 +10,7 @@
 //   SMTP_USER     SMTP username (for Gmail: the full address; for Resend: "resend")
 //   SMTP_PASS     SMTP password / API key (for Gmail: a 16-char APP PASSWORD, not
 //                 your login password — requires 2-Step Verification enabled)
-//   EMAIL_FROM    e.g. "Vocera <hello@yourdomain.com>" (defaults to SMTP_USER)
+//   EMAIL_FROM    e.g. "AnswerLabs <hello@yourdomain.com>" (defaults to SMTP_USER)
 //   APP_URL       dashboard base URL used for links in the email
 //
 // If SMTP isn't configured the sender is a NO-OP that logs and returns false —
@@ -109,10 +109,10 @@ function welcomeHtml(firstName) {
       <tr><td align="center">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;">
           <tr><td>
-            <h1 style="margin:0 0 16px;font-size:22px;color:#111827;">Welcome to Vocera 👋</h1>
+            <h1 style="margin:0 0 16px;font-size:22px;color:#111827;">Welcome to AnswerLabs 👋</h1>
             <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">${hi}</p>
             <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
-              Your account is ready. Vocera is your AI voice agent — it answers every call,
+              Your account is ready. AnswerLabs is your AI voice agent — it answers every call,
               speaks your customer's language, and captures every lead so you never miss business.
             </p>
             <p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#374151;"><strong>To get started:</strong></p>
@@ -132,7 +132,7 @@ function welcomeHtml(firstName) {
             </p>
           </td></tr>
         </table>
-        <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;">© Vocera</p>
+        <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;">© AnswerLabs</p>
       </td></tr>
     </table>
   </body>
@@ -141,11 +141,11 @@ function welcomeHtml(firstName) {
 
 function welcomeText(firstName) {
   const hi = firstName ? `Hi ${firstName},` : 'Hi there,'
-  return `Welcome to Vocera!
+  return `Welcome to AnswerLabs!
 
 ${hi}
 
-Your account is ready. Vocera is your AI voice agent — it answers every call, speaks your customer's language, and captures every lead so you never miss business.
+Your account is ready. AnswerLabs is your AI voice agent — it answers every call, speaks your customer's language, and captures every lead so you never miss business.
 
 To get started:
   1. Tell us about your business and pick a voice
@@ -156,7 +156,7 @@ Set up your agent: ${APP_URL}/onboarding
 
 Need a hand? Just reply to this email — we're happy to help.
 
-— Vocera`
+— AnswerLabs`
 }
 
 // Build the welcome email (exported so it can be previewed/tested without sending).
@@ -165,7 +165,7 @@ export function renderWelcomeEmail({ name } = {}) {
   const firstName = String(name || '').trim().split(/\s+/)[0] || ''
   const safeFirst = firstName.includes('@') ? '' : firstName
   return {
-    subject: 'Welcome to Vocera 👋',
+    subject: 'Welcome to AnswerLabs 👋',
     html: welcomeHtml(safeFirst),
     text: welcomeText(safeFirst),
   }
@@ -198,7 +198,7 @@ function inviteHtml({ businessName, inviterName, role, url }) {
           <tr><td>
             <h1 style="margin:0 0 16px;font-size:22px;color:#111827;">You've been invited to ${biz}</h1>
             <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
-              ${who} has invited you to join <strong>${biz}</strong> on Vocera — the AI voice agent
+              ${who} has invited you to join <strong>${biz}</strong> on AnswerLabs — the AI voice agent
               that answers their calls and captures every lead.
             </p>
             <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151;">
@@ -218,7 +218,7 @@ function inviteHtml({ businessName, inviterName, role, url }) {
             </p>
           </td></tr>
         </table>
-        <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;">© Vocera</p>
+        <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;">© AnswerLabs</p>
       </td></tr>
     </table>
   </body>
@@ -227,9 +227,9 @@ function inviteHtml({ businessName, inviterName, role, url }) {
 
 function inviteText({ businessName, inviterName, role, url }) {
   const who = inviterName || 'Your admin'
-  return `You've been invited to ${businessName} on Vocera
+  return `You've been invited to ${businessName} on AnswerLabs
 
-${who} has invited you to join ${businessName} on Vocera — the AI voice agent that answers their calls and captures every lead.
+${who} has invited you to join ${businessName} on AnswerLabs — the AI voice agent that answers their calls and captures every lead.
 
 You'll have access to ${ROLE_BLURB[role] || ROLE_BLURB.agent}.
 
@@ -238,29 +238,29 @@ Accept your invite: ${url}
 This link works once and expires in 7 days. If it stops working, ask ${who} to send a new one.
 Not expecting this? You can safely ignore this email.
 
-— Vocera`
+— AnswerLabs`
 }
 
 // Exported so the template can be previewed/tested without sending.
 export function renderInviteEmail({ businessName, inviterName, role, url }) {
   const args = { businessName: businessName || 'your team', inviterName, role, url }
   return {
-    subject: `${args.inviterName || 'Your admin'} invited you to ${args.businessName} on Vocera`,
+    subject: `${args.inviterName || 'Your admin'} invited you to ${args.businessName} on AnswerLabs`,
     html: inviteHtml(args),
     text: inviteText(args),
   }
 }
 
 // `inviterEmail` becomes Reply-To, so when the new employee hits reply they reach
-// their own admin rather than Vocera support.
+// their own admin rather than AnswerLabs support.
 export async function sendInviteEmail({ to, businessName, inviterName, inviterEmail, role, url }) {
   const biz = businessName || 'your team'
   return sendEmail({
     to,
     ...renderInviteEmail({ businessName: biz, inviterName, role, url }),
-    // "Sunrise Realty via Vocera" — the business is who they recognise, and "via
-    // Vocera" is what stops it reading as a phishing attempt from an unknown domain.
-    fromName: `${biz} via Vocera`,
+    // "Sunrise Realty via AnswerLabs" — the business is who they recognise, and "via
+    // AnswerLabs" is what stops it reading as a phishing attempt from an unknown domain.
+    fromName: `${biz} via AnswerLabs`,
     replyTo: inviterEmail || undefined,
   })
 }

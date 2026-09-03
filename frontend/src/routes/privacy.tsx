@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LegalPage, Section } from "@/components/site/LegalPage";
 
 export const Route = createFileRoute("/privacy")({
-  head: () => ({ meta: [{ title: "Privacy Policy — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Privacy Policy — AnswerLabs" }] }),
   component: Privacy,
 });
 
@@ -11,7 +11,7 @@ function Privacy() {
     <LegalPage title="Privacy Policy" updated="22 August 2026">
       <Section heading="Who this covers">
         <p>
-          Vocera provides AI voice agents to businesses. Two different groups of people appear in
+          AnswerLabs provides AI voice agents to businesses. Two different groups of people appear in
           this policy, and the law treats them differently:
         </p>
         <ul className="list-disc pl-5 space-y-1.5">
@@ -21,7 +21,7 @@ function Privacy() {
           </li>
           <li>
             <strong>Callers</strong> — people who phone one of our customers, or are phoned by them.
-            Here the business is the data fiduciary and Vocera is a data processor acting on their
+            Here the business is the data fiduciary and AnswerLabs is a data processor acting on their
             instructions.
           </li>
         </ul>
@@ -127,8 +127,8 @@ function Privacy() {
       <Section heading="Contact">
         <p>
           Privacy questions and erasure requests:{" "}
-          <a className="text-primary hover:underline" href="mailto:privacy@vocera.example">
-            privacy@vocera.example
+          <a className="text-primary hover:underline" href="mailto:privacy@answerlabs.in">
+            privacy@answerlabs.in
           </a>
           .
         </p>

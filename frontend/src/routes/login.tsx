@@ -19,7 +19,7 @@ import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 type Audience = "employee" | "business";
 
 export const Route = createFileRoute("/login")({
-  head: () => ({ meta: [{ title: "Sign in — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Sign in — AnswerLabs" }] }),
   // ?tab=employee lets /employee-login and invite emails deep-link to the right
   // side of the toggle.
   validateSearch: (search: Record<string, unknown>): { tab?: Audience } => ({
@@ -91,11 +91,11 @@ function LoginPage() {
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
             <Phone className="w-4 h-4 text-primary-foreground" />
           </div>
-          Vocera
+          AnswerLabs
         </Link>
         <div className="z-10">
           <p className="text-2xl font-display max-w-md leading-snug">
-            "Vocera handles every after-hours call so our agents only deal with qualified leads."
+            "AnswerLabs handles every after-hours call so our agents only deal with qualified leads."
           </p>
           <p className="mt-4 text-sm text-muted-foreground">— Sunrise Realty</p>
         </div>
@@ -104,8 +104,8 @@ function LoginPage() {
 
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h1 className="text-3xl font-bold">Sign in to Vocera</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Choose how you work with Vocera.</p>
+          <h1 className="text-3xl font-bold">Sign in to AnswerLabs</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Choose how you work with AnswerLabs.</p>
 
           {/* Segmented toggle */}
           <div

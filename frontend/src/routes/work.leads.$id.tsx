@@ -47,7 +47,7 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/work/leads/$id")({
-  head: () => ({ meta: [{ title: "Lead — Vocera" }] }),
+  head: () => ({ meta: [{ title: "Lead — AnswerLabs" }] }),
   component: LeadDetail,
 });
 

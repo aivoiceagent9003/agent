@@ -1,7 +1,7 @@
 // GoogleSignInButton — renders the official "Sign in with Google" button using
 // Google Identity Services (GIS). On success it hands the Google ID token
 // (`credential`) to `onCredential`, which the caller sends to the backend
-// (POST /api/auth/google) to exchange for a Vocera session token.
+// (POST /api/auth/google) to exchange for an AnswerLabs session token.
 //
 // Requires VITE_GOOGLE_CLIENT_ID to be set. If it isn't, the button is hidden so
 // the page still works with password auth alone.

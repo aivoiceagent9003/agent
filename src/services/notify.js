@@ -39,7 +39,7 @@ const SEVERITY_RANK = { info: 1, warning: 2, error: 3, critical: 4 }
 const COOLDOWN_MS = Number(process.env.ALERT_COOLDOWN_MS || 15 * 60 * 1000)
 const SEND_TIMEOUT_MS = Number(process.env.ALERT_SEND_TIMEOUT_MS || 5000)
 
-const APP = process.env.APP_NAME || 'Vocera'
+const APP = process.env.APP_NAME || 'AnswerLabs'
 const ENVIRONMENT = process.env.NODE_ENV || 'development'
 
 export const notifyConfigured = Boolean(WEBHOOK_URL || EMAIL_TO.length)

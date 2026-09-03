@@ -152,7 +152,7 @@ router.post('/invite/:token/accept', async (req, res) => {
 
     const profile = {
       id: userId,
-      role: 'client',                 // platform level: a tenant user, not Vocera staff
+      role: 'client',                 // platform level: a tenant user, not AnswerLabs staff
       tenant_id: invite.tenant_id,
       tenant_role: invite.tenant_role,
       email: invite.email,
