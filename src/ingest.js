@@ -9,9 +9,40 @@ import 'dotenv/config'
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+// Hard ceiling on any single unit fed to the packer. text-embedding-3-small
+// rejects inputs over 8192 TOKENS; even at a pessimistic 1 char/token, 2000 chars
+// cannot breach that, so this is the invariant that makes an oversized-input 400
+// structurally impossible rather than merely unlikely.
+const MAX_UNIT_CHARS = 2000
+
+// Break one oversized block down, preferring natural boundaries and only ever
+// falling back to a blind cut. Line breaks come FIRST because that is what makes
+// tabular exports work: one CSV/TSV row per line is already a sensible unit.
+function splitOversized(block) {
+  if (block.length <= MAX_UNIT_CHARS) return [block]
+  const out = []
+  for (const line of block.split(/\r?\n/)) {
+    if (line.length <= MAX_UNIT_CHARS) { out.push(line); continue }
+    // One enormous line — a minified JSON blob, or an export with no newlines.
+    for (const sentence of line.split(/(?<=[.!?;])\s+/)) {
+      if (sentence.length <= MAX_UNIT_CHARS) { out.push(sentence); continue }
+      for (let i = 0; i < sentence.length; i += MAX_UNIT_CHARS) {
+        out.push(sentence.slice(i, i + MAX_UNIT_CHARS))
+      }
+    }
+  }
+  return out
+}
+
 function chunkText(text, chunkSize = 500, overlap = 100) {
-  const paragraphs = text
-    .split(/\n\s*\n/)
+  // Blank lines separate paragraphs in prose. Tabular exports have NONE, so a
+  // 1000-row CSV arrives as a single block — which is why splitOversized runs
+  // before whitespace is collapsed. Collapsing first was the original bug: it
+  // turned every newline into a space, destroying the only split points left and
+  // producing one 74k-character chunk that the embeddings API rejected outright.
+  const units = String(text || '').split(/\n\s*\n/).flatMap(splitOversized)
+
+  const paragraphs = units
     .map(p => p.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
 
@@ -27,7 +58,16 @@ function chunkText(text, chunkSize = 500, overlap = 100) {
     }
   }
   if (current.trim()) chunks.push(current.trim())
-  return chunks
+
+  // Belt and braces: the packer can carry at most one unit plus the overlap tail,
+  // so nothing here should exceed the ceiling. Enforce it anyway — a silent
+  // oversized chunk costs a whole upload, and this guard costs one comparison.
+  const CEILING = MAX_UNIT_CHARS + overlap + 2
+  return chunks.flatMap(c =>
+    c.length <= CEILING
+      ? [c]
+      : Array.from({ length: Math.ceil(c.length / CEILING) }, (_, i) => c.slice(i * CEILING, (i + 1) * CEILING))
+  )
 }
 
 // Embed many chunks at once. The embeddings endpoint accepts an array, so a
@@ -121,12 +161,16 @@ export async function ingestText(
   const chunks = chunkText(text)
   if (!chunks.length) return { chunks_added: 0 }
 
+  // THROW rather than returning 0. Swallowing this returned chunks_added: 0 with
+  // an HTTP 200, so an upload that embedded nothing at all looked successful in
+  // the dashboard and the only trace was a console line nobody was watching.
+  // The caller marks the document failed and surfaces the reason (documents.js).
   let embeddings
   try {
     embeddings = await embedBatch(chunks)
   } catch (e) {
     console.error('[INGEST] batch embed error:', e.message)
-    return { chunks_added: 0 }
+    throw new Error(`Could not embed this document: ${e.message}`)
   }
 
   const rows = chunks.map((content, i) => ({
@@ -140,7 +184,7 @@ export async function ingestText(
   const { error } = await supabase.from('knowledge_base').insert(rows)
   if (error) {
     console.error('[INGEST] insert error:', error.message)
-    return { chunks_added: 0 }
+    throw new Error(`Could not save this document's chunks: ${error.message}`)
   }
 
   // Auto-derive the recognition vocabulary from this document. Fire-and-forget so

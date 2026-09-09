@@ -69,7 +69,21 @@ export async function createDocument(tenantId, { filename, mimeType, buffer, tex
   }
 
   // 3. Chunk + embed the text, linked to this document.
-  const { chunks_added } = await ingestText(tenantId, text, source, { documentId: docId })
+  //
+  // A failure here must not leave the row stuck on 'processing' forever: the file
+  // is already in Storage and the row already exists, so an unmarked failure shows
+  // up in the client's document list as a file that is permanently "processing"
+  // and answers nothing. Mark it and re-throw so the route reports the real reason.
+  let chunks_added
+  try {
+    ;({ chunks_added } = await ingestText(tenantId, text, source, { documentId: docId }))
+  } catch (e) {
+    await supabase
+      .from('documents')
+      .update({ storage_path: path, chunk_count: 0, status: 'error' })
+      .eq('id', docId)
+    throw e
+  }
 
   // 4. Finalize the row.
   await supabase

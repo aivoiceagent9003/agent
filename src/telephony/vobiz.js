@@ -1,18 +1,24 @@
-// telephony/vobiz.js — Vobiz adapter (Indian numbers, TRAI-compliant).
+// telephony/vobiz.js — INBOUND adapter for Plivo / Vobiz (Indian numbers, TRAI-compliant).
 //
-// Vobiz streams G.711 mu-law 8kHz over a bidirectional WebSocket, so the Gemini
-// Live engine runs UNCHANGED. This module only adapts the TRANSPORT:
-//   • /answer  webhook → returns Vobiz <Stream> XML
-//   • /media-stream-vobiz WS → feeds Vobiz frames into the Gemini Live engine
-//   • outbound audio → Vobiz 'playAudio' frames (re-chunked to 20ms/160 bytes)
+// Both providers stream G.711 mu-law 8kHz over a bidirectional WebSocket and speak the
+// same <Stream> XML and playAudio/clearAudio frames, so ONE adapter serves both and the
+// Gemini Live engine runs UNCHANGED. This module only adapts the TRANSPORT:
+//   • /answer  webhook → returns <Stream> XML
+//   • /media-stream-vobiz WS → feeds provider frames into the Gemini Live engine
+//   • outbound audio → 'playAudio' frames (re-chunked to 20ms/160 bytes)
 //
-// ⚠️ CONFIRM-ON-FIRST-CALL: the exact field names in Vobiz's 'start' event and how
-// extraHeaders are delivered aren't fully documented. We log the raw 'start' frame
-// and resolve the tenant defensively (extraHeaders key → number fields). Once you
-// see a real start payload in the logs, tighten resolveTenantFromStart().
+// The filename and the /media-stream-vobiz route keep their original names on purpose:
+// the route is baked into provider consoles, and renaming it would break every
+// configured webhook. TELEPHONY_PROVIDER selects the actual provider (provider.js).
+//
+// ⚠️ CONFIRM-ON-FIRST-CALL: the 'start' event field names aren't fully documented on
+// either provider. We log the raw 'start' frame and resolve the tenant defensively
+// (extraHeaders key → number fields). Confirmed on Plivo: extra_headers arrives as
+// "{X-PH-callkey: <uuid>, ...}" and streamId/callId sit under start.
 
 import { createGeminiLiveConnection } from '../services/gemini-live.js'
 import { clearHistory, getHistory } from '../services/llm.js'
+import { TAG, PROVIDER } from './provider.js'
 
 // Live calls run on Gemini Live speech-to-speech (the only engine).
 const createVoiceConnection = createGeminiLiveConnection
@@ -90,7 +96,7 @@ export async function vobizAnswer(req, res) {
   const providerCallId =
     req.body.CallUUID || req.body.call_uuid || req.body.callUuid ||
     req.body.CallSid || req.body.call_sid || req.body.uuid || null
-  console.log(`[VOBIZ] Incoming call to: ${calledNumber} from: ${callerNumber} callUuid: ${providerCallId || 'n/a'}`)
+  console.log(`[${TAG}] Incoming call to: ${calledNumber} from: ${callerNumber} callUuid: ${providerCallId || 'n/a'}`)
 
   telemetry.incr('calls_incoming')
   const tResolve0 = Date.now()
@@ -99,7 +105,7 @@ export async function vobizAnswer(req, res) {
   telemetry.recordLatency('tenant_resolution', tenantResolveMs)
 
   if (!tenant) {
-    console.error('[VOBIZ] No tenant for number:', calledNumber)
+    console.error(`[${TAG}] No tenant for number:`, calledNumber)
     telemetry.incr('calls_rejected')
     telemetry.recordServiceEvent({ component: 'telephony', severity: 'warning', kind: 'no_tenant', detail: { calledNumber } })
     res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
@@ -161,7 +167,7 @@ export function vobizTransferXml(req, res) {
   const empty = () => res.send('<?xml version="1.0" encoding="UTF-8"?>\n<Response></Response>')
 
   if (!to) {
-    console.error('[VOBIZ] transfer XML requested without a destination number')
+    console.error(`[${TAG}] transfer XML requested without a destination number`)
     return empty()
   }
 
@@ -170,7 +176,7 @@ export function vobizTransferXml(req, res) {
   // Only a destination we ourselves signed in handoff.js is dialled. Without this
   // the endpoint is an open relay: ?to=<any premium-rate number> and we pay.
   if (!verifyDestination(to, callerId, sig)) {
-    console.error(`[VOBIZ] transfer REJECTED — bad or missing signature for ${to}`)
+    console.error(`[${TAG}] transfer REJECTED — bad or missing signature for ${to}`)
     telemetry.recordServiceEvent({
       component: 'telephony', severity: 'error', kind: 'transfer_signature_rejected',
       detail: { to, hasSig: Boolean(sig) },
@@ -181,7 +187,7 @@ export function vobizTransferXml(req, res) {
   // Defence in depth: even a correctly signed value must still look like a phone
   // number before it reaches the XML.
   if (!isE164(to) || (callerId && !isE164(callerId))) {
-    console.error(`[VOBIZ] transfer REJECTED — non-E.164 value (to=${to} callerId=${callerId})`)
+    console.error(`[${TAG}] transfer REJECTED — non-E.164 value (to=${to} callerId=${callerId})`)
     return empty()
   }
 
@@ -237,21 +243,24 @@ function makeVobizSink(ws, getStreamId, recorder, trace) {
   }
 }
 
-// Vobiz delivers extra headers as a STRING like "{X-VH-callkey: <value>, X-VH-x: y}"
-// (not JSON, and it prefixes our keys with "X-VH-"). Parse it back into an object
-// with the prefix stripped.
+// Providers deliver extra headers as a STRING like "{X-PH-callkey: <value>, X-PH-x: y}"
+// (not JSON) and prefix our keys with their own tag — Plivo uses "X-PH-", Vobiz
+// "X-VH-". Strip EITHER prefix rather than keying this off TELEPHONY_PROVIDER: the
+// prefix is whatever the provider that placed this call used, and during a provider
+// switch both shapes can legitimately arrive at the same process. Getting this wrong
+// loses the callkey, which drops the call.
 function parseExtraHeaders(raw) {
   const out = {}
   if (!raw) return out
   if (typeof raw === 'object') {
-    for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-VH-/i, '')] = v
+    for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-(VH|PH)-/i, '')] = v
     return out
   }
   const inner = String(raw).trim().replace(/^\{/, '').replace(/\}$/, '')
   for (const part of inner.split(',')) {
     const idx = part.indexOf(':')
     if (idx === -1) continue
-    const key = part.slice(0, idx).trim().replace(/^X-VH-/i, '')
+    const key = part.slice(0, idx).trim().replace(/^X-(VH|PH)-/i, '')
     const val = part.slice(idx + 1).trim()
     if (key) out[key] = val
   }
@@ -287,7 +296,7 @@ function resolveTenantFromStart(msg) {
 
 // ─── WS connection handler ───────────────────────────────────────────────────
 export function handleVobizConnection(ws) {
-  console.log('[VOBIZ] WebSocket connected')
+  console.log(`[${TAG}] WebSocket connected`)
 
   let dg = null
   let tenant = null
@@ -317,12 +326,12 @@ export function handleVobizConnection(ws) {
     if (msg.event === 'start') {
       // Log the raw start frame so the exact field names can be confirmed and
       // resolveTenantFromStart() tightened after the first real call.
-      console.log('[VOBIZ] start:', JSON.stringify(msg))
+      console.log(`[${TAG}] start:`, JSON.stringify(msg))
       streamId = msg.streamId || msg.start?.streamId || msg.stream_id || null
 
       const { pending: resolved, error } = resolveTenantFromStart(msg)
       if (!resolved?.tenant) {
-        console.error(`[VOBIZ] rejecting media stream — ${error}`)
+        console.error(`[${TAG}] rejecting media stream — ${error}`)
         telemetry.incr('media_stream_failures')
         telemetry.recordServiceEvent({
           component: 'telephony', severity: 'error', kind: 'media_stream_unauthenticated',
@@ -372,7 +381,7 @@ export function handleVobizConnection(ws) {
       const tenantConfig = {
         ...(tenant.config || {}),
         tenant_id: tenant.id,
-        provider: 'vobiz',
+        provider: PROVIDER,
         provider_call_id:
           resolved.providerCallId ||
           msg.start?.callUuid || msg.start?.CallUUID || msg.callUuid || msg.CallUUID || null,
@@ -400,7 +409,7 @@ export function handleVobizConnection(ws) {
         },
         callerNumber,
       )
-      console.log(`[VOBIZ] Pipeline started for tenant: ${tenant.name} (engine: gemini)`)
+      console.log(`[${TAG}] Pipeline started for tenant: ${tenant.name} (engine: gemini)`)
       return
     }
 
@@ -415,7 +424,7 @@ export function handleVobizConnection(ws) {
     }
 
     if (msg.event === 'stop') {
-      console.log('[VOBIZ] stop')
+      console.log(`[${TAG}] stop`)
       await finalize()
       return
     }
@@ -451,7 +460,7 @@ export function handleVobizConnection(ws) {
           if (wav) recordingPath = await uploadRecording(tenant?.id, callId, wav)
           recSpan?.end({ payloadBytes: wav?.length || 0 })
         } catch (e) {
-          console.error('[VOBIZ] recording upload failed:', e.message)
+          console.error(`[${TAG}] recording upload failed:`, e.message)
           recSpan?.end({ error: e })
           telemetry.recordServiceEvent({ component: 'storage', severity: 'error', kind: 'recording_upload', detail: { error: e.message, callSid } })
         }
@@ -486,7 +495,7 @@ export function handleVobizConnection(ws) {
         dropped.push(missing)
       }
       if (dropped.length) {
-        console.warn(`[VOBIZ] calls table is missing ${dropped.join(', ')} — run the pending sql/ migrations. Call saved without ${dropped.length === 1 ? 'it' : 'them'}.`)
+        console.warn(`[${TAG}] calls table is missing ${dropped.join(', ')} — run the pending sql/ migrations. Call saved without ${dropped.length === 1 ? 'it' : 'them'}.`)
         telemetry.recordServiceEvent({
           component: 'telephony', severity: 'warn', kind: 'calls_schema_behind',
           detail: { missing: dropped, callSid },
@@ -494,7 +503,7 @@ export function handleVobizConnection(ws) {
       }
       // Previously unchecked: a failure here silently discarded the transcript.
       if (updErr) {
-        console.error('[VOBIZ] call row update failed:', updErr.message)
+        console.error(`[${TAG}] call row update failed:`, updErr.message)
         telemetry.recordServiceEvent({
           component: 'telephony', severity: 'error', kind: 'call_update_failed',
           detail: { error: updErr.message, callSid },
@@ -536,6 +545,6 @@ export function handleVobizConnection(ws) {
 
     if (callSid) clearHistory(callSid)
     if (callSid) { telemetry.unregisterControl(callSid); telemetry.endTrace(callSid, { status: 'completed' }) }
-    console.log('[VOBIZ] Call finalized')
+    console.log(`[${TAG}] Call finalized`)
   }
 }

@@ -17,7 +17,7 @@
 import { GoogleGenAI, Modality } from '@google/genai'
 import 'dotenv/config'
 import { buildSystemPrompt, getHistory } from './llm.js'
-import { buildLookupTools, runLookup } from './lookups.js'
+import { buildLookupTools, runLookup, sanitizeName } from './lookups.js'
 import { retrieveKnowledge, warmupRAG } from './rag.js'
 import { resolveGreeting } from './greeting.js'
 import { addToDnd } from './dnd.js'
@@ -232,6 +232,94 @@ async function handleSendWhatsapp(tenantConfig, callerNumber, args = {}, sentKey
   }
 }
 
+// ─── Knowledge-miss return ────────────────────────────────────────────────────
+// The tool's miss path returns an INSTRUCTION, not a status. A bare "not found"
+// leaves the model to fill the gap itself, and on a real insurance call it did
+// exactly that: search_knowledge missed, and the agent still told the caller
+// "a payment of 15000 rupees due on October 1st" — a premium and a due date that
+// do not exist anywhere in the system, which then got persisted into the lead row.
+//
+// send_whatsapp already returns instructions on ITS miss path ("Do NOT say you
+// sent anything") and the model follows them correctly on the same call. So this
+// mirrors that shape rather than inventing a new one.
+//
+// ⚠️ The first sentence is load-bearing: knowledgeHits / knowledgeMisses analytics
+// and the tool span's `hit` attribute all test for this exact prefix. Keep it.
+const NO_KNOWLEDGE = 'No matching knowledge found.'
+const NEVER_INVENT =
+  ` Do NOT state any amount, date, number, or policy/account detail of your own — a confident ` +
+  `wrong figure is far worse than admitting you don't have it.`
+
+// A knowledge miss must NOT end the call when a lookup tool could still answer.
+//
+// The knowledge base holds material that is the same for every caller; anything
+// about THIS caller's own account lives behind a lookup. On a real call the caller
+// asked about their loan, the model reached for search_knowledge, missed — and this
+// instruction told it to apologise and offer a callback. It never asked for the
+// customer ID, and never called the loan_status tool the tenant had configured. The
+// caller was turned away from a question the system could have answered.
+function noKnowledgeInstruction(tenantConfig = {}) {
+  const names = (Array.isArray(tenantConfig.lookups) ? tenantConfig.lookups : [])
+    .map(l => sanitizeName(l?.name)).filter(Boolean)
+
+  if (names.length) {
+    return `${NO_KNOWLEDGE} The knowledge base holds general information only — it NEVER holds ` +
+      `anything about an individual caller's own account. If the caller was asking about THEIR ` +
+      `account, that lives behind ${names.join(' or ')}. Ask them for the one detail that tool ` +
+      `needs — their customer ID or registered phone number — and then call it. Do NOT tell the ` +
+      `caller you cannot help, and do NOT offer a callback, until you have actually tried that ` +
+      `tool. Only if it ALSO comes back empty should you say you don't have the detail.` + NEVER_INVENT
+  }
+
+  return `${NO_KNOWLEDGE} You do NOT have this information. Tell the caller plainly that you don't ` +
+    `have that detail to hand, and offer to have the team confirm it and follow up.` + NEVER_INVENT
+}
+
+// Caller-specific facts we already hold for THIS call — name plus whatever the
+// campaign contact row carried (policy number, renewal date, premium, …).
+//
+// Without this the model knows the caller's name from the greeting template and
+// nothing else, so the moment they ask "when does mine expire?" it has no grounded
+// answer available. Empty string for inbound calls, where we have no contact row.
+function callerContext(tenantConfig) {
+  const name = String(tenantConfig.contact_name || '').trim()
+  const raw = tenantConfig.contact_fields
+  const fields = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+
+  const lines = []
+  if (name) lines.push(`- name: ${name}`)
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === null || v === undefined) continue
+    // Objects would stringify to "[object Object]" and teach the model nothing.
+    const val = (typeof v === 'object' ? JSON.stringify(v) : String(v)).trim()
+    if (!val) continue
+    lines.push(`- ${k.replace(/_/g, ' ')}: ${val.slice(0, 200)}`)
+    if (lines.length >= 30) break   // bound the prompt; a contact row can be wide
+  }
+  if (!lines.length) return ''
+
+  return `
+
+WHAT YOU KNOW ABOUT THIS CALLER (from our own records — accurate, use it freely and
+answer straight from it without calling a tool):
+${lines.join('\n')}
+That list is the COMPLETE set of caller-specific details you hold. Anything about this
+caller that is NOT listed above, you do not know — say so and offer to have the team
+confirm, rather than guessing a value.`
+}
+
+// On an INBOUND call the caller dialled us, so the agenda is theirs. Any goal in
+// the tenant's stored prompt ("secure a payment commitment") is written for
+// outbound and, left unqualified, makes the agent open a customer's own service
+// call with a payment demand — on a real call it answered "I want to ask about my
+// loan" with the EMI amount, the due date and "are you ready to pay?", and the
+// caller had to interrupt to ask their actual question.
+function inboundRule(tenantConfig) {
+  if (tenantConfig.is_outbound) return ''
+  return `
+- THIS IS AN INBOUND CALL — they rang you, so they have a reason and it is not yours. Establish what they actually want and deal with that FIRST, completely. Never open with a payment reminder, a due date, an outstanding balance, or "are you ready to pay?". Any goal described in your instructions above is for calls WE place; here you may raise it at most ONCE, near the end, after their reason for calling has been fully handled — and not at all if they are in the middle of something else.`
+}
+
 function buildInstructions(tenantConfig, lockedLang, openingLang) {
   const base = buildSystemPrompt(tenantConfig, { speechToSpeech: true })
   // Recognition vocabulary = auto-derived from the client's KB (kb_keyterms) PLUS
@@ -318,13 +406,17 @@ mirror their code-mixing inside it.
 
   return `${langPriority}${lockedNote}
 
-${base}
+${base}${callerContext(tenantConfig)}
 
-SPEECH-TO-SPEECH RULES:
+SPEECH-TO-SPEECH RULES:${inboundRule(tenantConfig)}
 - LOCATION: NEVER assume, invent, or guess a city or area. Never say "Mumbai", "Gurgaon", or any place the caller did not state. Use ONLY a location the caller has explicitly given. If you don't yet know their location, ASK for it before recommending or searching — do not fill one in, and do not search a location they didn't mention.${vocab}
-- You do NOT personally know any project names, prices, sizes, or locations — the ONLY valid source is a search_knowledge result. BUT before searching, CHECK what you already retrieved earlier in THIS conversation: if the answer is already in that context (e.g. you pulled a project's full details and the caller now asks its amenities or price), answer from it and do NOT call search_knowledge again. Only call search_knowledge for information you have NOT yet retrieved this call. Never invent or guess — but never re-fetch what you already have.
+- GROUNDING — you do NOT personally know ANY specific fact about this business or this caller. That means no prices, amounts, premiums, fees, due dates, renewal or expiry dates, policy/account/reference numbers, plan or project names, sizes, locations, or contract terms. There are exactly THREE valid sources: (a) the caller-specific records given to you above, (b) a tool result on this call, (c) something the caller told you on this call. If none of the three has given you a value, you do NOT have it — say so plainly and offer to have the team confirm it. NEVER state a number, date, amount or identifier you were not given: a confident wrong figure is far worse than admitting you don't have it, and on a billing or renewal call it is the single most damaging thing you can do. BUT before searching, CHECK what you already retrieved earlier in THIS conversation: if the answer is already in that context (e.g. you pulled a plan's full details and the caller now asks its price), answer from it and do NOT call search_knowledge again. Only call search_knowledge for information you have NOT yet retrieved this call. Never invent or guess — but never re-fetch what you already have.
+- PICK THE RIGHT TOOL. Anything about THIS caller's own account — their balance, their EMI, their due date, their policy, their order, their booking — comes from a lookup tool, NEVER from search_knowledge. search_knowledge holds general material that is identical for every caller: policies, charges, processes, product facts. If you need a caller-specific fact, ask them for their customer ID or registered phone number and call the lookup. Never tell a caller you cannot help with their own account until you have actually tried that tool.
+- AFTER A LOOKUP SUCCEEDS, SAY ONLY WHAT WAS ASKED FOR. A lookup returns the caller's WHOLE record; reciting it is a data dump, not service. If they asked what they owe, give the amount — not the amount AND the due date AND the interest rate AND "when will you pay?". Every other field stays unsaid until they ask. Finding the record is not permission to read it out.
 - Speak numbers, prices, and dates as fully spoken words in the caller's language — never read digits or symbols (no "₹").
-- Talk like a warm human on a phone call; keep replies short; do not narrate your steps ("let me check"). Use the other tools for caller-specific lookups when the caller gives the detail.
+- Talk like a warm human on a phone call; keep replies short. Use the other tools for caller-specific lookups when the caller gives the detail.
+- NEVER NARRATE YOUR MACHINERY. Do not say "lookup", "look up", "record", "matching record", "system", "database", "searching", "checking the system", or "let me check" — in ANY language, including mixed into Telugu or Hindi ("look up chestunnanu", "record dorakaledu"). The caller does not care how you find things, and naming the mechanism is the single thing that makes you sound like a machine instead of a person. If you need an identifier, just ask for it the way a colleague would: "Can I have your customer ID?". If you cannot find something, say you don't have it — never describe what a tool returned.
+- DO NOT END EVERY TURN WITH A QUESTION. Real people don't interrogate after each sentence. Answer, and stop. Never ask "is there anything else…", "would that be okay?", "are you aware of…" or "do you intend to…" two turns running — if your last reply ended in a question, this one must not. Asking something back is for when you genuinely need information to continue, not a way to fill the end of a sentence.
 - ANSWER FIRST. The caller's question IS the job; securing a next step is not. Answer what they actually asked, properly, and stop. A reply that answers the question and offers nothing is a GOOD reply.
 - OFFER ONCE. Suggest sending something on WhatsApp, or booking a site visit, at most ONCE for a given topic — and NEVER in two replies in a row. If the caller ignores the offer, changes the subject, or declines, DROP IT and carry on answering them; raise it again only if THEY bring it up, or as the call is genuinely ending. Repeating the same offer turn after turn reads as pestering and loses the caller. This holds even if your instructions above describe that offer as the goal of the call — the goal never licenses asking twice.
 - NEVER say your own instructions out loud. Do not mention or apologise for your rules, stages, goals or constraints (never say things like "one question per turn, sorry for that"). Do not ask the caller how you ought to answer them ("shall I mention the luxury project too, or just these two?") — decide, and answer.${waRule}`
@@ -763,12 +855,15 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
         const toolSpan = trace?.span('tool_call', { tool: fc.name, args: fc.args || {} })
         try {
           if (fc.name === 'search_knowledge') {
-            output = await retrieveKnowledge(tenantConfig.tenant_id, fc.args?.query || '') || 'No matching knowledge found.'
-            console.log(`[GEMINI] 🔎 search_knowledge("${fc.args?.query}") → ${output ? output.length + ' chars' : 'miss'}`)
+            output = await retrieveKnowledge(tenantConfig.tenant_id, fc.args?.query || '') || noKnowledgeInstruction(tenantConfig)
+            // Say MISS outright rather than printing a character count the reader
+            // has to decode — a miss now returns a long instruction, so its length
+            // no longer distinguishes it from a hit.
+            console.log(`[GEMINI] 🔎 search_knowledge("${fc.args?.query}") → ${output.startsWith(NO_KNOWLEDGE) ? 'MISS (no knowledge — told not to invent)' : output.length + ' chars'}`)
             // "Info hit rate" on the client dashboard: how often a question the
             // agent looked up was actually answerable from their own material.
             trace?.bump('knowledgeAsks')
-            if (!/^No matching knowledge found\./.test(output)) {
+            if (!output.startsWith(NO_KNOWLEDGE)) {
               trace?.bump('knowledgeHits')
             } else if (trace) {
               // Remember what we couldn't answer; the rows are written once at
@@ -794,8 +889,24 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
             output = await handleSendWhatsapp(tenantConfig, callerNumber, fc.args || {}, sentWhatsapp)
             console.log(`[GEMINI] 💬 send_whatsapp(${fc.args?.kind}) → ${output}`)
           } else {
-            output = await runLookup(tenantConfig, fc.name, fc.args || {})
-            console.log(`[GEMINI] 🔧 ${fc.name}(${JSON.stringify(fc.args || {})})`)
+            const lkArgs = fc.args || {}
+            const hasArg = Object.values(lkArgs).some(v => v !== null && v !== undefined && String(v).trim() !== '')
+            if (!hasArg) {
+              // A lookup with NO parameters can only ever miss. On a real call
+              // loan_status({}) fired on the opening turn — before the caller had
+              // said anything — burning a turn and teaching the model the tool was
+              // broken. Refuse it and tell the model what to collect instead.
+              output =
+                `You called ${fc.name} without any of the details it needs, so nothing could be looked up. ` +
+                `Ask the caller for ONE identifying detail first — their customer ID or registered phone ` +
+                `number — then call it again. Do not mention the lookup itself to the caller.`
+              console.log(`[GEMINI] 🔧 ${fc.name}() → SKIPPED (no arguments — told to ask for an id first)`)
+            } else {
+              // callerNumber lets the lookup gate financial disclosure when the
+              // record's phone is not the number this call came from.
+              output = await runLookup(tenantConfig, fc.name, lkArgs, { callerNumber })
+              console.log(`[GEMINI] 🔧 ${fc.name}(${JSON.stringify(lkArgs)})`)
+            }
           }
           telemetry.incr(`tool:${fc.name}:ok`)
           toolSpan?.end({ payloadBytes: Buffer.byteLength(String(output)), attrs: { hit: !!output && !/^No matching|could not be retrieved/i.test(String(output)) } })

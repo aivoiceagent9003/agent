@@ -1,8 +1,9 @@
 
-// When the AI can't help, transfer the live call to a human agent's phone over
-// Vobiz (Plivo-compatible): the Call API redirects the caller leg to <Dial> XML.
+// When the AI can't help, transfer the live call to a human agent's phone. Plivo and
+// Vobiz share the same mechanism: the Call API redirects the caller leg to <Dial> XML.
 
 import { signDestination, isE164, webhookQuery } from '../api/webhook-auth.js'
+import { credentials, authHeaders, transferUrl, TAG } from '../telephony/provider.js'
 import 'dotenv/config'
 
 // ─── Handoff intent detection ─────────────────────────────────────────────────
@@ -74,33 +75,33 @@ function toE164India(raw) {
   return `+${d}`                                              // best effort
 }
 
-// ─── Vobiz: transfer the live call via the Vobiz Call API (Plivo-compatible) ───
-// Vobiz redirects a call LEG to a URL that returns fresh XML. We redirect the
-// caller leg ('aleg') to our /vobiz/transfer endpoint, which returns <Dial> XML
+// ─── Transfer the live call via the provider's Call API (Plivo / Vobiz) ───────
+// Both providers redirect a call LEG to a URL that returns fresh XML. We redirect
+// the caller leg ('aleg') to our /vobiz/transfer endpoint, which returns <Dial> XML
 // that connects the caller to the human agent (see vobizTransferXml in vobiz.js).
-//   callUuid       — the Vobiz CallUUID captured at /answer (REST control handle)
-//   businessNumber — the tenant's Vobiz DID, used as the caller ID when dialing
-// ⚠️ CONFIRM-ON-FIRST-CALL: the transfer endpoint/params follow Vobiz's documented
-// Plivo-compatible shape; override with VOBIZ_TRANSFER_URL if the console differs.
+//   callUuid       — the CallUUID captured at /answer (REST control handle)
+//   businessNumber — the tenant's DID, used as the caller ID when dialing
+// ⚠️ CONFIRM-ON-FIRST-CALL: the transfer endpoint/params follow the documented
+// Plivo-compatible shape; override with PLIVO_TRANSFER_URL / VOBIZ_TRANSFER_URL if
+// the console differs.
 async function transferViaVobiz(callUuid, handoffNumber, businessNumber) {
-  const authId = process.env.VOBIZ_AUTH_ID
-  const authToken = process.env.VOBIZ_AUTH_TOKEN
+  const { authId, authToken, idVar, tokenVar } = credentials()
   if (!authId || !authToken) {
-    console.error('[HANDOFF] ❌ VOBIZ_AUTH_ID / VOBIZ_AUTH_TOKEN not set — cannot transfer')
+    console.error(`[HANDOFF] ❌ ${idVar} / ${tokenVar} not set — cannot transfer`)
     return false
   }
   if (!callUuid) {
-    console.error('[HANDOFF] ❌ No Vobiz CallUUID for this call — was it captured at /answer? Cannot transfer')
+    console.error(`[HANDOFF] ❌ No ${TAG} CallUUID for this call — was it captured at /answer? Cannot transfer`)
     return false
   }
   const host = process.env.PUBLIC_HOST || process.env.NGROK_URL
   if (!host) {
-    console.error('[HANDOFF] ❌ PUBLIC_HOST / NGROK_URL not set — Vobiz cannot fetch the transfer XML')
+    console.error(`[HANDOFF] ❌ PUBLIC_HOST / NGROK_URL not set — ${TAG} cannot fetch the transfer XML`)
     return false
   }
 
-  // Both numbers must be E.164 for Vobiz to dial out — otherwise the <Dial> can
-  // fail and the caller hears a busy tone.
+  // Both numbers must be E.164 for the provider to dial out — otherwise the <Dial>
+  // can fail and the caller hears a busy tone.
   const dest = toE164India(handoffNumber)
   const callerId = toE164India(businessNumber)
 
@@ -125,19 +126,17 @@ async function transferViaVobiz(callUuid, handoffNumber, businessNumber) {
     (callerId ? `&callerId=${encodeURIComponent(callerId)}` : '') +
     `&sig=${sig}`
 
-  const url = process.env.VOBIZ_TRANSFER_URL
-    ? process.env.VOBIZ_TRANSFER_URL.replace('{call_uuid}', encodeURIComponent(callUuid))
-    : `https://api.vobiz.ai/api/v1/Account/${authId}/Call/${encodeURIComponent(callUuid)}/`
+  const url = transferUrl(authId, callUuid)
 
-  console.log(`[HANDOFF] 🔀 Vobiz transfer ${callUuid} → ${dest} callerId=${callerId || '(default)'} (aleg_url=${alegUrl})`)
+  console.log(`[HANDOFF] 🔀 ${TAG} transfer ${callUuid} → ${dest} callerId=${callerId || '(default)'} (aleg_url=${alegUrl})`)
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'X-Auth-ID': authId, 'X-Auth-Token': authToken, 'Content-Type': 'application/json' },
+    headers: authHeaders({ authId, authToken }),
     body: JSON.stringify({ legs: 'aleg', aleg_url: alegUrl, aleg_method: 'POST' }),
   })
   const text = await res.text()
-  console.log(`[HANDOFF] Vobiz transfer response ${res.status}: ${text.slice(0, 300)}`)
-  if (!res.ok) throw new Error(`Vobiz transfer ${res.status}: ${text.slice(0, 200)}`)
-  console.log(`[HANDOFF] ✅ Vobiz transfer initiated for ${callUuid}`)
+  console.log(`[HANDOFF] ${TAG} transfer response ${res.status}: ${text.slice(0, 300)}`)
+  if (!res.ok) throw new Error(`${TAG} transfer ${res.status}: ${text.slice(0, 200)}`)
+  console.log(`[HANDOFF] ✅ ${TAG} transfer initiated for ${callUuid}`)
   return true
 }

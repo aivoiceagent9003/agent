@@ -42,15 +42,16 @@ function extractCorrelation(msg) {
   )
 }
 
-// Reuse the inbound Vobiz extraHeaders parsing convention ("{X-VH-key: val}").
+// Reuse the inbound extraHeaders parsing convention ("{X-PH-key: val}" on Plivo,
+// "{X-VH-key: val}" on Vobiz). Strips either prefix — see the note in vobiz.js.
 function parseExtraHeaders(raw) {
   const out = {}
   if (!raw) return out
-  if (typeof raw === 'object') { for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-VH-/i, '')] = v; return out }
+  if (typeof raw === 'object') { for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-(VH|PH)-/i, '')] = v; return out }
   const inner = String(raw).trim().replace(/^\{/, '').replace(/\}$/, '')
   for (const part of inner.split(',')) {
     const idx = part.indexOf(':'); if (idx === -1) continue
-    const key = part.slice(0, idx).trim().replace(/^X-VH-/i, ''); const val = part.slice(idx + 1).trim()
+    const key = part.slice(0, idx).trim().replace(/^X-(VH|PH)-/i, ''); const val = part.slice(idx + 1).trim()
     if (key) out[key] = val
   }
   return out

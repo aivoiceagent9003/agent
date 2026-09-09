@@ -396,7 +396,10 @@ router.post('/knowledge/upload', ingestLimiter, upload.single('file'), uploadErr
     })
   } catch (e) {
     console.error('[AGENT] kb upload error:', e.message)
-    res.status(500).json({ error: 'Could not process file' })
+    // Return the real reason. "Could not process file" gave the client nothing to
+    // act on — an upload that embedded zero chunks was indistinguishable from one
+    // that worked, and the only explanation lived in a server log.
+    res.status(500).json({ error: e.message || 'Could not process file' })
   }
 })
 

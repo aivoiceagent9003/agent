@@ -31,6 +31,121 @@ import telemetry from './telemetry.js'
 // Hard cap so a slow/broken client API can never freeze the live phone call.
 const LOOKUP_TIMEOUT_MS = 3500
 
+// A miss returns an INSTRUCTION, not a status. A bare "No matching record was
+// found." gets paraphrased straight to the caller — on a real call the agent said
+// "Mee EMI details kosam look up chestunnanu, but matching record dorakaledu",
+// narrating the tool and leaking the words "look up" and "record" into what should
+// have been a natural question. Same pattern as the knowledge-tool miss path.
+// Argument names that denote an identifier rather than a descriptive field.
+const IDENTIFIER_KEY = /(phone|mobile|msisdn|cell|number|^id$|_id|_no$|code|account|policy|loan|ref|uid|aadhaar|pan)/i
+
+// Last ten digits — the comparable part of an Indian number however it is written
+// (+919003503664, 09003503664, 9003503664 all reduce to the same thing).
+const last10 = (s) => ((String(s ?? '').match(/\d/g) || []).join('')).slice(-10)
+
+/**
+ * Identity gate on a fetched record.
+ *
+ * A lookup keyed on something the CALLER SPOKE proves nothing about who they are —
+ * they can say any number at all. On a real inbound call the caller spoke a number
+ * that was not the one they were calling from, and the agent read out that
+ * account's name, EMI amount, due date and interest rate. Anyone who knows a phone
+ * number could have extracted the loan position behind it.
+ *
+ * So when the record carries a phone number and it does NOT match the number this
+ * call actually came from, the row is still handed to the model — it needs to know
+ * a record exists — but wrapped in an instruction to verify the caller before
+ * saying anything financial. Verification by question, not a flat refusal, so a
+ * genuine customer ringing from their spouse's phone can still be helped.
+ *
+ * Off by construction for tenants that don't need it: verify_caller_identity=false.
+ */
+export function gateDisclosure(row, { callerNumber, tenantConfig = {} } = {}) {
+  if (tenantConfig.verify_caller_identity === false) return { row, verified: true }
+  const caller = last10(callerNumber)
+  // No caller id at all (web test, blocked number) — cannot verify either way.
+  if (!caller || caller.length < 10) return { row, verified: true }
+
+  const values = Object.values(row || {}).map(v => String(v ?? ''))
+  const phones = values.map(last10).filter(d => d.length === 10)
+  // The record holds no phone number, so there is nothing to compare against; the
+  // lookup key itself is the only evidence and the tenant's own data can't do better.
+  if (!phones.length) return { row, verified: true }
+
+  if (phones.includes(caller)) return { row, verified: true }
+  return { row, verified: false, challenges: challengesFor(row) }
+}
+
+// Fields that make a workable spoken challenge, best first. Two rules decided this
+// order: can a real account holder answer it instantly, and is it in the tenant's
+// data at all.
+//
+// The registered mobile number is FIRST and is present in essentially every loan
+// dataset. Asking the caller to STATE it is a knowledge test — it is not the same
+// as caller-ID matching, which is the check that just failed, and it stays valid
+// precisely when someone rings from a different handset.
+//
+// "Last payment amount" is deliberately absent. It was in the first version of this
+// instruction and it killed a real call: the caller said, reasonably, that they did
+// not remember it and offered their registered number instead — which the agent then
+// refused, because the hardcoded list did not mention it. Nobody remembers what they
+// last paid to the rupee.
+const CHALLENGE_FIELDS = [
+  [/phone|mobile|msisdn|cell|contact.?no/i,        'the mobile number registered on the account'],
+  [/date.?of.?birth|^dob$|birth.?date/i,           'their date of birth as registered'],
+  [/address|pin.?code|pincode|city|locality/i,     'their registered address'],
+  [/email/i,                                       'the email address on the account'],
+  [/start.?date|loan.?start|disburs|open.?date/i,  'the date the loan started'],
+]
+
+// Only offer challenges we can actually CHECK — a question whose answer is not in
+// the record is theatre, and it sent a real caller round in circles being asked for
+// a date of birth this tenant does not store.
+function challengesFor(row) {
+  const keys = Object.keys(row || {})
+  const out = []
+  for (const [re, label] of CHALLENGE_FIELDS) {
+    if (keys.some(k => re.test(k) && String(row[k] ?? '').trim())) out.push(label)
+    if (out.length >= 3) break
+  }
+  return out
+}
+
+const NO_RECORD = 'No matching record was found.'
+// Built per call from the fields this record actually holds, so the agent can only
+// ask a question it is able to check.
+function unverifiedInstruction(challenges = []) {
+  const base =
+    `\n\nIDENTITY NOT VERIFIED: this call is not coming from the phone number on this record. ` +
+    `Do NOT read out any amount, balance, due date, interest rate or other financial detail yet, ` +
+    `and do not confirm or deny anything about the account — not even the account holder's name.`
+
+  if (!challenges.length) {
+    // Nothing in this record can be checked, so any question would be theatre.
+    return base +
+      ` There is nothing on this record you can use to verify them, so do not invent a ` +
+      `security question. Say you are not able to go through the account details on this call, ` +
+      `offer to have a colleague call back on the registered number, and hand off. [HANDOFF]`
+  }
+
+  const list = challenges.length === 1
+    ? challenges[0]
+    : challenges.slice(0, -1).join(', ') + ', or ' + challenges[challenges.length - 1]
+
+  return base +
+    ` Ask them for ${list}. Compare their answer with this record and continue only if it matches. ` +
+    `Asking for the registered mobile number is perfectly valid even though this call came from a ` +
+    `different number — you are testing what they KNOW, not where they are calling from. Ask for ` +
+    `ONE thing at a time, naturally, the way a colleague would — never announce it as a security ` +
+    `check, never say "for security reasons", and never read out the correct answer. If they cannot ` +
+    `answer any of them, offer a callback on the registered number or hand off. [HANDOFF]`
+}
+const NO_RECORD_INSTRUCTION =
+  `${NO_RECORD} Do NOT mention lookups, records, systems, databases or searching to the ` +
+  `caller — they do not care how you find things, and naming the machinery is what makes ` +
+  `you sound like a robot. Simply ask, naturally and in the caller's language, for the one ` +
+  `detail you still need (their customer ID or registered phone number), the way a colleague would.`
+
 // Tool/function names must match ^[a-zA-Z0-9_-]+$ for the OpenAI API. We also use
 // the sanitized form as the stable identifier when matching a tool call back to
 // its config, so build it the same way everywhere.
@@ -74,7 +189,7 @@ export function buildLookupTools(tenantConfig = {}) {
 // can read back to the caller. NEVER throws — a failed lookup returns a friendly
 // fallback so the call keeps going.
 // ─────────────────────────────────────────────────────────────────────────────
-export async function runLookup(tenantConfig, name, args = {}) {
+export async function runLookup(tenantConfig, name, args = {}, { callerNumber = null } = {}) {
   const lookups = Array.isArray(tenantConfig.lookups) ? tenantConfig.lookups : []
   const lk = lookups.find(l => sanitizeName(l.name) === name)
   if (!lk) return `No lookup named ${name} is configured.`
@@ -87,8 +202,23 @@ export async function runLookup(tenantConfig, name, args = {}) {
     telemetry.recordLatency('lookup', ms, { tenantId: tenantConfig.tenant_id })
     const hit = !(result === null || result === undefined || result === '')
     telemetry.incr(`lookup:${name}:${hit ? 'hit' : 'miss'}`)
-    if (!hit) return 'No matching record was found.'
-    return typeof result === 'string' ? result : JSON.stringify(result)
+    if (!hit) return NO_RECORD_INSTRUCTION
+
+    // Identity gate before the model can read anything financial aloud.
+    const { verified, challenges = [] } = typeof result === 'object' && result !== null
+      ? gateDisclosure(result, { callerNumber, tenantConfig })
+      : { verified: true }
+    const payload = typeof result === 'string' ? result : JSON.stringify(result)
+    if (!verified) {
+      console.warn(`[LOOKUP] "${name}" → caller ${callerNumber || '(unknown)'} is NOT the number on this record — gated; can ask for: ${challenges.length ? challenges.join(' / ') : 'nothing (handoff)'}`)
+      telemetry.incr(`lookup:${name}:unverified`)
+      telemetry.recordServiceEvent({
+        component: 'compliance', severity: 'warning', kind: 'lookup_identity_unverified',
+        detail: { lookup: name, callerNumber },
+      })
+      return payload + unverifiedInstruction(challenges)
+    }
+    return payload
   } catch (e) {
     const ms = Date.now() - t0
     console.error(`[LOOKUP] "${name}" failed:`, e.message)
@@ -157,6 +287,25 @@ async function resolveTable(tenantId, dataset, args) {
   const norm = s => String(s).trim().toLowerCase().replace(/[\s\-_/]+/g, '')
   const wanted = values.map(norm).filter(Boolean)
 
+  // Which of these arguments are IDENTIFIERS? A phone number, an account / policy
+  // / loan / customer id, a reference code. Those must match EXACTLY: a substring
+  // hit on a mistyped or misheard identifier resolves to a different human being,
+  // and this data is their money. A NAME is the opposite — partial and phonetic
+  // matches are the whole point there ("Rekha" vs "Rekha Rao"), and a name is
+  // never treated as proof of identity anyway.
+  const idEntries = Object.entries(args).filter(([k, v]) => {
+    const val = String(v ?? '').trim()
+    if (!val) return false
+    if (IDENTIFIER_KEY.test(String(k))) return true
+    const digits = (val.match(/\d/g) || []).length
+    const bare = val.replace(/[\s\-_/]+/g, '').length
+    return digits >= 4 && digits / Math.max(1, bare) >= 0.5   // 8109439690, LN100087
+  })
+  // Strict mode: at least one identifier was supplied, so ONLY an exact match on
+  // an identifier value may be returned. No first-fuzzy-row fallback.
+  const strict = idEntries.length > 0
+  const wantedIds = idEntries.map(([, v]) => norm(v)).filter(Boolean)
+
   const query = async (probe, limit) =>
     supabase
       .from('lookup_rows')
@@ -166,12 +315,18 @@ async function resolveTable(tenantId, dataset, args) {
       .ilike('search_text', `%${probe}%`)
       .limit(limit)
 
+  // In strict mode the match must be on an IDENTIFIER value, not just any column —
+  // otherwise a shared surname in some other field could satisfy an "exact" match
+  // while the account number never did.
   const findExact = rows =>
-    (rows || []).find(r => Object.values(r.row || {}).some(val => wanted.includes(norm(val))))
+    (rows || []).find(r => Object.values(r.row || {})
+      .some(val => (strict ? wantedIds : wanted).includes(norm(val))))
 
   // ── Phase 1: full-value probes (raw + space-stripped) ──────────────────────
-  // Specific enough that a fuzzy first-row fallback is acceptable (e.g. a partial
-  // name match). Handles "ORD 1002" (query) vs "ORD1002" (stored).
+  // Handles "ORD 1002" (query) vs "ORD1002" (stored). The fuzzy first-row
+  // fallback survives ONLY for non-identifier lookups (a partial name); when an
+  // identifier was supplied, a substring hit that is not an exact match is a
+  // DIFFERENT record and must be refused.
   const mainProbes = new Set()
   for (const v of values) {
     mainProbes.add(v.toLowerCase())
@@ -181,8 +336,17 @@ async function resolveTable(tenantId, dataset, args) {
     const { data, error } = await query(probe, 5)
     if (error) throw new Error(error.message)
     if (data && data.length) {
-      console.log(`[LOOKUP] table probe "${probe}" matched ${data.length}`)
-      return (findExact(data) || data[0]).row
+      const exact = findExact(data)
+      if (exact) {
+        console.log(`[LOOKUP] table probe "${probe}" matched ${data.length} → exact`)
+        return exact.row
+      }
+      if (strict) {
+        console.warn(`[LOOKUP] probe "${probe}" matched ${data.length} row(s) but NO exact identifier match — refusing (would be someone else's record)`)
+        continue
+      }
+      console.log(`[LOOKUP] table probe "${probe}" matched ${data.length} → fuzzy`)
+      return data[0].row
     }
   }
 
