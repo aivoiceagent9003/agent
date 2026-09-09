@@ -17,7 +17,7 @@
 import { GoogleGenAI, Modality } from '@google/genai'
 import 'dotenv/config'
 import { buildSystemPrompt, getHistory } from './llm.js'
-import { buildLookupTools, runLookup, sanitizeName } from './lookups.js'
+import { buildLookupTools, runLookup, sanitizeName, noteSpokenDigits } from './lookups.js'
 import { retrieveKnowledge, warmupRAG } from './rag.js'
 import { resolveGreeting } from './greeting.js'
 import { addToDnd } from './dnd.js'
@@ -26,6 +26,7 @@ import { resolveSendable } from './sendables.js'
 import { detectHandoffKeyword, transferToHuman } from './handoff.js'
 import { LanguageManager, toName } from './language-manager.js'
 import { resolveGeminiVoice } from './gemini-voices.js'
+import { ConversationState } from '../config/conversation/index.js'
 import telemetry from './telemetry.js'
 
 // Gemini 3.1 Flash Live — the latest general real-time voice model, with proper
@@ -42,6 +43,26 @@ const GEMINI_VOICE = process.env.GEMINI_VOICE || 'Aoede'   // fallback prebuilt 
 // hack (injecting "reply in X" turns) is unnecessary — and would only add noise.
 // We disable it for native audio and let the model mirror on its own.
 const IS_NATIVE_AUDIO = /native-audio/i.test(GEMINI_MODEL)
+
+// Backstop for an agent-requested hangup whose turn never completes. Deliberately
+// generous: cutting off a model that is still speaking is the exact failure this
+// whole path exists to avoid.
+const HANGUP_STALL_MS = Number(process.env.HANGUP_STALL_MS || 15000)
+
+// ─── Who owns the conversation language ──────────────────────────────────────
+// MODEL-LED (default): Gemini decides. It hears the caller's actual audio, which
+// is a strictly better signal than `inputAudioTranscription` — a channel that on
+// real calls rendered Telugu speech as German, Portuguese, Spanish and Japanese.
+// The manager was making confident decisions from that noise: it locked English
+// off four garbled words ("Vedakkaran the play one", 0.80 confidence) and then
+// refused to leave it when the caller sent a clean Telugu sentence, because a
+// switch needed two consecutive readings the transcript never produced.
+//
+// Setting this false restores the deterministic manager — classification,
+// hysteresis, confirmation streaks, the reply gate and out-of-band steering.
+// language-manager.js is kept intact (and still unit-tested) so that is a
+// one-variable rollback, not a re-implementation.
+const LANGUAGE_MODEL_LED = process.env.LANGUAGE_CONTROL !== 'app'
 
 // ─── Audio helpers ───────────────────────────────────────────────────────────
 // G.711 μ-law → linear PCM16, as a 256-entry table because this runs on every
@@ -120,7 +141,9 @@ export function downsample24to8(pcm24) {
 }
 
 // ─── Tools + instructions (shared shape with the OpenAI engine) ──────────────
-function buildGeminiTools(tenantConfig) {
+// Exported so the tool surface is testable: which tools a tenant gets is a
+// behavioural decision, not an implementation detail.
+export function buildGeminiTools(tenantConfig) {
   const decls = []
   for (const t of buildLookupTools(tenantConfig)) {
     const f = t.function || {}
@@ -147,6 +170,27 @@ function buildGeminiTools(tenantConfig) {
       type: 'object',
       properties: {
         reason: { type: 'string', description: "Optional: their stated reason, in their own words, if they gave one. Leave out if they did not." },
+      },
+      required: [],
+    },
+  })
+
+  // Always declared. Leaving the line open after both sides have said goodbye makes
+  // the caller do the hanging up, which on a service call reads as being dumped — and
+  // on their mobile plan it is their money. Ending it ourselves is the polite half of
+  // a call we placed or answered.
+  //
+  // A TOOL rather than transcript matching, because a goodbye has to be recognised in
+  // Telugu, Hindi, English and any mix of them, and "bye" turns up mid-conversation as
+  // often as it does at the end. The model already knows when a conversation is over;
+  // asking it is more reliable than pattern-matching its own words after the fact.
+  decls.push({
+    name: 'end_call',
+    description: "Hang up. Call this ONLY when the conversation is genuinely finished — the caller has said goodbye, or said they have everything they need — AND you have said your own closing line. The call ends as soon as your last words have played, so never call it mid-conversation, never while they are still asking things, and NEVER on a turn you could not make out. If you are not sure whether they are done, do not call this: ask, and let them tell you.",
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: "Briefly, why the call is over — e.g. 'caller said goodbye', 'question answered and they had nothing else'." },
       },
       required: [],
     },
@@ -275,151 +319,29 @@ function noKnowledgeInstruction(tenantConfig = {}) {
     `have that detail to hand, and offer to have the team confirm it and follow up.` + NEVER_INVENT
 }
 
-// Caller-specific facts we already hold for THIS call — name plus whatever the
-// campaign contact row carried (policy number, renewal date, premium, …).
+// ─── System instruction ──────────────────────────────────────────────────────
+// Everything that used to be assembled by hand here — the language priority block,
+// the caller-record dump, the inbound rule, the recognition vocabulary, the
+// speech-to-speech rules and the WhatsApp nudge — now lives in the layered rule set
+// under src/config/conversation. This function only supplies what is specific to a
+// LIVE session: the channel, who owns the language, and the state of a call that is
+// being resumed after a reconnect.
 //
-// Without this the model knows the caller's name from the greeting template and
-// nothing else, so the moment they ask "when does mine expire?" it has no grounded
-// answer available. Empty string for inbound calls, where we have no contact row.
-function callerContext(tenantConfig) {
-  const name = String(tenantConfig.contact_name || '').trim()
-  const raw = tenantConfig.contact_fields
-  const fields = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+// It is called on every connect, including reconnects, which is what makes the state
+// recap work: a reconnected session gets a fresh instruction that carries what has
+// already happened, instead of waking up with no memory of the call.
 
-  const lines = []
-  if (name) lines.push(`- name: ${name}`)
-  for (const [k, v] of Object.entries(fields)) {
-    if (v === null || v === undefined) continue
-    // Objects would stringify to "[object Object]" and teach the model nothing.
-    const val = (typeof v === 'object' ? JSON.stringify(v) : String(v)).trim()
-    if (!val) continue
-    lines.push(`- ${k.replace(/_/g, ' ')}: ${val.slice(0, 200)}`)
-    if (lines.length >= 30) break   // bound the prompt; a contact row can be wide
-  }
-  if (!lines.length) return ''
-
-  return `
-
-WHAT YOU KNOW ABOUT THIS CALLER (from our own records — accurate, use it freely and
-answer straight from it without calling a tool):
-${lines.join('\n')}
-That list is the COMPLETE set of caller-specific details you hold. Anything about this
-caller that is NOT listed above, you do not know — say so and offer to have the team
-confirm, rather than guessing a value.`
-}
-
-// On an INBOUND call the caller dialled us, so the agenda is theirs. Any goal in
-// the tenant's stored prompt ("secure a payment commitment") is written for
-// outbound and, left unqualified, makes the agent open a customer's own service
-// call with a payment demand — on a real call it answered "I want to ask about my
-// loan" with the EMI amount, the due date and "are you ready to pay?", and the
-// caller had to interrupt to ask their actual question.
-function inboundRule(tenantConfig) {
-  if (tenantConfig.is_outbound) return ''
-  return `
-- THIS IS AN INBOUND CALL — they rang you, so they have a reason and it is not yours. Establish what they actually want and deal with that FIRST, completely. Never open with a payment reminder, a due date, an outstanding balance, or "are you ready to pay?". Any goal described in your instructions above is for calls WE place; here you may raise it at most ONCE, near the end, after their reason for calling has been fully handled — and not at all if they are in the middle of something else.`
-}
-
-function buildInstructions(tenantConfig, lockedLang, openingLang) {
-  const base = buildSystemPrompt(tenantConfig, { speechToSpeech: true })
-  // Recognition vocabulary = auto-derived from the client's KB (kb_keyterms) PLUS
-  // any manual overrides (stt_keyterms). Auto-derived means it scales to any
-  // client without hand-curation.
-  const manual = Array.isArray(tenantConfig.stt_keyterms) ? tenantConfig.stt_keyterms : []
-  const auto = Array.isArray(tenantConfig.kb_keyterms) ? tenantConfig.kb_keyterms : []
-  const seen = new Set()
-  const terms = [...auto, ...manual]
-    .map(t => String(t || '').trim())
-    .filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
-  const vocab = terms.length
-    ? `\n- RECOGNITION VOCABULARY (CLOSED SET): this business operates ONLY with these exact place and project names: ${terms.join(', ')}. This list is the COMPLETE universe of valid locations and projects for this caller.
-- When the caller names a place or project, you MUST map what you heard to the CLOSEST match in this list. If the place you think you heard is NOT in this list (e.g. a far-off city like Pune, Mumbai, Bangalore, Delhi), then you MISHEARD — it is physically impossible for it to be correct. Do NOT act on it, do NOT search it, do NOT recommend for it. Instead, read back the closest listed area and ask the caller to confirm, e.g. "Kokapet aa sir?" before doing anything.
-- Never substitute a similar-sounding place that is not in the list (never hear "Kokapet" as "Kukatpally", never as "Pune").`
-    : ''
-
-  // Language is governed by an explicit out-of-band steering system (see
-  // LanguageManager): it decides the conversation language from the caller's
-  // first meaningful utterance, switches only on an explicit request or a stable
-  // two-utterance signal, and tells the model via a steering turn. So the model's
-  // job here is STABILITY, not per-turn re-detection — the old "switch every turn"
-  // rule is exactly what caused Telugu↔English↔Hindi oscillation on code-mixed
-  // speech. This block is #1 priority and overrides any mirroring rule below.
-  const langPriority = `#1 PRIORITY — LANGUAGE CONTROL POLICY (overrides every other language rule below):
-
-THE APPLICATION OWNS THE CONVERSATION LANGUAGE — not you. A deterministic
-language manager watches the caller and tells you, via a LANGUAGE CONTROL
-directive, what the CURRENT CONVERSATION LANGUAGE is. Respond primarily in that
-language and do not change it on your own initiative.
-
-You must NEVER change the primary conversation language because:
-- the caller used a few words from another language;
-- the caller used English business or technical words (EMI, loan, payment,
-  account, details, booking, price, GST, sq ft) — that is normal code-mixing;
-- the caller said hello, okay, yes, no, sir, madam, thanks or similar;
-- retrieved reference information happens to be in another language;
-- you internally judged another language would suit the caller better;
-- your own previous reply came out in another language;
-- the caller's accent or pronunciation made a turn ambiguous.
-
-A language change is legitimate ONLY when a LANGUAGE CONTROL directive gives you
-a new CURRENT CONVERSATION LANGUAGE. Until one arrives, stay where you are — even
-if you are unsure. Staying in the current language for one more turn is always
-better than switching wrongly.
-
-When the caller code-switches naturally, keep the current primary language and
-mirror their code-mixing inside it.
-- NEVER refuse a language. NEVER tell the caller which language to use. NEVER say you were "told", "asked", or "instructed" to use a language, and never explain, apologize for, or comment on the language you are using. Just speak — switching silently and naturally when the caller's language changes.
-- Code-mixing is NOT a language change: callers speak Telugu or Hindi while borrowing English words like "flat", "booking", "3BHK", "GST", "price", "loan" and place/project names like "Kokapet" or "My Home". Keep the caller's base language — do not switch your WHOLE reply to English just because they used an English noun. But YOU must code-mix the SAME way they do: keep these common English business/technical words IN ENGLISH (say "units", "price", "size", "sq ft", "clubhouse", "swimming pool", "amenities", "possession", "loan") instead of translating them into bookish/literary Telugu or Hindi. Speak the natural everyday Tinglish/Hinglish register a real estate agent actually uses on the phone — never stiff textbook language.
-- Your greeting language is only an opener; it does NOT lock the conversation. On the caller's first real words, match their language.`
-
-  // Reconnect robustness: a reconnect starts a FRESH session with no prior context,
-  // so if the conversation language was already established we bake it straight into
-  // the system instruction. This is the authoritative, turn-semantics-free channel
-  // and means the language survives reconnects without relying on any steer message.
-  // Before the first substantive utterance the LanguageManager has NO verdict, and
-  // the classifier is deliberately not gated on for Latin/romanized speech (holding
-  // the reply for it costs ~1s of dead air on every call). That left turn one with
-  // NOTHING anchoring its language, so the model was free to drift — an English
-  // caller could get a Telugu first reply, corrected only from turn two.
-  //
-  // So we seed the language the caller is about to HEAR: the greeting's own. It's a
-  // DEFAULT, not a lock — the rules above still hand the conversation to the caller
-  // the moment they speak something else, and the real verdict overrides this as
-  // soon as it lands. Costs nothing: no gate, no classifier call, no latency.
-  // Worded as a FALLBACK for ambiguity, never as an instruction to open in this
-  // language regardless. The model hears the caller's actual audio, which is a
-  // better signal than anything we can pass it — a caller speaking romanized Telugu
-  // ("nenu flat kavali") reads as Latin text but sounds unmistakably Telugu. So
-  // mirroring stays primary; this only fills the vacuum when there's no signal yet.
-  const openingNote = openingLang
-    ? `\n\nDEFAULT LANGUAGE (fallback only): while you still cannot tell what language the caller speaks — before they have said anything, or when their words are too short, garbled or ambiguous to judge — use ${openingLang}, the language of your greeting. The moment you CAN tell what language they are speaking, speak THAT instead, starting with your very first reply to them. NEVER pick a third language that neither of you has used — in particular, do NOT fall back to Hindi just because the caller sounds Indian or their words were unclear.`
-    : ''
-
-  const lockedNote = lockedLang
-    ? `\n\nCURRENT CONVERSATION LANGUAGE: ${lockedLang}. The language manager established this. Reply primarily in ${lockedLang} and do not greet again. Do not change it yourself — a legitimate change reaches you as a LANGUAGE CONTROL directive.`
-    : openingNote
-
-  // Only nudge WhatsApp behaviour when the tenant actually has it configured.
-  const waRule = whatsappReady(tenantConfig)
-    ? `\n- WHATSAPP: when the caller agrees to receive something on WhatsApp (a document like a brochure/menu/price list, or a confirmation once an appointment/booking is made), you MUST call the send_whatsapp tool — kind 'document' or 'confirmation', with a short 'about' describing it — and only after it succeeds tell them it's on their WhatsApp. NEVER claim you sent it without calling the tool. Send each item ONCE: if the caller says they haven't received it yet, DO NOT call send_whatsapp again — reassure them it's been sent and can take a minute to arrive (resending the same file to the same number makes WhatsApp drop it).`
-    : ''
-
-  return `${langPriority}${lockedNote}
-
-${base}${callerContext(tenantConfig)}
-
-SPEECH-TO-SPEECH RULES:${inboundRule(tenantConfig)}
-- LOCATION: NEVER assume, invent, or guess a city or area. Never say "Mumbai", "Gurgaon", or any place the caller did not state. Use ONLY a location the caller has explicitly given. If you don't yet know their location, ASK for it before recommending or searching — do not fill one in, and do not search a location they didn't mention.${vocab}
-- GROUNDING — you do NOT personally know ANY specific fact about this business or this caller. That means no prices, amounts, premiums, fees, due dates, renewal or expiry dates, policy/account/reference numbers, plan or project names, sizes, locations, or contract terms. There are exactly THREE valid sources: (a) the caller-specific records given to you above, (b) a tool result on this call, (c) something the caller told you on this call. If none of the three has given you a value, you do NOT have it — say so plainly and offer to have the team confirm it. NEVER state a number, date, amount or identifier you were not given: a confident wrong figure is far worse than admitting you don't have it, and on a billing or renewal call it is the single most damaging thing you can do. BUT before searching, CHECK what you already retrieved earlier in THIS conversation: if the answer is already in that context (e.g. you pulled a plan's full details and the caller now asks its price), answer from it and do NOT call search_knowledge again. Only call search_knowledge for information you have NOT yet retrieved this call. Never invent or guess — but never re-fetch what you already have.
-- PICK THE RIGHT TOOL. Anything about THIS caller's own account — their balance, their EMI, their due date, their policy, their order, their booking — comes from a lookup tool, NEVER from search_knowledge. search_knowledge holds general material that is identical for every caller: policies, charges, processes, product facts. If you need a caller-specific fact, ask them for their customer ID or registered phone number and call the lookup. Never tell a caller you cannot help with their own account until you have actually tried that tool.
-- AFTER A LOOKUP SUCCEEDS, SAY ONLY WHAT WAS ASKED FOR. A lookup returns the caller's WHOLE record; reciting it is a data dump, not service. If they asked what they owe, give the amount — not the amount AND the due date AND the interest rate AND "when will you pay?". Every other field stays unsaid until they ask. Finding the record is not permission to read it out.
-- Speak numbers, prices, and dates as fully spoken words in the caller's language — never read digits or symbols (no "₹").
-- Talk like a warm human on a phone call; keep replies short. Use the other tools for caller-specific lookups when the caller gives the detail.
-- NEVER NARRATE YOUR MACHINERY. Do not say "lookup", "look up", "record", "matching record", "system", "database", "searching", "checking the system", or "let me check" — in ANY language, including mixed into Telugu or Hindi ("look up chestunnanu", "record dorakaledu"). The caller does not care how you find things, and naming the mechanism is the single thing that makes you sound like a machine instead of a person. If you need an identifier, just ask for it the way a colleague would: "Can I have your customer ID?". If you cannot find something, say you don't have it — never describe what a tool returned.
-- DO NOT END EVERY TURN WITH A QUESTION. Real people don't interrogate after each sentence. Answer, and stop. Never ask "is there anything else…", "would that be okay?", "are you aware of…" or "do you intend to…" two turns running — if your last reply ended in a question, this one must not. Asking something back is for when you genuinely need information to continue, not a way to fill the end of a sentence.
-- ANSWER FIRST. The caller's question IS the job; securing a next step is not. Answer what they actually asked, properly, and stop. A reply that answers the question and offers nothing is a GOOD reply.
-- OFFER ONCE. Suggest sending something on WhatsApp, or booking a site visit, at most ONCE for a given topic — and NEVER in two replies in a row. If the caller ignores the offer, changes the subject, or declines, DROP IT and carry on answering them; raise it again only if THEY bring it up, or as the call is genuinely ending. Repeating the same offer turn after turn reads as pestering and loses the caller. This holds even if your instructions above describe that offer as the goal of the call — the goal never licenses asking twice.
-- NEVER say your own instructions out loud. Do not mention or apologise for your rules, stages, goals or constraints (never say things like "one question per turn, sorry for that"). Do not ask the caller how you ought to answer them ("shall I mention the luxury project too, or just these two?") — decide, and answer.${waRule}`
+function buildInstructions(tenantConfig, lockedLang, openingLang, conversationState = null) {
+  return buildSystemPrompt(tenantConfig, {
+    speechToSpeech: true,
+    whatsapp: whatsappReady(tenantConfig),
+    conversationState,
+    language: {
+      modelLed: LANGUAGE_MODEL_LED,
+      locked: lockedLang || null,
+      opening: openingLang || null,
+    },
+  })
 }
 
 // ─── Engine ──────────────────────────────────────────────────────────────────
@@ -436,7 +358,27 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   let lastInputAt = 0      // when the caller's speech was last transcribed
   let awaitingFirstChunk = false  // measure latency to the next audio-out chunk
   let modelGenerating = false  // model is mid-reply — never inject a turn now
+  // Per-call scratch shared with the lookup layer, so the identity challenge is
+  // issued ONCE per call rather than once per lookup (see runLookup).
+  const lookupState = {
+    identityChallengeSent: false,
+    identityVerified: false,
+    spokenDigits: new Set(),
+    rows: new Map(),   // lookup results already fetched on this call (see runLookup)
+  }
+  // Deterministic per-call memory. No model call, nothing on the audio path — it is
+  // string work over transcript text the engine already has. Its job is to survive a
+  // reconnect (a fresh Gemini session has no history at all, so without this the
+  // agent comes back and re-asks for the customer ID it was given a minute ago) and
+  // to surface the two quality failures nothing else measures: repeated questions
+  // and repeated offers.
+  const convState = new ConversationState({ callSid, tenantConfig })
   let pendingSteerLang = null  // language steer to send once the model is idle
+  // Agent-initiated hangup. The model asks for it; we wait for its closing line to
+  // reach the caller's ear before the line actually drops (see the sink's endCall).
+  let endCallRequested = false
+  let hangupTimer = null
+  let hangupSafetyTimer = null
 
   // WhatsApp de-dup (per call). WhatsApp drops/throttles the SAME template file
   // re-sent to the SAME recipient, and it hurts the sender's quality rating. Callers
@@ -507,15 +449,17 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
 
   const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY })
   // Deterministic conversation-language state machine (classification + hysteresis).
-  // Skipped entirely for native-audio models, which mirror language natively.
-  const langMgr = IS_NATIVE_AUDIO ? null : new LanguageManager({ ai, callSid })
+  // Skipped entirely for native-audio models, which mirror language natively — and,
+  // in MODEL_LED mode, for every model.
+  const langMgr = (IS_NATIVE_AUDIO || LANGUAGE_MODEL_LED) ? null : new LanguageManager({ ai, callSid })
   // The language the caller will actually HEAR first. Anchors turn one, which the
   // LanguageManager cannot: it has no verdict until the first substantive utterance.
-  // Null for native-audio models — they mirror language natively and aren't steered.
+  // Null when the model owns language — it hears the caller and needs no anchor.
   // Without the recording notice: it is a fixed English sentence, and letting it
   // into the sample would pull the guess toward English on a call whose greeting
   // is Hindi or Telugu.
   const openingLang = langMgr ? toName(langMgr.guessLanguage(resolveGreeting(tenantConfig, { includeNotice: false }))) : null
+  if (LANGUAGE_MODEL_LED) console.log('[GEMINI] 🗣️ language: MODEL-LED (no manager, no gate, no steering)')
   if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG()
 
   const sendAudioToCaller = (mulawB64) => {
@@ -720,6 +664,12 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
         })
     }
     getHistory(callSid).push({ role: 'user', content: text })
+    cancelHangup('the caller is still talking')
+    convState.observeCaller(text)
+    // Any phone-length number the caller says is their possible answer to the identity
+    // challenge. Recording it lets the gate compare that answer to the record in code,
+    // instead of handing the model the record and trusting it to grade itself.
+    noteSpokenDigits(lookupState, text)
     trace?.set('lastTranscript', text.slice(0, 240))
     turnStartedAt = Date.now()   // the caller just finished — start timing the turn
     callerTurnPending = true; agentRespondedThisTurn = false   // expect a reply now (silent-turn detector)
@@ -734,6 +684,29 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
       transferToHuman(callSid, tenantConfig.handoff_number, callerNumber, tenantConfig).catch(e => console.error('[GEMINI] handoff failed:', e.message))
     }
   }
+  // Hand the hangup to the telephony layer, the only part that knows how much audio
+  // is still queued at the caller's ear.
+  const scheduleHangup = () => {
+    if (hangupTimer) return
+    clearTimeout(hangupSafetyTimer); hangupSafetyTimer = null
+    hangupTimer = setTimeout(() => {
+      try { twilioWs.endCall?.('agent said goodbye') }
+      catch (e) { console.error('[GEMINI] hangup failed:', e.message) }
+    }, 0)
+  }
+
+  // The caller spoke after the agent asked to hang up. They are not finished, and
+  // hanging up on someone mid-sentence is far worse than staying on a line nobody
+  // needed. Cancel, and let the model decide again.
+  const cancelHangup = (why) => {
+    if (!endCallRequested) return
+    endCallRequested = false
+    clearTimeout(hangupTimer); hangupTimer = null
+    clearTimeout(hangupSafetyTimer); hangupSafetyTimer = null
+    console.log(`[GEMINI] 👋 hangup cancelled — ${why}`)
+    telemetry.incr('agent_hangup_cancelled')
+  }
+
   const flushAgent = () => {
     const text = agentBuf.trim(); agentBuf = ''
     if (!text) return
@@ -752,6 +725,18 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
       trace?.event('duplicate_reply')
     }
     lastAgentText = text
+    // Repeat detection is fingerprint-based, so a reworded re-ask still counts —
+    // which is what the caller experiences. Both were reported repeatedly from real
+    // calls and neither was visible in any existing metric.
+    const q = convState.observeAgent(text)
+    if (q.repeatedQuestion) {
+      telemetry.incr('quality_repeat_question')
+      trace?.event('repeat_question', { question: q.repeatedQuestion.slice(0, 120) })
+    }
+    if (q.repeatedOffer) {
+      telemetry.incr('quality_repeat_offer')
+      trace?.event('repeat_offer', { topic: q.repeatedOffer })
+    }
     getHistory(callSid).push({ role: 'assistant', content: text })
     trace?.set('lastAgentReply', text.slice(0, 240))
     // Turn duration = caller-stopped → agent-reply-complete (full round-trip).
@@ -809,6 +794,7 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
     // Barge-in — abandon any held reply too (the caller is taking the turn).
     if (sc?.interrupted) {
       agentBuf = ''; clearCallerAudio(); if (gateActive) { emitGateMetric('barge_in'); resetGate() }
+      convState.observeInterruption()
       trace?.bump('interruptions'); trace?.event('barge_in')
       telemetry.incr('interruptions_total')
     }
@@ -842,6 +828,9 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
         flushAgent()
         // Model is now idle — safe to fire a queued (context) language steer.
         if (pendingSteerLang) { const l = pendingSteerLang; pendingSteerLang = null; sendSteer(l) }
+        // The closing line is fully generated. The sink knows how much of it the
+        // caller has actually heard, and drops the line once they have heard it all.
+        if (endCallRequested && !hangupTimer) scheduleHangup()
       }
     }
 
@@ -850,6 +839,7 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
       const responses = []
       for (const fc of msg.toolCall.functionCalls) {
         let output = ''
+        let lkArgs = null   // the lookup's arguments, remembered on a hit
         trace?.set('currentTool', fc.name)
         // One span per tool invocation: name, success/fail, latency, payload size.
         const toolSpan = trace?.span('tool_call', { tool: fc.name, args: fc.args || {} })
@@ -885,11 +875,37 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
               : 'Could not record that automatically. Apologise, assure them it will be handled, and end the call politely.'
             console.log(`[GEMINI] 🚫 add_to_dnd(${res.phone}) → ${res.ok ? (res.alreadyListed ? 'already listed' : 'added') : 'FAILED'}`)
             trace?.set('optedOut', res.ok)
+          } else if (fc.name === 'end_call') {
+            if (typeof twilioWs.endCall !== 'function') {
+              // A browser demo has no call to hang up. Say so, rather than let the
+              // model believe it did something it did not.
+              output = 'You cannot end this call yourself. Say your closing line and then stop talking.'
+              console.log('[GEMINI] 👋 end_call requested but this transport cannot hang up')
+            } else {
+              endCallRequested = true
+              const why = String(fc.args?.reason || '').slice(0, 120)
+              console.log(`[GEMINI] 👋 end_call requested${why ? ` — ${why}` : ''}`)
+              trace?.event('agent_ended_call', { reason: why || null })
+              telemetry.incr('calls_ended_by_agent')
+              // An instruction, not a status: the model may ask to end the call BEFORE
+              // speaking its closing line, and it needs to know it still has exactly
+              // one turn in which to say it.
+              output = 'The call will end as soon as you finish speaking. If you have not said goodbye yet, say it now, warmly and in the language of this conversation. Then stop — do not ask another question.'
+              // If that turn never completes — the model stalls, or the session drops
+              // mid-generation — the caller would sit on an open line indefinitely.
+              clearTimeout(hangupSafetyTimer)
+              hangupSafetyTimer = setTimeout(() => {
+                if (endCallRequested && !hangupTimer) {
+                  console.warn('[GEMINI] 👋 no turnComplete after end_call — hanging up anyway')
+                  scheduleHangup()
+                }
+              }, HANGUP_STALL_MS)
+            }
           } else if (fc.name === 'send_whatsapp') {
             output = await handleSendWhatsapp(tenantConfig, callerNumber, fc.args || {}, sentWhatsapp)
             console.log(`[GEMINI] 💬 send_whatsapp(${fc.args?.kind}) → ${output}`)
           } else {
-            const lkArgs = fc.args || {}
+            lkArgs = fc.args || {}
             const hasArg = Object.values(lkArgs).some(v => v !== null && v !== undefined && String(v).trim() !== '')
             if (!hasArg) {
               // A lookup with NO parameters can only ever miss. On a real call
@@ -904,14 +920,23 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
             } else {
               // callerNumber lets the lookup gate financial disclosure when the
               // record's phone is not the number this call came from.
-              output = await runLookup(tenantConfig, fc.name, lkArgs, { callerNumber })
+              output = await runLookup(tenantConfig, fc.name, lkArgs, { callerNumber, state: lookupState })
               console.log(`[GEMINI] 🔧 ${fc.name}(${JSON.stringify(lkArgs)})`)
             }
           }
           telemetry.incr(`tool:${fc.name}:ok`)
-          toolSpan?.end({ payloadBytes: Buffer.byteLength(String(output)), attrs: { hit: !!output && !/^No matching|could not be retrieved/i.test(String(output)) } })
+          const hit = !!output && !/^No matching|could not be retrieved/i.test(String(output))
+          convState.observeTool(fc.name, { ok: true, hit })
+          // Whatever a lookup actually returned is now known for the rest of the
+          // call, including across a reconnect — so the agent stops re-asking for an
+          // identifier it has already used.
+          if (hit && fc.name !== 'search_knowledge' && fc.name !== 'add_to_dnd') {
+            for (const [k, v] of Object.entries(lkArgs || {})) convState.remember(k, v)
+          }
+          toolSpan?.end({ payloadBytes: Buffer.byteLength(String(output)), attrs: { hit } })
         } catch (e) {
           output = 'That information could not be retrieved right now.'
+          convState.observeTool(fc.name, { ok: false })
           console.error(`[GEMINI] tool ${fc.name} failed:`, e.message)
           telemetry.incr(`tool:${fc.name}:error`)
           telemetry.incr('tool_errors_total')
@@ -941,7 +966,9 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
         model: GEMINI_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
-          systemInstruction: buildInstructions(tenantConfig, lockedLang, openingLang),
+          // attempts > 0 means this is a reconnect: pass the state so the new
+          // session resumes the call instead of starting it again.
+          systemInstruction: buildInstructions(tenantConfig, lockedLang, openingLang, attempts > 0 ? convState : null),
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: sessionVoice } },
             ...(languageCode ? { languageCode } : {}),
@@ -1004,7 +1031,11 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
         greetingSentAt = Date.now()
         try {
           session.sendClientContent({
-            turns: [{ role: 'user', parts: [{ text: `Open the call by greeting the caller warmly with exactly these words: "${greeting}". Say it as written — do NOT translate it. Then continue in whatever language the caller replies in.` }] }],
+            turns: [{ role: 'user', parts: [{ text: `Open the call by greeting the caller warmly with exactly these words: "${greeting}". Say it as written — do NOT translate it.
+
+DELIVERY: say it SLOWLY and clearly, noticeably slower than the rest of the call. Leave a real beat after the greeting word, after your own name, and after the name of the business — three unhurried pieces, not one rushed sentence. The caller has just picked up and has not tuned in yet; if they miss this line the whole call starts badly.
+
+Then continue in whatever language the caller replies in.` }] }],
             turnComplete: true,
           })
         } catch (e) { console.error('[GEMINI] greeting failed:', e.message) }
@@ -1028,6 +1059,16 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
 
   const finish = () => {
     finished = true
+    clearTimeout(hangupTimer); hangupTimer = null
+    clearTimeout(hangupSafetyTimer); hangupSafetyTimer = null
+    // One structured snapshot per call. The Operations Center reads it, and the lead
+    // extractor starts from a derived outcome rather than guessing at the transcript.
+    try {
+      const snap = convState.snapshot()
+      trace?.set('conversationState', 'ended')
+      trace?.set('stateSnapshot', snap)
+      if (snap.outcome) trace?.set('derivedOutcome', snap.outcome)
+    } catch { /* never let telemetry break a hangup */ }
     if (session) { try { session.close() } catch {} session = null }
     console.log('[GEMINI] Connection closed')
   }

@@ -19,6 +19,8 @@
 import { createGeminiLiveConnection } from '../services/gemini-live.js'
 import { clearHistory, getHistory } from '../services/llm.js'
 import { TAG, PROVIDER } from './provider.js'
+import { createPlayoutTracker } from './playout.js'
+import { hangUpCall } from './hangup.js'
 
 // Live calls run on Gemini Live speech-to-speech (the only engine).
 const createVoiceConnection = createGeminiLiveConnection
@@ -31,6 +33,11 @@ import telemetry from '../services/telemetry.js'
 import { verifyDestination, isE164, xmlEscape, webhookQuery } from '../api/webhook-auth.js'
 import { randomUUID } from 'crypto'
 import 'dotenv/config'
+
+// Margin left after the caller should have heard everything, before the line drops.
+// It covers the provider's own jitter buffer so the last syllable is never clipped.
+// Tunable, because a provider that buffers more deeply needs more of it.
+const TAIL_MS = Number(process.env.HANGUP_TAIL_MS || 700)
 
 // Extract an E.164-ish number from "+1234", "sip:+1234@domain", etc.
 function normalize(n) {
@@ -208,9 +215,14 @@ export function vobizTransferXml(req, res) {
 // stays Twilio-shaped. It translates the outbound frames:
 //   {event:'media', media:{payload}}  → Vobiz 'playAudio' (re-chunked to 160B/20ms)
 //   {event:'clear'}                    → Vobiz 'clearAudio' (barge-in)
-function makeVobizSink(ws, getStreamId, recorder, trace) {
+function makeVobizSink(ws, getStreamId, recorder, trace, getProviderCallId) {
+  let sentFirstAudio = false
+  let ending = false
+  const playout = createPlayoutTracker()
   return {
     get readyState() { return ws.readyState },
+    /** Milliseconds of agent speech the caller has not heard yet. */
+    msRemaining() { return playout.msRemaining() },
     send(str) {
       let m
       try { m = JSON.parse(str) } catch { ws.send(str); return }
@@ -220,6 +232,13 @@ function makeVobizSink(ws, getStreamId, recorder, trace) {
         // framing; larger chunks cause jitter/robotic audio.
         const buf = Buffer.from(m.media.payload, 'base64')
         recorder?.addOutbound(buf)   // capture the agent's audio for the recording
+        // One-shot proof that agent audio actually left this process. Without it a
+        // silent call is indistinguishable from a broken tunnel, a dead socket and
+        // a model that never spoke — all three look identical in the log.
+        if (!sentFirstAudio) {
+          sentFirstAudio = true
+          console.log(`[${TAG}] 🔊 first agent audio frame sent to caller (socket=${ws.readyState === 1 ? 'OPEN' : 'NOT OPEN — audio is being DROPPED'})`)
+        }
         let frames = 0
         for (let off = 0; off < buf.length; off += 160) {
           const piece = buf.subarray(off, off + 160)
@@ -229,16 +248,41 @@ function makeVobizSink(ws, getStreamId, recorder, trace) {
           }))
           frames++
         }
+        playout.queued(buf.length)     // so we know when the caller has heard it all
         trace?.packet('out', frames)   // count outbound audio frames (non-emitting)
         return
       }
 
       if (m.event === 'clear') {
+        // Barge-in: the provider discards what it had buffered, so nothing is
+        // outstanding any more.
+        playout.cleared()
         ws.send(JSON.stringify({ event: 'clearAudio', streamId: getStreamId() }))
         return
       }
 
       ws.send(str)
+    },
+
+    /**
+     * End the call from our side, once the caller has actually HEARD the closing
+     * line. Everything queued is still playing out at 8kHz, so closing the moment
+     * the model stops generating cuts the goodbye off mid-word.
+     *
+     * Two mechanisms, deliberately. Closing the stream returns the provider to the
+     * answer XML, which has nothing after the <Stream> and so drops the call — that
+     * is the usual path. The REST hangup is the guarantee, because "usually" is not
+     * good enough for the one feature whose whole job is ending the call.
+     */
+    endCall(reason = 'agent') {
+      if (ending) return
+      ending = true
+      const wait = playout.msRemaining() + TAIL_MS
+      console.log(`[${TAG}] 👋 ending call in ${wait}ms (${reason}) — letting the last words play out`)
+      setTimeout(() => {
+        hangUpCall(getProviderCallId?.()).catch(() => {})
+        try { ws.close() } catch { /* already gone */ }
+      }, wait)
     },
   }
 }
@@ -316,6 +360,7 @@ export function handleVobizConnection(ws) {
   // the column exists — so it has to be stamped from the same condition that
   // decides whether to record at all.
   let noticePlayed = false
+  let gotFirstAudio = false   // one-shot inbound-media diagnostic
 
   const getStreamId = () => streamId
 
@@ -394,7 +439,7 @@ export function handleVobizConnection(ws) {
       const recordingOn = tenantConfig.recording_enabled === true
       noticePlayed = recordingNotice(tenantConfig) !== ''
       recorder = recordingOn ? new CallRecorder() : null
-      const sink = makeVobizSink(ws, getStreamId, recorder, trace)
+      const sink = makeVobizSink(ws, getStreamId, recorder, trace, () => tenantConfig.provider_call_id)
 
       dg = createVoiceConnection(
         callSid,
@@ -415,6 +460,10 @@ export function handleVobizConnection(ws) {
 
     if (msg.event === 'media' && msg.media?.payload) {
       const chunk = Buffer.from(msg.media.payload, 'base64')
+      // One-shot proof the caller's audio is reaching us at all. A call where this
+      // never prints is a transport problem (tunnel, provider, codec) — no amount
+      // of engine or prompt work can fix a stream that never arrives.
+      if (!gotFirstAudio) { gotFirstAudio = true; console.log(`[${TAG}] 🎤 first caller audio frame received`) }
       recorder?.addInbound(chunk)   // capture the caller's audio for the recording
       trace?.packet('in')           // count inbound audio frames (non-emitting)
       if (!dg) return

@@ -75,7 +75,7 @@ function Home() {
           detail: agent?.config?.business_name
             ? `Configured for ${agent.config.business_name}`
             : "Not started",
-          done: !!(agent?.config?.system_prompt || agent?.config?.business_name),
+          done: !!(agent?.config?.template_id || agent?.config?.system_prompt || agent?.config?.business_name),
           to: "/onboarding",
           cta: "Choose an industry",
           icon: Sparkles,

@@ -116,7 +116,14 @@ function Onboarding() {
     if (!agent || hydrated.current) return;
     hydrated.current = true;
     const cfg: any = agent.config || {};
-    const configured = !!agent.phone_number || cfg.status === "published" || !!cfg.system_prompt;
+    // `template_id` is what a client stores now when they pick a pre-built agent;
+    // `system_prompt` is the older shape (a copied prompt) and stays here so tenants
+    // created before the template engine still skip the wizard.
+    const configured =
+      !!agent.phone_number ||
+      cfg.status === "published" ||
+      !!cfg.template_id ||
+      !!cfg.system_prompt;
 
     if (!configured) {
       // First-run wizard. Only prefill a business name the user actually gave us

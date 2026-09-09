@@ -31,6 +31,39 @@ import telemetry from './telemetry.js'
 // Hard cap so a slow/broken client API can never freeze the live phone call.
 const LOOKUP_TIMEOUT_MS = 3500
 
+// ─── Per-call result cache ───────────────────────────────────────────────────
+// A caller asks about their loan, then the interest rate, then the outstanding
+// balance, then what is left to pay. That is ONE row and four questions, and it was
+// four round trips to the database — 200-460ms each, landing in the silence after
+// they finished speaking, so they heard every one.
+//
+// The cache lives on the per-call state object the engine already owns, and that is
+// the whole design. A global cache with a time limit was the obvious first answer
+// and it was wrong: on a real call five conversational turns passed between two
+// lookups, the sixty-second entry had expired, and the row was fetched again.
+// Lengthening the timer only trades that for stale money figures. The right lifetime
+// was never a duration — it is the call, which is exactly how long this object lives.
+//
+// It therefore cannot go stale across calls, cannot leak between callers, needs no
+// eviction timer, and needs no invalidation when a client re-uploads their data: the
+// next call builds a fresh one.
+//
+// WHAT IS CACHED is the RAW backend result, before the identity gate. The gate
+// depends on what the caller has said so far, so it re-runs against the cached row
+// on every lookup — a cached "verified" would be a way to inherit a verification.
+const CALL_CACHE_MAX = 50   // a pathological model cannot grow this without bound
+
+// Values are normalised the way resolveTable compares them, so "LN100046",
+// "ln 100046" and "ln-100046" are one entry rather than three.
+function cacheKey(name, args) {
+  const parts = Object.entries(args || {})
+    .map(([k, v]) => [k, String(v ?? '').trim().toLowerCase().replace(/[\s\-_/]+/g, '')])
+    .filter(([, v]) => v)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+  return `${name}|${parts.join('&')}`
+}
+
 // A miss returns an INSTRUCTION, not a status. A bare "No matching record was
 // found." gets paraphrased straight to the caller — on a real call the agent said
 // "Mee EMI details kosam look up chestunnanu, but matching record dorakaledu",
@@ -60,8 +93,16 @@ const last10 = (s) => ((String(s ?? '').match(/\d/g) || []).join('')).slice(-10)
  *
  * Off by construction for tenants that don't need it: verify_caller_identity=false.
  */
-export function gateDisclosure(row, { callerNumber, tenantConfig = {} } = {}) {
+export function gateDisclosure(row, { callerNumber, tenantConfig = {}, spokenDigits = null, alreadyVerified = false } = {}) {
   if (tenantConfig.verify_caller_identity === false) return { row, verified: true }
+  // Passing the challenge holds for the rest of the call. Without this the gate had
+  // no memory of the answer and re-fired on every lookup: on a real call the caller
+  // gave their registered number, got their EMI details, asked a follow-up question,
+  // and was challenged all over again — and because the instruction said "STILL not
+  // verified", the agent invented a second requirement, apologised, and made them
+  // repeat the number they had just given. Re-interrogating someone who has already
+  // answered is worse than not asking at all.
+  if (alreadyVerified) return { row, verified: true }
   const caller = last10(callerNumber)
   // No caller id at all (web test, blocked number) — cannot verify either way.
   if (!caller || caller.length < 10) return { row, verified: true }
@@ -73,7 +114,29 @@ export function gateDisclosure(row, { callerNumber, tenantConfig = {} } = {}) {
   if (!phones.length) return { row, verified: true }
 
   if (phones.includes(caller)) return { row, verified: true }
+  // The caller may have SAID the registered number — which is exactly the challenge
+  // this gate asks for. Checking it here compares their answer against the record in
+  // code, rather than handing the model the record and trusting it to grade itself.
+  if (spokenDigits && phones.some(p => spokenDigits.has(p))) {
+    return { row, verified: true, verifiedBy: 'spoken' }
+  }
   return { row, verified: false, challenges: challengesFor(row) }
+}
+
+/**
+ * Record any phone-length number the caller said, so gateDisclosure can check their
+ * answer against the record. Called once per caller turn by the engine.
+ *
+ * Digits only. A number the transcript spelled out in words will not match, and that
+ * is the safe direction to fail: the gate simply stays closed and the model asks.
+ */
+export function noteSpokenDigits(state, text) {
+  if (!state) return
+  if (!state.spokenDigits) state.spokenDigits = new Set()
+  for (const m of String(text || '').matchAll(/\d[\d\s-]{8,}\d/g)) {
+    const d = last10(m[0])
+    if (d.length === 10) state.spokenDigits.add(d)
+  }
 }
 
 // Fields that make a workable spoken challenge, best first. Two rules decided this
@@ -114,7 +177,20 @@ function challengesFor(row) {
 const NO_RECORD = 'No matching record was found.'
 // Built per call from the fields this record actually holds, so the agent can only
 // ask a question it is able to check.
-function unverifiedInstruction(challenges = []) {
+function unverifiedInstruction(challenges = [], alreadyAsked = false) {
+  // Second and later gated lookups on the SAME call. Re-sending the full script
+  // re-primed the model every time: on a real call it asked for the registered
+  // mobile number in three consecutive turns while the caller was trying to correct
+  // their customer ID, and the caller ended up saying "I'm saying 1000 and you're
+  // saying 100". Once asked, the reminder is a constraint, not a fresh instruction.
+  if (alreadyAsked) {
+    return `\n\nIDENTITY STILL NOT VERIFIED — you have ALREADY asked for this on this call. ` +
+      `Do NOT ask again in this reply. If the caller is correcting you, answering something else, ` +
+      `or asking a new question, deal with THAT first and completely. Only return to verification ` +
+      `once that is settled, and ask at most once more. Still no amounts, dates or account details ` +
+      `until they answer it.`
+  }
+
   const base =
     `\n\nIDENTITY NOT VERIFIED: this call is not coming from the phone number on this record. ` +
     `Do NOT read out any amount, balance, due date, interest rate or other financial detail yet, ` +
@@ -135,10 +211,13 @@ function unverifiedInstruction(challenges = []) {
   return base +
     ` Ask them for ${list}. Compare their answer with this record and continue only if it matches. ` +
     `Asking for the registered mobile number is perfectly valid even though this call came from a ` +
-    `different number — you are testing what they KNOW, not where they are calling from. Ask for ` +
-    `ONE thing at a time, naturally, the way a colleague would — never announce it as a security ` +
-    `check, never say "for security reasons", and never read out the correct answer. If they cannot ` +
-    `answer any of them, offer a callback on the registered number or hand off. [HANDOFF]`
+    `different number — you are testing what they KNOW, not where they are calling from. Ask ONE ` +
+    `thing, once, and then WAIT for their answer. ` +
+    `Never announce it as a security step: do NOT say "for security", "security purpose", ` +
+    `"security kosam", "verification ke liye" or any equivalent in any language. Just ask it the ` +
+    `way a colleague would — "and which mobile number is registered on this?" — and never read out ` +
+    `the correct answer. If they cannot answer, offer a callback on the registered number or hand ` +
+    `off. [HANDOFF]`
 }
 const NO_RECORD_INSTRUCTION =
   `${NO_RECORD} Do NOT mention lookups, records, systems, databases or searching to the ` +
@@ -189,24 +268,49 @@ export function buildLookupTools(tenantConfig = {}) {
 // can read back to the caller. NEVER throws — a failed lookup returns a friendly
 // fallback so the call keeps going.
 // ─────────────────────────────────────────────────────────────────────────────
-export async function runLookup(tenantConfig, name, args = {}, { callerNumber = null } = {}) {
+// `state` is a per-CALL scratch object owned by the engine. It exists so the
+// identity challenge is issued once per call rather than once per lookup.
+export async function runLookup(tenantConfig, name, args = {}, { callerNumber = null, state = null } = {}) {
   const lookups = Array.isArray(tenantConfig.lookups) ? tenantConfig.lookups : []
   const lk = lookups.find(l => sanitizeName(l.name) === name)
   if (!lk) return `No lookup named ${name} is configured.`
 
   const t0 = Date.now()
+  const key = cacheKey(name, args)
   try {
-    const result = await withTimeout(resolveBackend(tenantConfig, lk, args), LOOKUP_TIMEOUT_MS)
-    const ms = Date.now() - t0
-    console.log(`[LOOKUP] "${name}" ${JSON.stringify(args)} → ${result ? 'hit' : 'miss'} (${ms}ms)`)
-    telemetry.recordLatency('lookup', ms, { tenantId: tenantConfig.tenant_id })
+    // Only HITS are cached. A miss almost always means the identifier was misheard,
+    // and the caller's correction produces a different key anyway — so caching one
+    // saves nothing and would hide a row that had only just been uploaded.
+    const cached = state?.rows?.get(key)
+    let result, ms
+    if (cached !== undefined) {
+      result = cached
+      ms = Date.now() - t0
+      console.log(`[LOOKUP] ⚡ "${name}" ${JSON.stringify(args)} → cache hit (${ms}ms)`)
+      telemetry.incr(`lookup:${name}:cache_hit`)
+      telemetry.recordLatency('lookup', ms, { tenantId: tenantConfig.tenant_id, cache: true })
+    } else {
+      result = await withTimeout(resolveBackend(tenantConfig, lk, args), LOOKUP_TIMEOUT_MS)
+      ms = Date.now() - t0
+      console.log(`[LOOKUP] "${name}" ${JSON.stringify(args)} → ${result ? 'hit' : 'miss'} (${ms}ms)`)
+      telemetry.incr(`lookup:${name}:cache_miss`)
+      telemetry.recordLatency('lookup', ms, { tenantId: tenantConfig.tenant_id })
+    }
     const hit = !(result === null || result === undefined || result === '')
     telemetry.incr(`lookup:${name}:${hit ? 'hit' : 'miss'}`)
     if (!hit) return NO_RECORD_INSTRUCTION
+    if (cached === undefined && state) {
+      if (!state.rows) state.rows = new Map()
+      if (state.rows.size < CALL_CACHE_MAX) state.rows.set(key, result)
+    }
 
     // Identity gate before the model can read anything financial aloud.
-    const { verified, challenges = [] } = typeof result === 'object' && result !== null
-      ? gateDisclosure(result, { callerNumber, tenantConfig })
+    const { verified, verifiedBy, challenges = [] } = typeof result === 'object' && result !== null
+      ? gateDisclosure(result, {
+          callerNumber, tenantConfig,
+          spokenDigits: state?.spokenDigits,
+          alreadyVerified: Boolean(state?.identityVerified),
+        })
       : { verified: true }
     const payload = typeof result === 'string' ? result : JSON.stringify(result)
     if (!verified) {
@@ -216,7 +320,17 @@ export async function runLookup(tenantConfig, name, args = {}, { callerNumber = 
         component: 'compliance', severity: 'warning', kind: 'lookup_identity_unverified',
         detail: { lookup: name, callerNumber },
       })
-      return payload + unverifiedInstruction(challenges)
+      const alreadyAsked = Boolean(state?.identityChallengeSent)
+      if (state) state.identityChallengeSent = true
+      return payload + unverifiedInstruction(challenges, alreadyAsked)
+    }
+    // Latch it. Once this caller is verified they stay verified for the call.
+    if (state && !state.identityVerified) {
+      state.identityVerified = true
+      if (verifiedBy === 'spoken') {
+        console.log(`[LOOKUP] "${name}" → caller verified: they stated the registered number`)
+        telemetry.incr(`lookup:${name}:verified_by_answer`)
+      }
     }
     return payload
   } catch (e) {

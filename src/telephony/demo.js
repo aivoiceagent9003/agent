@@ -111,14 +111,13 @@ export function listDemoSectors() {
 // ─── AnswerLabs' own sales agent (the "Talk to Priya" hero on the landing page) ──
 // Not an industry demo — this is Priya selling ANSWERLABS itself. She's a live example
 // of the product, so she explains features, answers prospect questions, and guides
-// toward starting free / booking a demo. `system_prompt` is used directly (no
-// template); generic_agent strips the real-estate discovery/recommend rules.
+// toward starting free / booking a demo. `system_prompt` is used directly, and a
+// persona takes no template layer at all — see buildDemoConfig.
 export const DEMO_PERSONAS = {
   vocera: {
     id: 'vocera',
     agent_name: 'Priya',
     business_name: 'AnswerLabs',
-    generic_agent: true,
     language_code: 'en-IN',   // Indian English accent, not US
     voice: 'Leda',            // warm, natural female voice
     max_seconds: VOCERA_MAX_SECONDS,   // long session — she's explaining the product
@@ -146,9 +145,7 @@ HOW YOU SELL:
 - Answer only what they ask. Keep it short and real.
 - If they doubt the voice quality, warmly remind them they are talking to AnswerLabs right now.
 - If you do not know something, say so honestly and offer to connect them to the team.
-- Guide gently to a next step: starting free on the website, or booking a quick demo.
-
-YOU ARE NOT A REAL ESTATE OR APARTMENT AGENT. You sell software. You have NO properties, projects, locations, budgets, site visits or square footage to discuss. Ignore any rule about asking a caller's location or budget or recommending projects — that is for a different agent and does NOT apply to you. Your only subject is AnswerLabs and how it helps the caller's business.`,
+- Guide gently to a next step: starting free on the website, or booking a quick demo.`,
   },
 }
 
@@ -187,6 +184,9 @@ function clientIp(req) {
 // Everything tenant-specific (KB, lookups, WhatsApp, handoff) is turned OFF.
 function buildDemoConfig(sector) {
   const base = sector.template ? getTemplate(sector.template)?.config || {} : {}
+  // The template drives the prompt through template_id; a persona brings its own
+  // self-contained system_prompt and takes no template layer.
+  const templateId = sector.system_prompt ? null : (sector.template || null)
   const systemPrompt = sector.system_prompt
     ? sector.system_prompt
     : `${base.system_prompt || ''}\n\n${sector.facts || ''}`
@@ -195,7 +195,7 @@ function buildDemoConfig(sector) {
     agent_name: sector.agent_name || base.agent_name,
     business_name: sector.business_name,
     greeting_message: sector.greeting_message || base.greeting_message,
-    generic_agent: sector.generic_agent || base.generic_agent || false,   // self-contained prompts
+    template_id: templateId,
     language_code: sector.language_code || base.language_code,   // e.g. 'en-IN' accent
     voice: sector.voice || base.voice,
     system_prompt: systemPrompt,

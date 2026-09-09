@@ -24,7 +24,14 @@ import { enqueueAnalytics } from '../queue/queues.js'
 import { supabase } from '../api/db.js'
 import telemetry from '../services/telemetry.js'
 import { webhookQuery } from '../api/webhook-auth.js'
+import { createPlayoutTracker } from './playout.js'
+import { hangUpCall } from './hangup.js'
 import 'dotenv/config'
+
+// Margin left after the caller should have heard everything, before the line drops.
+// It covers the provider's own jitter buffer so the last syllable is never clipped.
+// Tunable, because a provider that buffers more deeply needs more of it.
+const TAIL_MS = Number(process.env.HANGUP_TAIL_MS || 700)
 
 // AI Sales calls run on Gemini Live speech-to-speech; Template ('broadcast')
 // calls play a pre-rendered TTS message instead (see runBroadcast).
@@ -59,9 +66,13 @@ function parseExtraHeaders(raw) {
 
 // Unified outbound sink. Twilio accepts arbitrary media chunk sizes; Vobiz wants
 // 20ms/160-byte playAudio frames. Mirrors makeVobizSink for the Vobiz case.
-function makeSink(ws, getStreamId, recorder, trace, provider) {
+function makeSink(ws, getStreamId, recorder, trace, provider, getProviderCallId) {
+  let ending = false
+  const playout = createPlayoutTracker()
   return {
     get readyState() { return ws.readyState },
+    /** Milliseconds of agent speech the callee has not heard yet. */
+    msRemaining() { return playout.msRemaining() },
     send(str) {
       let m
       try { m = JSON.parse(str) } catch { ws.send(str); return }
@@ -79,13 +90,36 @@ function makeSink(ws, getStreamId, recorder, trace, provider) {
           }
           trace?.packet('out', frames)
         }
+        playout.queued(buf.length)
         return
       }
       if (m.event === 'clear') {
+        playout.cleared()
         ws.send(JSON.stringify(provider === 'twilio' ? { event: 'clear', streamSid: getStreamId() } : { event: 'clearAudio', streamId: getStreamId() }))
         return
       }
       ws.send(str)
+    },
+
+    /**
+     * End the call from our side, once the caller has actually HEARD the closing
+     * line. Everything queued is still playing out at 8kHz, so closing the moment
+     * the model stops generating cuts the goodbye off mid-word.
+     *
+     * Two mechanisms, deliberately. Closing the stream returns the provider to the
+     * answer XML, which has nothing after the <Stream> and so drops the call — that
+     * is the usual path. The REST hangup is the guarantee, because "usually" is not
+     * good enough for the one feature whose whole job is ending the call.
+     */
+    endCall(reason = 'agent') {
+      if (ending) return
+      ending = true
+      const wait = playout.msRemaining() + TAIL_MS
+      console.log(`[CAMPAIGN] 👋 ending call in ${wait}ms (${reason}) — letting the last words play out`)
+      setTimeout(() => {
+        hangUpCall(getProviderCallId?.()).catch(() => {})
+        try { ws.close() } catch { /* already gone */ }
+      }, wait)
     },
   }
 }
@@ -115,6 +149,7 @@ export function handleCampaignConnection(ws) {
   console.log('[CAMPAIGN] WS connected')
   let ctx = null, dg = null, streamId = null, provider = 'vobiz'
   let callSid = null, callId = null, ready = false, finalized = false
+  let providerCallId = null   // the REST control handle, for hanging the call up
   let audioBuffer = [], transcriptBuffer = [], recorder = null, trace = null, callStart = null
 
   const getStreamId = () => streamId
@@ -131,6 +166,9 @@ export function handleCampaignConnection(ws) {
       if (!ctx) { console.error('[CAMPAIGN] no context for correlation', cid); ws.close(); return }
 
       callId = ctx.callId || null
+      // Same fallback chain as inbound: the dialer knows the uuid, but take it off
+      // the start frame too in case the campaign row predates it.
+      providerCallId = callId || msg.start?.callId || msg.start?.CallUUID || msg.callUuid || msg.CallUUID || null
       callSid = streamId || callId || `campaign-${Date.now()}`
       callStart = Date.now()
       // Opt-in, same as inbound — see the note in vobiz.js.
@@ -145,7 +183,7 @@ export function handleCampaignConnection(ws) {
       trace?.set('campaignId', ctx.campaignId)
       trace?.set('conversationState', 'active')
 
-      const sink = makeSink(ws, getStreamId, recorder, trace, provider)
+      const sink = makeSink(ws, getStreamId, recorder, trace, provider, () => providerCallId)
 
       await logCampaign(ctx, 'answered', { callSid })
 

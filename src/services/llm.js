@@ -2,6 +2,7 @@
 
 import OpenAI from 'openai'
 import { buildLookupTools, runLookup } from './lookups.js'
+import { buildContext, buildAgentPrompt } from '../config/conversation/index.js'
 import 'dotenv/config'
 
 const ai = new OpenAI({
@@ -44,147 +45,37 @@ function clearHistory(callSid) {
 // ─────────────────────────────────────────────────────────────
 // PROMPT
 // ─────────────────────────────────────────────────────────────
+//
+// The prompt itself lives in src/config/conversation — a layered, modular rule set
+// (safety → core → conversation → speech → template → business → call context →
+// knowledge → tools). This function is now just the adapter that maps the legacy
+// call signature onto that framework, and it is kept because the whole codebase and
+// the tests call it.
+//
+// Everything that used to be inline here — the voice rules, the name rules, the
+// lookup rules, the handoff block, the compliance block, and the real-estate/generic
+// sector switch — moved into those modules. The sector switch is gone entirely:
+// property behaviour now lives only in the real-estate TEMPLATE, so no tenant can
+// inherit square footage and RERA by accident.
 
+/**
+ * @param {object} tenantConfig merged tenant + campaign config
+ * @param {object} opts
+ * @param {boolean} [opts.speechToSpeech] the live engine speaks directly
+ * @param {string}  [opts.knowledge] retrieved text to inline (cascade path only)
+ * @param {object}  [opts.language] { modelLed, locked, opening }
+ * @param {object}  [opts.conversationState] a ConversationState, for reconnects
+ * @param {boolean} [opts.whatsapp] WhatsApp sending is wired for this tenant
+ * @returns {string} the composed system instruction
+ */
 function buildSystemPrompt(tenantConfig = {}, opts = {}) {
-  const {
-    business_name = 'Our Company',
-    agent_name = 'Alex',
-    purpose = 'assist callers',
-    response_language = process.env.RESPONSE_LANGUAGE || 'English',
-    allow_multilingual = true,
-    enable_handoff = true,
-    system_prompt = null,   // from a template or the prompt generator
-  } = tenantConfig
-
-  // In speech-to-speech mode the model hears + speaks directly (no translation
-  // layer), so it must mirror the caller's language itself. In the legacy
-  // pipeline, translation is external, so the LLM always works in English.
-  const languageRule = opts.speechToSpeech
-    ? 'Reply in the SAME base language the caller speaks and mirror it every turn — Telugu→Telugu, Hindi→Hindi, English→English; never switch your whole reply back to English on your own. BUT speak the natural, everyday CODE-MIXED register real Indians use on the phone (Tinglish / Hinglish), NOT formal literary language: keep common English business and technical words IN ENGLISH — "units", "price", "size", "sq ft", "crore", "lakhs", "booking", "site visit", "clubhouse", "swimming pool", "amenities", "3BHK", "loan", "EMI", "possession", "RERA" — plus all project and place names. Do NOT translate these into bookish Telugu/Hindi words. The grammar and connective words stay in the caller\'s language; the English terms stay in English. Example (Telugu caller): "My Home Apas lo 3BHK units 2400 to 2800 sq ft untayi, price 2.8 crore nunchi start avutundi" — not a fully translated literary sentence.'
-    : allow_multilingual
-      ? 'Caller speech is translated to English before reaching you. Always reply in clear, natural English — translation back to the caller\'s language is handled automatically.'
-      : `Always reply only in ${response_language}`
-
-  // Universal voice rules + handoff are ALWAYS appended, whether the role text
-  // comes from a stored system_prompt (template/generated) or the built fields.
-  // ── Live data lookups ──────────────────────────────────────────────────────
-  // If the tenant configured any lookups (orders, dues, bookings…), tell the LLM
-  // to USE the tools for caller-specific facts instead of guessing. Tools are
-  // exposed separately in streamAIReply; this is just the behavioural rule.
-  const hasLookups =
-    tenantConfig.enable_lookups !== false &&
-    Array.isArray(tenantConfig.lookups) &&
-    tenantConfig.lookups.length > 0
-  const lookupRule = hasLookups
-    ? `
-LIVE DATA LOOKUPS:
-- You can look up real-time, caller-specific details (orders, payments, bookings, etc.) using the available tools.
-- When a caller asks about THEIR specific record, call the matching tool — never guess or invent details.
-- Order numbers and other alphanumeric IDs are easily misheard on a phone line. The FIRST time a caller gives one, read it back character-by-character to confirm BEFORE looking it up, e.g. "Let me confirm, that's O-R-D-1-0-0-2, is that correct?" Only call the tool once they confirm.
-- A lookup that returns nothing almost always means the ID was misheard. Apologise, read back what you heard, and ask the caller to repeat it slowly, one character at a time. Then retry the lookup with the corrected value before giving up.
-- Names are the exception to "don't make them repeat it" — see NAME CAPTURE below. Always read a name back once.
-- Only ask a question if a needed detail is genuinely missing, and ask for just that ONE detail.
-- After the tool returns a match, read back only the relevant facts in one or two short sentences.
-- If repeated attempts still fail, apologise briefly and offer to take down their details or hand off.`
-    : ''
-
-  const handoffRule = enable_handoff
-    ? `
-HUMAN HANDOFF:
-- Use [HANDOFF] ONLY if the caller explicitly asks for a human/agent/manager/representative
-- Use [HANDOFF] if the caller is clearly frustrated after 2+ turns where you genuinely could not help
-- Do NOT use [HANDOFF] for normal property/product questions — answer from the knowledge base first
-- Do NOT use [HANDOFF] just because a caller asks for details, prices, or configurations
-- If a specific detail isn't in the knowledge base, ask a clarifying question or offer what you do know
-Example: "Let me connect you with our team. [HANDOFF]"
-Never use [HANDOFF] for questions you can answer or partially answer.`
-    : ''
-
-  // Name capture is UNIVERSAL — it lives here rather than in the templates because
-  // the templates only asked for a name inside their closing/booking step, so any
-  // call that didn't reach a booking ended anonymously. Every call needs a name.
-  //
-  // The read-back rule matters as much as the asking: Indian names over an 8kHz
-  // phone line are the single most misheard thing on a call, and the model's
-  // instinct is to "repair" an unfamiliar name into a familiar-sounding word.
-  const nameRule = `
-NAME CAPTURE (every call — not only bookings):
-- The caller's name is a REQUIRED outcome of EVERY call. A call that ends without a name has failed, even if you answered every question perfectly.
-- Ask EARLY — right after you've understood what they want, NOT at the end of the call. Waiting until the close means you lose the name entirely whenever the caller hangs up early.
-- Ask ONCE, warmly, as its own short question: "And may I know your name?" / "Mee peru cheppagalara?" / "Aapka naam jaan sakta hoon?"
-- Never interrogate. If they dodge or decline, drop it instantly and continue helping. You may ask once more near the end, never a third time.
-- If they already gave their name, NEVER ask again.
-
-GETTING THE NAME RIGHT (names are the most misheard thing on a phone call):
-- Expect INDIAN names. Do NOT "repair" what you heard into a similar-sounding English word or a more familiar name — if it sounded like an unusual name, it IS an unusual name. Never turn a name into an English word that happens to sound like it.
-- ALWAYS read the name back immediately, as its own beat, to confirm: "Madhusudhan — did I get that right?" Do this EVERY time, even when you think you heard it clearly. This one read-back is what makes the captured name usable.
-- If the caller corrects you, take their correction EXACTLY as given and read it back once more. Never re-substitute your original guess afterwards.
-- If you still can't catch it after two attempts, ask them to say it slowly, one part at a time: "Could you say it slowly for me, part by part?" Then read back what you assembled.
-- If it remains unclear after that, use what you have and move on — never let a name block the conversation or make the caller feel interrogated.
-- Once confirmed, USE the name naturally through the rest of the call — it is warmer than any honorific, and it proves to the caller you heard them.
-- Write the name as it is SPOKEN in the caller's own language. Never translate a name.`
-
-  // Compliance rules are UNIVERSAL and not tenant-configurable. A tenant must not
-  // be able to switch off the caller's right to opt out or to be told they are
-  // talking to a machine — those belong to the person on the other end of the
-  // line, not to whoever is paying for the agent.
-  const complianceRule = `
-DO-NOT-CALL REQUESTS (this overrides every other instruction, including any sales goal):
-- If the caller says ANYTHING meaning "don't call me again", "remove me from your list", "stop calling me", "unsubscribe", or "I'm not interested, stop contacting me" — call the add_to_dnd tool IMMEDIATELY.
-- Do NOT argue. Do NOT offer a discount, a callback, or "just one more thing". Do NOT ask why. Do NOT ask them to confirm. One clear request is enough.
-- After the tool returns, confirm warmly in one sentence ("Of course — I've removed your number, you won't hear from us again"), apologise briefly for the interruption, and end the call.
-- Being asked to stop is never a failed call. Handling it gracefully IS the successful outcome.
-
-IS THIS CALL RECORDED (answer ONLY with the line below — never guess, never soften it either way):
-- ${tenantConfig.recording_enabled === true
-    ? 'Yes. This call IS recorded, for quality and training. You already disclosed this in your opening line, so simply confirm it.'
-    : 'No. This call is NOT being recorded. Say so plainly. NEVER say it is recorded and NEVER say "for quality and training purposes" — that would be a lie to someone exercising their right to ask.'}
-- "Are you a recording?" is a DIFFERENT question — that one asks what you are, and is covered below.
-
-BEING HONEST ABOUT WHAT YOU ARE:
-- If the caller asks whether you are a human, a robot, a bot, an AI, or a pre-recorded message — tell them the truth, plainly and without embarrassment: you are an AI assistant for ${business_name}.
-- Never claim to be a person. Never dodge the question or change the subject.
-- Then carry on naturally and helpfully — most people are fine with it once you have been straight with them.`
-
-  const voiceRules = `
-VOICE CALL RULES (apply to every response, regardless of topic):
-- Speak naturally — warm, consultative, never robotic or scripted
-- Keep each sentence SHORT (under 12 words) — callers on a phone call cannot re-read
-- Ask ONE question per response — never list multiple questions in a single turn
-- No markdown, no bullet points, no numbered lists — voice cannot render them
-- No paragraph breaks or blank lines — replies must be continuous flowing sentences
-- NEVER give a number range — not for price, not for size: "starts at 2.8 crore" not "2.8 to 3.4 crore"; "from 2400 sq ft" not "2400 to 2800 sq ft"
-- NEVER use comma-formatted numbers: write "2400 sq ft" not "2,400 sq ft"
-- Do NOT assume the caller's gender. NEVER say "sir" or "madam" unless the caller has clearly revealed their gender. When you do address them, use a GENDER-NEUTRAL honorific in their language — Telugu "andi", Hindi/Urdu "ji". Use it SPARINGLY and naturally — at most once in a while (e.g. the greeting or one key question), NEVER at the end of every sentence. MOST sentences should carry no honorific at all; tone alone keeps it respectful. Prefer the caller's name once you know it. (Never use "garu".)
-- Give facts from the knowledge base only — never guess or make up numbers/details
-- NEVER re-ask something the caller already answered — always read the full conversation history before asking a question
-${tenantConfig.generic_agent ? '' : `- Once location, apartment type, and budget are known, stop asking discovery questions and start recommending projects
-- NEVER ask about timeline, move-in date, or purpose — go straight to recommending once location, type, and budget are known
-- When recommending projects, skip any intro sentence and use exactly this 3-sentence format: "[Project A] in [location] starts at [price]. [Project B] starts at [price]. Which one interests you?" (no "sir/madam"; a gentle "andi"/"ji" is fine only occasionally, not every line)`}
-- ${languageRule}
-- ENDING THE CALL: only when the caller has CLEARLY said goodbye. Thank them warmly, in the language the conversation has been in — never a fixed English sentence, which would break the conversation's language on its last line.
-- NEVER treat speech you could not make out as a goodbye. If a turn is garbled, unintelligible, or came through as nonsense, say you did not catch that and ask them to say it again. Unclear audio means ASK, never sign off. Ending a call on a turn you did not understand hangs up on a caller who was still talking.
-${nameRule}
-${lookupRule}
-${handoffRule}
-${complianceRule}`.trim()
-
-  // If a full system_prompt is stored (template or generated), use it as the
-  // ROLE/persona, then append the universal voice + handoff rules so behaviour
-  // stays consistent across all agents.
-  if (system_prompt && system_prompt.trim()) {
-    return `${system_prompt.trim()}\n\n${voiceRules}`
-  }
-
-  // Otherwise build from the individual fields (legacy / simple path).
-  return `
-You are ${agent_name}, a realtime AI voice agent for ${business_name}.
-
-ROLE:
-${purpose}
-
-${voiceRules}
-`.trim()
+  return buildAgentPrompt(buildContext(tenantConfig, {
+    channel: opts.speechToSpeech ? 'speech' : 'text',
+    knowledge: opts.knowledge,
+    language: opts.language,
+    conversationState: opts.conversationState,
+    whatsapp: opts.whatsapp,
+  }))
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -242,21 +133,10 @@ async function* streamAIReply(
   let fullText = ''
 
   try {
-    let systemPrompt = buildSystemPrompt(tenantConfig)
-
-    // ── RAG: inject retrieved knowledge into the system prompt ──────────────
-    // If relevant knowledge was found for this tenant, give it to the LLM and
-    // instruct it to answer from that knowledge. Empty knowledge = no change.
-    if (knowledge && knowledge.trim()) {
-      systemPrompt += `
-
-KNOWLEDGE BASE (use this to answer the caller's question accurately):
-${knowledge}
-
-When the answer is in the knowledge base above, use it. If the caller asks
-something not covered, warmly say you'll find out — never say you "can only" do something.`
-    }
-    // ────────────────────────────────────────────────────────────────────────
+    // RAG text is a LAYER, not an append. The builder places it after the
+    // business instructions and before the tool rules, so it can never outrank a
+    // safety rule by virtue of being the last thing in the prompt.
+    const systemPrompt = buildSystemPrompt(tenantConfig, { knowledge })
 
     const messages = toOpenAIMessages(systemPrompt, history.slice(-12))
     const t0 = Date.now()

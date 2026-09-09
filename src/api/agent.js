@@ -12,7 +12,8 @@ import { supabase } from './db.js'
 import { requireClient } from './auth.js'
 import { requirePermission } from './permissions.js'
 import { TEMPLATES, getTemplate } from './templates.js'
-import { buildSystemPrompt, streamAIReply, clearHistory } from '../services/llm.js'
+import { streamAIReply, clearHistory } from '../services/llm.js'
+import { buildContext, describeLayers } from '../config/conversation/index.js'
 import { retrieveKnowledge } from '../services/rag.js'
 import { listGeminiVoices } from '../services/gemini-voices.js'
 import { ingestText } from '../ingest.js'
@@ -132,11 +133,19 @@ async function extractTextFromFile(file) {
 // ─── Templates are public-ish (any logged-in client can browse them) ──────────
 router.get('/templates', (req, res) => {
   // Return lightweight list (no need to send full prompts for the picker)
+  // The picker now shows what an agent actually DOES — its goals, what it finds
+  // out, and how a call can end — instead of a label and an icon. That is only
+  // possible because templates are structured data rather than a prompt blob.
   res.json(TEMPLATES.map(t => ({
     id: t.id,
     label: t.label,
     description: t.description,
     icon: t.icon,
+    category: t.category,
+    strategy: t.strategy,
+    goals: t.goals,
+    collects: t.collects,
+    outcomes: t.outcomes,
     suggested_kb_topics: t.suggested_kb_topics,
   })))
 })
@@ -145,6 +154,23 @@ router.get('/templates/:id', (req, res) => {
   const t = getTemplate(req.params.id)
   if (!t) return res.status(404).json({ error: 'Template not found' })
   res.json(t)  // full template incl. config + system_prompt
+})
+
+// ─── Prompt layer inspection (debugging) ──────────────────────────────────────
+// Which layers this tenant's agent is composed from, and how big each one is —
+// never the prompt text itself. That distinction matters: the composed instruction
+// contains the caller's own record on an outbound call, so it is not something to
+// hand back over an API. Sizes and names are enough to answer the question this
+// endpoint exists for, which is "why is my agent behaving like that?".
+router.get('/prompt-layers', async (req, res) => {
+  const { data, error } = await supabase
+    .from('tenants').select('id, name, config').eq('id', req.auth.tenantId).single()
+  if (error || !data) return res.status(404).json({ error: 'Agent not found' })
+  const cfg = { ...(data.config || {}), tenant_id: data.id, business_name: (data.config || {}).business_name || data.name }
+  res.json({
+    live: describeLayers(buildContext(cfg, { channel: 'speech' })),
+    cascade: describeLayers(buildContext(cfg, { channel: 'text' })),
+  })
 })
 
 // ─── Available voices (for the "Choose what voice to speak" picker) ───────────
@@ -195,11 +221,8 @@ Output ONLY the system prompt text, nothing else.`
         allow_multilingual: (languages || []).length > 1 || (languages || []).includes('Hindi'),
         enable_handoff: true,
         enable_kb: true,
-        use_sarvam_stt: true,
-        language_hint: 'unknown',   // auto-detect; client can override
-        translate_replies: true,    // translate LLM replies to caller's language
+        // A generated agent has no template — its description IS its business layer.
         system_prompt,
-        filler_phrases: ['Let me check that for you.', 'One moment, please.'],
       },
     })
   } catch (e) {

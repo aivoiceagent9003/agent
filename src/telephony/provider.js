@@ -76,6 +76,16 @@ export function originateUrl(authId) {
 }
 
 /**
+ * Where to send the provider's explicit HANGUP for a live call leg (DELETE).
+ * Same per-call resource as the transfer, but deliberately NOT sharing
+ * transferUrl: that one honours a *_TRANSFER_URL override which may point at a
+ * different endpoint entirely, and issuing a DELETE against it would be wrong.
+ */
+export function hangupUrl(authId, callUuid) {
+  return `${callApiBase(authId)}${encodeURIComponent(callUuid)}/`
+}
+
+/**
  * Where to POST to REDIRECT a live call leg (human handoff). Both providers take
  * the call uuid as a path segment on the Call API.
  * The override may contain {call_uuid} as a placeholder.
