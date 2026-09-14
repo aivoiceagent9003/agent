@@ -217,6 +217,62 @@ describe('sector isolation', () => {
   })
 })
 
+// ─── Company rules ───────────────────────────────────────────────────────────
+// Two firms in one industry, one template, two different calls. These assert the
+// layer renders, is gated on real content, and lands where its authority says it
+// should — never that a particular rule is worded a particular way.
+
+describe('company rules', () => {
+  const withRules = (rules, over = {}) =>
+    speech(tenant({ template_id: 'real_estate_sales', company_rules: rules, ...over }))
+
+  const RULE = 'Ask which project they are calling about before discussing price.'
+
+  it('renders the rule the company wrote', () => {
+    expect(flat(layer(withRules([{ id: 'a', text: RULE }]), 'company_rules'))).toContain(RULE)
+  })
+
+  it('sits directly after the template it refines', () => {
+    const n = names(withRules([{ id: 'a', text: RULE }]))
+    expect(n[n.indexOf('template') + 1]).toBe('company_rules')
+  })
+
+  it('stays below the safety and core layers that outrank it', () => {
+    const n = names(withRules([{ id: 'a', text: RULE }]))
+    expect(n.indexOf('safety')).toBeLessThan(n.indexOf('company_rules'))
+    expect(n.indexOf('core')).toBeLessThan(n.indexOf('company_rules'))
+  })
+
+  it('does not render at all without rules', () => {
+    for (const empty of [undefined, [], null, 'not an array']) {
+      expect(names(withRules(empty))).not.toContain('company_rules')
+    }
+  })
+
+  it('ignores blank and malformed entries rather than rendering a naked bullet', () => {
+    const n = names(withRules([{ id: 'a', text: '   ' }, { id: 'b' }, {}]))
+    expect(n).not.toContain('company_rules')
+  })
+
+  it('strips a bullet the compiler left on, so it never doubles up', () => {
+    const text = layer(withRules([{ id: 'a', text: `- ${RULE}` }]), 'company_rules')
+    expect(text).not.toMatch(/-\s+-\s/)
+    expect(flat(text)).toContain(`- ${RULE}`)
+  })
+
+  it('keeps one company\'s rules out of another company\'s prompt', () => {
+    const aparna = buildAgentPrompt(withRules([{ id: 'a', text: RULE }]))
+    const myHome = buildAgentPrompt(withRules([{ id: 'b', text: 'Offer a site visit on every call.' }]))
+    expect(aparna).toContain(RULE)
+    expect(myHome).not.toContain(RULE)
+  })
+
+  it('reaches the composed prompt on a tenant with no template at all', () => {
+    const p = buildAgentPrompt(speech(tenant({ company_rules: [{ id: 'a', text: RULE }] })))
+    expect(p).toContain(RULE)
+  })
+})
+
 // ─── Call context ────────────────────────────────────────────────────────────
 
 describe('call context', () => {
@@ -356,6 +412,27 @@ describe('not asking "anything else?" after every answer', () => {
 
   it('makes answer-then-stop the default shape of a reply', () => {
     expect(t()).toMatch(/That is the DEFAULT shape of a reply: answer, then stop talking/)
+  })
+})
+
+describe('saying an identifier and looking it up', () => {
+  const t = () => flat(layer(speech(tenant()), 'speech'))
+
+  it('requires the spoken value and the searched value to be identical', () => {
+    // The caller gave LN100077, the agent said it back correctly, and searched
+    // LN1000077. One extra zero nobody could hear, and a real customer was told
+    // twice that they did not exist.
+    expect(t()).toMatch(/WHAT YOU SAY AND WHAT YOU LOOK UP MUST BE THE SAME VALUE/)
+    expect(t()).toMatch(/not from your memory of what you heard/i)
+  })
+
+  it('forbids tidying a character out of an identifier', () => {
+    expect(t()).toMatch(/Never add, drop or "tidy" a character/i)
+    expect(t()).toMatch(/Leading zeros, repeated digits/i)
+  })
+
+  it('still bans the grouping that hid the error', () => {
+    expect(t()).toMatch(/Never compress a run into "double", "triple"/i)
   })
 })
 

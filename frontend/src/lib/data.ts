@@ -174,6 +174,34 @@ export async function testAgent(
   });
 }
 
+// ─── Company rules ──────────────────────────────────────────────────────────
+// The owner's own "here's what it should do differently", compiled into rules that
+// join the agent's instructions beneath the industry template. `source` keeps their
+// original wording so a later edit refines what they said, not what we generated.
+
+export interface CompanyRule {
+  id: string;
+  text: string;
+  source?: string;
+  created_at?: string;
+}
+
+export interface CompiledCompanyRules {
+  rules: { text: string; source?: string }[];
+  /** Asks that collide with a safety or accuracy rule, with the nearest thing we can do. */
+  rejected: { text: string; reason: string; suggestion?: string }[];
+}
+
+export async function compileCompanyRules(input: {
+  feedback: string;
+  config?: any;
+}): Promise<CompiledCompanyRules> {
+  return apiFetch("/api/client/agent/company-rules/compile", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function resetTest(session_id: string): Promise<void> {
   await apiFetch("/api/client/agent/test/reset", {
     method: "POST",
@@ -283,6 +311,8 @@ export interface LookupConfig {
 export interface LookupDataset {
   dataset: string;
   rows: number;
+  // Derived from the rows, not stored: when this sheet was last uploaded.
+  updated_at?: string | null;
 }
 
 export function useLookups() {
@@ -311,13 +341,18 @@ export function useSaveLookups() {
 
 // Upload a CSV data sheet for the 'table' backend (multipart, so it bypasses
 // apiFetch's JSON Content-Type).
+//
+// mode "replace" wipes the dataset first — right for a fresh export, destructive
+// of anything added or corrected since. "append" adds to what is there.
 export async function uploadLookupSheet(
   dataset: string,
   file: File,
-): Promise<{ dataset: string; rows_added: number; columns: string[] }> {
+  mode: "replace" | "append" = "replace",
+): Promise<{ dataset: string; rows_added: number; mode: string; columns: string[] }> {
   const token = getToken();
   const form = new FormData();
   form.append("dataset", dataset);
+  form.append("mode", mode);
   form.append("file", file);
   const res = await fetch(`${BASE_URL}/api/client/agent/lookups/dataset`, {
     method: "POST",

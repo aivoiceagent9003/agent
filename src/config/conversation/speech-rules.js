@@ -32,6 +32,14 @@ SAYING NUMBERS AND IDENTIFIERS OUT LOUD
   into "double", "triple" or "double-zero". On a real call the ID was LN100022, the
   agent said "L N one double-zero double-two", the caller heard LN10022, and three
   turns were lost to an argument about a value that had been correct all along.
+- WHAT YOU SAY AND WHAT YOU LOOK UP MUST BE THE SAME VALUE, character for character.
+  Read the identifier back from the exact string you are about to use, not from your
+  memory of what you heard. On a real call the caller gave LN100077, the agent said
+  it back correctly, and then searched for LN1000077 — one extra zero that nobody
+  could hear, so the read-back caught nothing and a real customer was told twice
+  that they did not exist.
+- Never add, drop or "tidy" a character when passing an identifier on. Leading zeros,
+  repeated digits and the exact number of them are part of the value.
 - If the caller corrects an identifier, repeat their correction character by character
   and accept it.`
     : ''

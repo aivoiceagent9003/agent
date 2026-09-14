@@ -120,7 +120,9 @@ export function gateDisclosure(row, { callerNumber, tenantConfig = {}, spokenDig
   if (spokenDigits && phones.some(p => spokenDigits.has(p))) {
     return { row, verified: true, verifiedBy: 'spoken' }
   }
-  return { row, verified: false, challenges: challengesFor(row) }
+  // Only checkable challenges: the caller's answer must be something the code can
+  // compare, because the record is not released until it does.
+  return { row, verified: false, challenges: challengesFor(row, { checkableOnly: true }) }
 }
 
 /**
@@ -153,21 +155,29 @@ export function noteSpokenDigits(state, text) {
 // not remember it and offered their registered number instead — which the agent then
 // refused, because the hardcoded list did not mention it. Nobody remembers what they
 // last paid to the rupee.
+//
+// The third element says whether the CODE can check the answer. Only spoken digits
+// are captured from the transcript, so only the mobile number qualifies. That flag
+// is load-bearing now that the record is withheld until verification: a question
+// nothing can check would never release the record, so a genuine caller would
+// answer correctly and be asked again forever. An unverifiable challenge was
+// merely weak before; it is a trap now.
 const CHALLENGE_FIELDS = [
-  [/phone|mobile|msisdn|cell|contact.?no/i,        'the mobile number registered on the account'],
-  [/date.?of.?birth|^dob$|birth.?date/i,           'their date of birth as registered'],
-  [/address|pin.?code|pincode|city|locality/i,     'their registered address'],
-  [/email/i,                                       'the email address on the account'],
-  [/start.?date|loan.?start|disburs|open.?date/i,  'the date the loan started'],
+  [/phone|mobile|msisdn|cell|contact.?no/i,        'the mobile number registered on the account', true],
+  [/date.?of.?birth|^dob$|birth.?date/i,           'their date of birth as registered', false],
+  [/address|pin.?code|pincode|city|locality/i,     'their registered address', false],
+  [/email/i,                                       'the email address on the account', false],
+  [/start.?date|loan.?start|disburs|open.?date/i,  'the date the loan started', false],
 ]
 
 // Only offer challenges we can actually CHECK — a question whose answer is not in
 // the record is theatre, and it sent a real caller round in circles being asked for
 // a date of birth this tenant does not store.
-function challengesFor(row) {
+function challengesFor(row, { checkableOnly = false } = {}) {
   const keys = Object.keys(row || {})
   const out = []
-  for (const [re, label] of CHALLENGE_FIELDS) {
+  for (const [re, label, checkable] of CHALLENGE_FIELDS) {
+    if (checkableOnly && !checkable) continue
     if (keys.some(k => re.test(k) && String(row[k] ?? '').trim())) out.push(label)
     if (out.length >= 3) break
   }
@@ -175,6 +185,25 @@ function challengesFor(row) {
 }
 
 const NO_RECORD = 'No matching record was found.'
+
+// What the model gets INSTEAD of the record while the caller is unverified.
+//
+// Previously the full row was sent, followed by an instruction not to use it. The
+// data and the prohibition travelled together, so the only thing standing between
+// a caller and someone else's loan position was the model choosing to obey — and
+// the instruction also asked it to compare the caller's answer against a record it
+// was simultaneously told to keep secret. It was grading its own exam with the
+// answer key in hand. On one call it thanked the account holder by name before
+// asking anything; on another it released the outstanding amount one turn after a
+// number was spoken, before any code had compared that number to anything.
+//
+// Now the row stays on this side. The model is told a record exists so it does not
+// apologise for failing to find one, and nothing else.
+const WITHHELD = JSON.stringify({
+  record_found: true,
+  details_withheld: 'caller identity not verified',
+})
+
 // Built per call from the fields this record actually holds, so the agent can only
 // ask a question it is able to check.
 function unverifiedInstruction(challenges = [], alreadyAsked = false) {
@@ -183,18 +212,32 @@ function unverifiedInstruction(challenges = [], alreadyAsked = false) {
   // mobile number in three consecutive turns while the caller was trying to correct
   // their customer ID, and the caller ended up saying "I'm saying 1000 and you're
   // saying 100". Once asked, the reminder is a constraint, not a fresh instruction.
+  // What the model must understand in both branches: it does not have the record.
+  // Saying "do not read out the balance" would be nonsense — there is no balance in
+  // front of it. The risk to guard against now is the opposite one, inventing a
+  // figure to fill the silence.
+  const nothingHeld =
+    `You have NOT been given this account's details — no name, no amounts, no dates. ` +
+    `You therefore cannot state any of them, and you must not guess, estimate or invent ` +
+    `one. Do not confirm or deny anything about the account, including whether it exists.`
+
+  const reLookup =
+    `THE MOMENT THEY ANSWER, CALL THIS LOOKUP AGAIN with the same details you used before. ` +
+    `That second call is what checks their answer and returns the account — it is the only ` +
+    `way you will ever get it. Do not tell them they are verified, do not thank them for ` +
+    `confirming, and do not carry on as though you now have their information: until you ` +
+    `call the lookup again you still have nothing.`
+
   if (alreadyAsked) {
     return `\n\nIDENTITY STILL NOT VERIFIED — you have ALREADY asked for this on this call. ` +
       `Do NOT ask again in this reply. If the caller is correcting you, answering something else, ` +
       `or asking a new question, deal with THAT first and completely. Only return to verification ` +
-      `once that is settled, and ask at most once more. Still no amounts, dates or account details ` +
-      `until they answer it.`
+      `once that is settled, and ask at most once more. ${nothingHeld}\n\n${reLookup}`
   }
 
   const base =
     `\n\nIDENTITY NOT VERIFIED: this call is not coming from the phone number on this record. ` +
-    `Do NOT read out any amount, balance, due date, interest rate or other financial detail yet, ` +
-    `and do not confirm or deny anything about the account — not even the account holder's name.`
+    nothingHeld
 
   if (!challenges.length) {
     // Nothing in this record can be checked, so any question would be theatre.
@@ -209,21 +252,45 @@ function unverifiedInstruction(challenges = [], alreadyAsked = false) {
     : challenges.slice(0, -1).join(', ') + ', or ' + challenges[challenges.length - 1]
 
   return base +
-    ` Ask them for ${list}. Compare their answer with this record and continue only if it matches. ` +
+    ` Ask them for ${list}. ` +
     `Asking for the registered mobile number is perfectly valid even though this call came from a ` +
     `different number — you are testing what they KNOW, not where they are calling from. Ask ONE ` +
     `thing, once, and then WAIT for their answer. ` +
     `Never announce it as a security step: do NOT say "for security", "security purpose", ` +
     `"security kosam", "verification ke liye" or any equivalent in any language. Just ask it the ` +
-    `way a colleague would — "and which mobile number is registered on this?" — and never read out ` +
-    `the correct answer. If they cannot answer, offer a callback on the registered number or hand ` +
-    `off. [HANDOFF]`
+    `way a colleague would — "and which mobile number is registered on this?".\n\n` +
+    `${reLookup}\n\n` +
+    `If they cannot answer, offer a callback on the registered number or hand off. [HANDOFF]`
 }
-const NO_RECORD_INSTRUCTION =
-  `${NO_RECORD} Do NOT mention lookups, records, systems, databases or searching to the ` +
-  `caller — they do not care how you find things, and naming the machinery is what makes ` +
-  `you sound like a robot. Simply ask, naturally and in the caller's language, for the one ` +
-  `detail you still need (their customer ID or registered phone number), the way a colleague would.`
+const NEVER_NARRATE =
+  `Do NOT mention lookups, records, systems, databases or searching to the caller — they do ` +
+  `not care how you find things, and naming the machinery is what makes you sound like a robot.`
+
+function noRecordInstruction(args = {}) {
+  // The identifier we actually searched with, as a string, so the model reads back
+  // what it USED rather than what it believes it heard.
+  const searched = Object.entries(args)
+    .map(([k, v]) => [k, String(v ?? '').trim()])
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k.replace(/_/g, ' ')} "${v}"`)
+
+  if (!searched.length) {
+    return `${NO_RECORD} ${NEVER_NARRATE} Simply ask, naturally and in the caller's language, ` +
+      `for the one detail you still need (their customer ID or registered phone number), the ` +
+      `way a colleague would.`
+  }
+
+  return `${NO_RECORD} You searched using ${searched.join(' and ')}. ${NEVER_NARRATE}\n\n` +
+    `ALMOST CERTAINLY YOU HAVE ONE CHARACTER WRONG — that is far more likely than the caller ` +
+    `not existing, so do NOT tell them there is no record and do NOT suggest a technical fault. ` +
+    `Read back the EXACT value above, one character at a time, and ask them to confirm it: ` +
+    `"L, N, one, zero, zero, zero, seven, seven — is that right?". Say every character ` +
+    `separately. NEVER say "double", "triple", "double-zero" or any similar grouping — that is ` +
+    `how the wrong number gets confirmed as the right one.\n\n` +
+    `If they correct a character, use their corrected value EXACTLY as given and try again. If ` +
+    `they confirm it unchanged, ask for a DIFFERENT detail instead — their registered phone ` +
+    `number if you tried an ID, or their ID if you tried a number — and try that.`
+}
 
 // Tool/function names must match ^[a-zA-Z0-9_-]+$ for the OpenAI API. We also use
 // the sanitized form as the stable identifier when matching a tool call back to
@@ -298,7 +365,7 @@ export async function runLookup(tenantConfig, name, args = {}, { callerNumber = 
     }
     const hit = !(result === null || result === undefined || result === '')
     telemetry.incr(`lookup:${name}:${hit ? 'hit' : 'miss'}`)
-    if (!hit) return NO_RECORD_INSTRUCTION
+    if (!hit) return noRecordInstruction(args)
     if (cached === undefined && state) {
       if (!state.rows) state.rows = new Map()
       if (state.rows.size < CALL_CACHE_MAX) state.rows.set(key, result)
@@ -322,7 +389,9 @@ export async function runLookup(tenantConfig, name, args = {}, { callerNumber = 
       })
       const alreadyAsked = Boolean(state?.identityChallengeSent)
       if (state) state.identityChallengeSent = true
-      return payload + unverifiedInstruction(challenges, alreadyAsked)
+      // WITHHELD, not payload. The record never leaves this function until the
+      // code — not the model — has matched the caller's answer against it.
+      return WITHHELD + unverifiedInstruction(challenges, alreadyAsked)
     }
     // Latch it. Once this caller is verified they stay verified for the call.
     if (state && !state.identityVerified) {
@@ -395,11 +464,33 @@ async function resolveTable(tenantId, dataset, args) {
     .filter(Boolean)
   if (!values.length) return null
 
-  // Compare ignoring case, spaces, and separators so "ORD 1002", "ORD1002" and
-  // "ord-1002" are all treated as equal — regardless of how the caller said it or
-  // how the sheet stored it.
-  const norm = s => String(s).trim().toLowerCase().replace(/[\s\-_/]+/g, '')
+  // Compare ignoring case, spaces and the punctuation people write inside numbers,
+  // so "ORD 1002", "ORD1002", "ord-1002" and "+91 71851-88888" all reduce to the
+  // same thing — regardless of how the caller said it or how the sheet stored it.
+  //
+  // Currency symbols and thousands commas are deliberately NOT stripped. Stripping
+  // them would turn the EMI amount "₹96,212" into "96212", which could then satisfy
+  // an exact match for a customer ID of 96212 and return a stranger's row.
+  const norm = s => String(s).trim().toLowerCase().replace(/[\s\-_/.+()]+/g, '')
   const wanted = values.map(norm).filter(Boolean)
+
+  // A phone number, however it happens to be written. The last ten digits ARE the
+  // number: "+91 7185188888", "917185188888", "07185188888" and "7185188888" are one
+  // phone, and callers say the short form while spreadsheets store the long one.
+  //
+  // This is why a correct number was refused on a real call. The record held
+  // "+91 7185188888", the caller said "7185188888", exact string matching said no,
+  // and strict mode — rightly — would not fall back to the fuzzy row. So the lookup
+  // rejected the right record and the caller was told twice that they did not exist.
+  //
+  // Bounded at 13 digits so a long account number never gets matched on its tail.
+  // Values containing letters are never treated as phone numbers: an ID keeps full,
+  // exact, character-for-character matching, because that is someone's money.
+  const phoneKey = (raw) => {
+    const n = norm(raw)
+    if (!/^[0-9]+$/.test(n)) return null
+    return n.length >= 10 && n.length <= 13 ? n.slice(-10) : null
+  }
 
   // Which of these arguments are IDENTIFIERS? A phone number, an account / policy
   // / loan / customer id, a reference code. Those must match EXACTLY: a substring
@@ -418,7 +509,16 @@ async function resolveTable(tenantId, dataset, args) {
   // Strict mode: at least one identifier was supplied, so ONLY an exact match on
   // an identifier value may be returned. No first-fuzzy-row fallback.
   const strict = idEntries.length > 0
-  const wantedIds = idEntries.map(([, v]) => norm(v)).filter(Boolean)
+  const wantedIds = new Set(idEntries.map(([, v]) => norm(v)).filter(Boolean))
+  const wantedPhones = new Set(idEntries.map(([, v]) => phoneKey(v)).filter(Boolean))
+
+  // An identifier matches if the whole normalised value is identical, or — for phone
+  // numbers only — if the last ten digits are.
+  const matchesIdentifier = (val) => {
+    if (wantedIds.has(norm(val))) return true
+    const p = phoneKey(val)
+    return p !== null && wantedPhones.has(p)
+  }
 
   const query = async (probe, limit) =>
     supabase
@@ -434,7 +534,7 @@ async function resolveTable(tenantId, dataset, args) {
   // while the account number never did.
   const findExact = rows =>
     (rows || []).find(r => Object.values(r.row || {})
-      .some(val => (strict ? wantedIds : wanted).includes(norm(val))))
+      .some(val => (strict ? matchesIdentifier(val) : wanted.includes(norm(val)))))
 
   // ── Phase 1: full-value probes (raw + space-stripped) ──────────────────────
   // Handles "ORD 1002" (query) vs "ORD1002" (stored). The fuzzy first-row
@@ -445,6 +545,11 @@ async function resolveTable(tenantId, dataset, args) {
   for (const v of values) {
     mainProbes.add(v.toLowerCase())
     mainProbes.add(v.replace(/\s+/g, '').toLowerCase())
+    // The bare ten digits, so the substring probe still finds a row when the caller
+    // gave the number WITH a country code and the sheet stored it without, or the
+    // other way round.
+    const p = phoneKey(v)
+    if (p) mainProbes.add(p)
   }
   for (const probe of [...mainProbes].filter(Boolean).sort((a, b) => b.length - a.length)) {
     const { data, error } = await query(probe, 5)
@@ -482,6 +587,27 @@ async function resolveTable(tenantId, dataset, args) {
     }
   }
 
+  // Nothing matched. Before reporting a plain miss, say whether the sheet this
+  // lookup points at exists at all — because those are completely different
+  // faults and they look identical in the log.
+  //
+  // A tenant had 100,000 correct rows in a sheet named after the file they
+  // uploaded, while their lookup still searched a sheet named "Loan Status" that
+  // had never existed. Every call failed, and the only trace was "→ miss", which
+  // reads as "that customer isn't in your data". One extra count on the miss path
+  // is a cheap price for not losing an afternoon to that again.
+  const { count } = await supabase
+    .from('lookup_rows')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId).eq('dataset', dataset)
+  if (!count) {
+    console.warn(
+      `[LOOKUP] ⚠️ dataset "${dataset}" holds NO rows for this tenant — the lookup is ` +
+      `pointed at a sheet that was never uploaded (or was renamed). Every lookup will ` +
+      `miss until the lookup's dataset name matches an uploaded sheet.`,
+    )
+  }
+
   return null
 }
 
@@ -489,6 +615,15 @@ async function resolveTable(tenantId, dataset, args) {
 // Dataset ingestion — store an uploaded data sheet for the `table` backend.
 // Each row is kept as jsonb plus a flattened `search_text` for fast ILIKE.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// The one place search_text is derived. Every write path — bulk ingest, a single
+// row created by hand, a single row edited — must go through this, because a row
+// whose search_text disagrees with its `row` is invisible to the live call: the
+// ILIKE probe never finds it, and the caller is told they do not exist.
+export function searchTextFor(row) {
+  return Object.values(row || {}).map(v => String(v ?? '')).join(' ').toLowerCase()
+}
+
 export async function ingestDataset(tenantId, dataset, rows, { replace = true } = {}) {
   if (!tenantId || !dataset || !Array.isArray(rows) || !rows.length) {
     return { rows_added: 0 }
@@ -502,7 +637,7 @@ export async function ingestDataset(tenantId, dataset, rows, { replace = true } 
     tenant_id: tenantId,
     dataset,
     row,
-    search_text: Object.values(row).map(v => String(v ?? '')).join(' ').toLowerCase(),
+    search_text: searchTextFor(row),
   }))
 
   let added = 0
@@ -523,22 +658,296 @@ export async function ingestDataset(tenantId, dataset, rows, { replace = true } 
   return { rows_added: added }
 }
 
-// List a tenant's datasets with row counts (for the builder UI).
+// A tenant is not expected to have more sheets than this. The bound exists so a
+// bug in the cursor walk below can never become an unbounded query loop.
+const MAX_DATASETS = 200
+
+/**
+ * The distinct sheet names a tenant has, without reading their rows.
+ *
+ * PostgREST has no DISTINCT, so this walks the names: ask for the first row
+ * ordered by dataset, then the first row whose dataset sorts after that one, and
+ * so on. Each request returns exactly one row and lands on the
+ * (tenant_id, dataset) index, so a tenant with three sheets and a million rows
+ * costs four tiny queries.
+ *
+ * The obvious alternative — select every row's dataset and reduce client-side —
+ * is what was here, and it is wrong twice over. PostgREST caps a select at 1000
+ * rows, so it both undercounts and, worse, can miss a sheet entirely: with 100k
+ * rows in "loans" and 5 in "orders", the first 1000 rows are all "loans" and
+ * "orders" vanishes from the client's dashboard.
+ */
+async function distinctDatasets(tenantId) {
+  const names = []
+  let after = null
+  for (let i = 0; i < MAX_DATASETS; i++) {
+    let q = supabase
+      .from('lookup_rows')
+      .select('dataset')
+      .eq('tenant_id', tenantId)
+      .order('dataset', { ascending: true })
+      .limit(1)
+    if (after !== null) q = q.gt('dataset', after)
+    const { data, error } = await q
+    if (error) { console.error('[LOOKUP] distinctDatasets error:', error.message); break }
+    if (!data?.length) break
+    names.push(data[0].dataset)
+    after = data[0].dataset
+  }
+  return names
+}
+
+/**
+ * A tenant's uploaded sheets, one entry each: row count and when it was last
+ * uploaded — the two things the manager UI shows.
+ *
+ * The count comes from the database with head: true, so the number is exact and
+ * no rows cross the wire. Counting them here instead reported 1000 for a sheet of
+ * 100,000, because that is where PostgREST stops sending.
+ */
 export async function listDatasets(tenantId) {
   if (!tenantId) return []
-  const { data, error } = await supabase
-    .from('lookup_rows')
-    .select('dataset')
-    .eq('tenant_id', tenantId)
-  if (error) { console.error('[LOOKUP] listDatasets error:', error.message); return [] }
-  const counts = new Map()
-  for (const r of data || []) counts.set(r.dataset, (counts.get(r.dataset) || 0) + 1)
-  return [...counts.entries()].map(([dataset, rows]) => ({ dataset, rows }))
+
+  const names = await distinctDatasets(tenantId)
+
+  return Promise.all(names.map(async (dataset) => {
+    const [{ count }, { data: latest }] = await Promise.all([
+      // head: true → the server counts, and sends no rows at all.
+      supabase.from('lookup_rows')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId).eq('dataset', dataset),
+      supabase.from('lookup_rows')
+        .select('created_at')
+        .eq('tenant_id', tenantId).eq('dataset', dataset)
+        .order('created_at', { ascending: false }).limit(1),
+    ])
+    return { dataset, rows: count ?? 0, updated_at: latest?.[0]?.created_at ?? null }
+  }))
 }
 
 export async function deleteDataset(tenantId, dataset) {
   if (!tenantId || !dataset) return
   await supabase.from('lookup_rows').delete().eq('tenant_id', tenantId).eq('dataset', dataset)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editing the data — browse, add, correct and remove single rows.
+//
+// Until now the only way to change a dataset was to re-upload the whole sheet,
+// which replaces every row. That is the wrong tool for the job people actually
+// have: one customer paid their EMI, one phone number was typed wrong, one new
+// account opened. Re-uploading to fix a single cell means exporting, editing and
+// re-importing thousands of rows — and any row added since the last export is
+// silently destroyed, because the upload path replaces rather than merges.
+//
+// These are ordinary CRUD functions with two non-negotiables:
+//   1. tenant_id is in the WHERE clause of every read and write. A row id is a
+//      uuid, but guessing is not the threat — a bug that drops the scope is, and
+//      this table holds other businesses' customer records.
+//   2. search_text is rewritten from the row on every write (searchTextFor).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MAX_COLUMNS = 60
+const MAX_KEY_LENGTH = 200
+const MAX_VALUE_LENGTH = 2000
+
+// A refusal the client caused and can fix, flagged so the route can answer 400
+// with this exact wording. A database failure carries no flag and must never have
+// its message forwarded — it would leak schema detail to a tenant.
+const invalid = (message) => Object.assign(new Error(message), { invalid: true })
+
+/**
+ * Validate and clean one row before it is stored.
+ *
+ * Values are coerced to trimmed strings so a hand-typed row is indistinguishable
+ * from an uploaded one — the CSV parser produces strings for everything, and the
+ * matching in resolveTable normalises strings. A row where the EMI is the number
+ * 96212 in one record and the string "96,212" in the next is a matching bug
+ * waiting to happen.
+ *
+ * Nested objects and arrays are refused rather than flattened: search_text would
+ * render them "[object Object]", so the row would exist and never be findable.
+ *
+ * @throws {Error} with a message meant to be shown to the client.
+ */
+export function normalizeRow(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    throw invalid('A row must be an object of column names and values.')
+  }
+
+  const entries = Object.entries(row)
+  if (entries.length > MAX_COLUMNS) {
+    throw invalid(`A row can have at most ${MAX_COLUMNS} columns.`)
+  }
+
+  const clean = {}
+  for (const [rawKey, rawValue] of entries) {
+    const key = String(rawKey).trim()
+    if (!key) continue                                    // an unnamed column is not a column
+    if (key.length > MAX_KEY_LENGTH) {
+      throw invalid(`Column name "${key.slice(0, 40)}…" is too long.`)
+    }
+    if (rawValue !== null && rawValue !== undefined && typeof rawValue === 'object') {
+      throw invalid(`Column "${key}" must hold a single value, not a list or a nested object.`)
+    }
+    const value = rawValue === null || rawValue === undefined ? '' : String(rawValue).trim()
+    if (value.length > MAX_VALUE_LENGTH) {
+      throw invalid(`The value in "${key}" is too long (limit ${MAX_VALUE_LENGTH} characters).`)
+    }
+    clean[key] = value
+  }
+
+  if (!Object.keys(clean).length) throw invalid('A row needs at least one column.')
+  if (!Object.values(clean).some(v => v !== '')) throw invalid('A row cannot be entirely empty.')
+  return clean
+}
+
+/**
+ * The column set of a dataset, in the order it was first seen.
+ *
+ * Rows are jsonb with no enforced schema, so this is derived rather than stored.
+ * Taking the union — not just the first row's keys — matters because a hand-added
+ * row may carry a column the original sheet did not, and a column that exists in
+ * the data but not in the header would be invisible in the editor.
+ */
+export function datasetColumns(rows = []) {
+  const cols = []
+  const seen = new Set()
+  for (const r of rows) {
+    for (const k of Object.keys(r?.row || {})) {
+      if (!seen.has(k)) { seen.add(k); cols.push(k) }
+    }
+  }
+  return cols
+}
+
+/**
+ * A page of rows, optionally filtered by a free-text query.
+ *
+ * The filter runs against search_text with the same ILIKE the live call uses, so
+ * what a client can find in the editor is what the agent can find on a call. That
+ * is the point: when a caller says the lookup failed, the client can reproduce it.
+ *
+ * @returns {Promise<{rows: Array<{id: string, row: object}>, total: number, columns: string[]}>}
+ */
+export async function listDatasetRows(tenantId, dataset, { q = '', limit = 50, offset = 0 } = {}) {
+  if (!tenantId || !dataset) return { rows: [], total: 0, columns: [] }
+
+  const size = Math.min(Math.max(Number(limit) || 50, 1), 200)
+  const from = Math.max(Number(offset) || 0, 0)
+
+  const build = (select, opts) => {
+    let query = supabase
+      .from('lookup_rows')
+      .select(select, opts)
+      .eq('tenant_id', tenantId)
+      .eq('dataset', dataset)
+    const needle = String(q || '').trim().toLowerCase()
+    // escape ILIKE wildcards so a literal % or _ in a search box is not a wildcard
+    if (needle) query = query.ilike('search_text', `%${needle.replace(/[%_]/g, m => '\\' + m)}%`)
+    return query
+  }
+
+  const [{ data, error }, { count }] = await Promise.all([
+    build('id, row').order('created_at', { ascending: true }).range(from, from + size - 1),
+    build('id', { count: 'exact', head: true }),
+  ])
+  if (error) throw new Error(error.message)
+
+  const rows = (data || []).map(r => ({ id: r.id, row: r.row || {} }))
+
+  // Columns come from the whole dataset, not just this page — otherwise the
+  // editor's columns would shift as you paged or searched.
+  const { data: sample } = await supabase
+    .from('lookup_rows').select('row')
+    .eq('tenant_id', tenantId).eq('dataset', dataset).limit(200)
+
+  return { rows, total: count ?? rows.length, columns: datasetColumns(sample || []) }
+}
+
+/** Add one row. Returns the stored row with its new id. */
+export async function createDatasetRow(tenantId, dataset, row) {
+  if (!tenantId || !dataset) throw invalid('A dataset is required.')
+  const clean = normalizeRow(row)
+  const { data, error } = await supabase
+    .from('lookup_rows')
+    .insert({ tenant_id: tenantId, dataset, row: clean, search_text: searchTextFor(clean) })
+    .select('id, row')
+    .single()
+  if (error) throw new Error(error.message)
+  return { id: data.id, row: data.row }
+}
+
+/**
+ * Replace one row's contents.
+ *
+ * This is a replace, not a merge: the editor sends the row as the client sees it,
+ * and a merge would make deleting a column impossible. dataset is in the WHERE
+ * clause alongside tenant_id so a stale id from another dataset cannot be edited
+ * through the wrong screen.
+ *
+ * @returns {Promise<{id, row}|null>} null when no such row belongs to this tenant.
+ */
+export async function updateDatasetRow(tenantId, dataset, id, row) {
+  if (!tenantId || !dataset || !id) throw invalid('A row id is required.')
+  const clean = normalizeRow(row)
+  const { data, error } = await supabase
+    .from('lookup_rows')
+    .update({ row: clean, search_text: searchTextFor(clean) })
+    .eq('tenant_id', tenantId).eq('dataset', dataset).eq('id', id)
+    .select('id, row')
+  if (error) throw new Error(error.message)
+  return data?.length ? { id: data[0].id, row: data[0].row } : null
+}
+
+/** Remove one row. Returns false when it was not this tenant's to remove. */
+export async function deleteDatasetRow(tenantId, dataset, id) {
+  if (!tenantId || !dataset || !id) return false
+  const { data, error } = await supabase
+    .from('lookup_rows')
+    .delete()
+    .eq('tenant_id', tenantId).eq('dataset', dataset).eq('id', id)
+    .select('id')
+  if (error) throw new Error(error.message)
+  return !!data?.length
+}
+
+/**
+ * Turn an uploaded data sheet into rows, whichever format it arrived in.
+ *
+ * The upload's type check accepts .xlsx and .xls, but the only parser here was
+ * the CSV one — so an Excel file was decoded as UTF-8 text and fed to it. A zip
+ * container does not fail that; it parses. A real three-column sheet came back as
+ * 32 rows whose first column name began "PK...xl/_rels/workbook.xml.rels", and
+ * because upload replaces, those rows took the place of the client's actual data.
+ * Nothing errored, and the next caller simply did not exist any more.
+ *
+ * SheetJS is already a dependency and already reads contact lists this way. The
+ * values are coerced to trimmed strings (raw: false) so an Excel row is stored
+ * identically to the same row saved as CSV — matching compares strings, and a
+ * number stored as 96212 in one sheet and "96,212" in another is a lookup that
+ * works for one client and not the next.
+ */
+export async function parseSheetFile(buffer, filename = '', mimetype = '') {
+  const name = String(filename).toLowerCase()
+  const mime = String(mimetype).toLowerCase()
+  const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls') ||
+    mime.includes('spreadsheet') || mime.includes('excel')
+
+  if (!isExcel) return parseCSV(Buffer.from(buffer).toString('utf8'))
+
+  const XLSX = (await import('xlsx')).default || (await import('xlsx'))
+  const wb = XLSX.read(buffer, { type: 'buffer' })
+  const sheet = wb.Sheets[wb.SheetNames[0]]     // the first sheet, as with contacts
+  if (!sheet) return []
+
+  return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false })
+    .map(r => Object.fromEntries(
+      Object.entries(r)
+        .map(([k, v]) => [String(k).trim(), String(v ?? '').trim()])
+        .filter(([k]) => k),
+    ))
+    .filter(r => Object.values(r).some(v => v !== ''))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

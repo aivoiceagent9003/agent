@@ -39,9 +39,13 @@ function textToParams(text: string): LookupParam[] {
 export function LiveDataSetup({
   lookups,
   onChange,
+  showSave = true,
 }: {
   lookups: LookupConfig[];
   onChange: (l: LookupConfig[]) => void;
+  // The Live data page owns saving so it can clear its own unsaved-changes state.
+  // Onboarding does not, so the button stays on by default.
+  showSave?: boolean;
 }) {
   const { data } = useLookups();
   const datasets = data?.datasets || [];
@@ -94,7 +98,7 @@ export function LiveDataSetup({
         >
           <Plus className="w-4 h-4" /> Add a lookup
         </button>
-        {lookups.length > 0 && (
+        {showSave && lookups.length > 0 && (
           <button
             onClick={persist}
             disabled={saveLookups.isPending}

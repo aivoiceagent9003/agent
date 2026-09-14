@@ -34,6 +34,7 @@ import { Route as AppMessagesRouteImport } from './routes/app.messages'
 import { Route as AppLeadsRouteImport } from './routes/app.leads'
 import { Route as AppKnowledgeRouteImport } from './routes/app.knowledge'
 import { Route as AppInstantRouteImport } from './routes/app.instant'
+import { Route as AppDataRouteImport } from './routes/app.data'
 import { Route as AppCampaignsRouteImport } from './routes/app.campaigns'
 import { Route as AppCallsRouteImport } from './routes/app.calls'
 import { Route as AppAnalyticsRouteImport } from './routes/app.analytics'
@@ -183,6 +184,11 @@ const AppInstantRoute = AppInstantRouteImport.update({
   path: '/instant',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDataRoute = AppDataRouteImport.update({
+  id: '/data',
+  path: '/data',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCampaignsRoute = AppCampaignsRouteImport.update({
   id: '/campaigns',
   path: '/campaigns',
@@ -321,6 +327,7 @@ export interface FileRoutesByFullPath {
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
+  '/app/data': typeof AppDataRoute
   '/app/instant': typeof AppInstantRoute
   '/app/knowledge': typeof AppKnowledgeRoute
   '/app/leads': typeof AppLeadsRoute
@@ -369,6 +376,7 @@ export interface FileRoutesByTo {
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
+  '/app/data': typeof AppDataRoute
   '/app/instant': typeof AppInstantRoute
   '/app/knowledge': typeof AppKnowledgeRoute
   '/app/leads': typeof AppLeadsRoute
@@ -420,6 +428,7 @@ export interface FileRoutesById {
   '/app/analytics': typeof AppAnalyticsRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
+  '/app/data': typeof AppDataRoute
   '/app/instant': typeof AppInstantRoute
   '/app/knowledge': typeof AppKnowledgeRoute
   '/app/leads': typeof AppLeadsRoute
@@ -472,6 +481,7 @@ export interface FileRouteTypes {
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
+    | '/app/data'
     | '/app/instant'
     | '/app/knowledge'
     | '/app/leads'
@@ -520,6 +530,7 @@ export interface FileRouteTypes {
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
+    | '/app/data'
     | '/app/instant'
     | '/app/knowledge'
     | '/app/leads'
@@ -570,6 +581,7 @@ export interface FileRouteTypes {
     | '/app/analytics'
     | '/app/calls'
     | '/app/campaigns'
+    | '/app/data'
     | '/app/instant'
     | '/app/knowledge'
     | '/app/leads'
@@ -791,6 +803,13 @@ declare module '@tanstack/react-router' {
       path: '/instant'
       fullPath: '/app/instant'
       preLoaderRoute: typeof AppInstantRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/data': {
+      id: '/app/data'
+      path: '/data'
+      fullPath: '/app/data'
+      preLoaderRoute: typeof AppDataRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/campaigns': {
@@ -1047,6 +1066,7 @@ interface AppRouteChildren {
   AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppCallsRoute: typeof AppCallsRouteWithChildren
   AppCampaignsRoute: typeof AppCampaignsRouteWithChildren
+  AppDataRoute: typeof AppDataRoute
   AppInstantRoute: typeof AppInstantRoute
   AppKnowledgeRoute: typeof AppKnowledgeRoute
   AppLeadsRoute: typeof AppLeadsRoute
@@ -1060,6 +1080,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAnalyticsRoute: AppAnalyticsRoute,
   AppCallsRoute: AppCallsRouteWithChildren,
   AppCampaignsRoute: AppCampaignsRouteWithChildren,
+  AppDataRoute: AppDataRoute,
   AppInstantRoute: AppInstantRoute,
   AppKnowledgeRoute: AppKnowledgeRoute,
   AppLeadsRoute: AppLeadsRoute,

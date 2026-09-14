@@ -8,6 +8,7 @@
 //   4  SPEECH & LANGUAGE      speech / length / interruption / adaptation / language
 //   5  TEMPLATE               agent-templates.js       the kind of call this is
 //   6  BUSINESS               tenant config            who they are, what they sell
+//   6b COMPANY RULES          company-rules.js         how THIS company wants it handled
 //   7  CALL CONTEXT           this caller, this call
 //   8  KNOWLEDGE              retrieved material
 //   9  TOOLS                  what is wired, and how to use it
@@ -23,6 +24,7 @@
 
 import { complianceRules } from './compliance-rules.js'
 import { coreRules } from './core-rules.js'
+import { companyRules } from './company-rules.js'
 import { humanConversationRules } from './human-conversation-rules.js'
 import { speechRules } from './speech-rules.js'
 import { responseLengthRules } from './response-length-rules.js'
@@ -178,6 +180,8 @@ function businessLayer(ctx) {
 
   // A stored system_prompt is the client's own words. It is the BUSINESS layer — it
   // can describe this business and this call, and it cannot override anything above.
+  // It says WHO the agent is and WHAT the business does; how this particular company
+  // wants a call handled belongs in company_rules (company-rules.js), not here.
   const own = String(c.system_prompt || '').trim()
   if (own) parts.push(`BUSINESS INSTRUCTIONS FROM ${businessName.toUpperCase()}\n\n${own}`)
 
@@ -316,6 +320,10 @@ export function renderLayers(ctx) {
     ['interruption', interruptionRules(ctx)],
     ['emotional_adaptation', emotionalAdaptationRules(ctx)],
     ['template', templateLayer(ctx)],
+    // Directly after the template, because these refine it. A company rule is read
+    // against the kind of call it is modifying, so putting anything between them
+    // makes the model work harder to connect the two.
+    ['company_rules', companyRules(ctx)],
     ['call_context', callContextLayer(ctx)],
     ['knowledge', knowledgeLayer(ctx)],
     ['tools', toolUsageRules(ctx)],

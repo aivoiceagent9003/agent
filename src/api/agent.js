@@ -28,7 +28,12 @@ import {
   ingestDataset,
   listDatasets,
   deleteDataset,
+  listDatasetRows,
+  createDatasetRow,
+  updateDatasetRow,
+  deleteDatasetRow,
   parseCSV,
+  parseSheetFile,
   sanitizeName,
 } from '../services/lookups.js'
 import 'dotenv/config'
@@ -36,12 +41,15 @@ import 'dotenv/config'
 const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const router = Router()
 
-// In-memory upload handling for knowledge files (we parse the buffer, never
-// write it to disk). 15MB cap keeps a stray huge file from exhausting memory;
-// the kind allow-list keeps arbitrary binaries out of the extractor and, more
-// expensively, out of the vision OCR path.
+// In-memory upload handling (we parse the buffer, never write it to disk). The
+// caps keep a stray huge file from exhausting memory; the kind allow-list keeps
+// arbitrary binaries out of the extractor and, more expensively, out of the
+// vision OCR path.
 const upload = makeUpload({ limitMb: 15, kinds: KINDS.knowledge })
-const datasetUpload = makeUpload({ limitMb: 15, kinds: KINDS.tabular })
+// Data sheets get more room than knowledge files. A tenant's customer export is
+// one wide CSV that grows with their business, where a knowledge file is a
+// document someone wrote — 20MB of loan rows is ordinary, 20MB of PDF is not.
+const datasetUpload = makeUpload({ limitMb: 20, kinds: KINDS.tabular })
 
 // Per-tenant ceiling on knowledge volume. Embedding spend is otherwise unbounded:
 // nothing stopped one tenant from ingesting ten thousand documents on a plan that
@@ -228,6 +236,119 @@ Output ONLY the system prompt text, nothing else.`
   } catch (e) {
     console.error('[AGENT] generate-prompt error:', e.message)
     res.status(500).json({ error: 'Could not generate prompt. Try again.' })
+  }
+})
+
+// ─── Compile company-specific rules from the owner's plain English ────────────
+// The test screen asks "is the agent doing what you need?" and this turns the answer
+// into rules for the COMPANY layer (config/conversation/company-rules.js).
+//
+// The important half of this endpoint is the REFUSAL. A business will ask for things
+// the layers above them forbid — "always tell them the price", "keep pushing until
+// they book" — and a compiler that silently wrote those into the prompt would produce
+// an agent that visibly disobeys its owner, who would reasonably conclude the feature
+// is broken. Catching the conflict here means we can say so in their own words, at
+// the moment they ask, and offer the closest thing we CAN do.
+//
+// Body: { feedback, config? }  →  { rules: [{text, source}], rejected: [{text, reason, suggestion}] }
+
+// What no business instruction is allowed to loosen. Each line corresponds to a rule
+// that really is enforced above this layer — keep them in step.
+const IMMUTABLE_RULES = `1. The agent may never state a price, figure, date, plan name or term from its own
+   memory. Every fact must come from the business's knowledge base, a live data
+   lookup, or the caller themselves. "Always quote X" cannot be followed as written.
+2. The agent may never deny being an AI, skip a recording notice, or call someone
+   who has opted out.
+3. The agent must stop speaking the moment the caller interrupts.
+4. The agent must accept "no" the first time and close warmly. It cannot be told to
+   push, insist, or keep selling past a refusal.
+5. The agent follows the caller's own language. It cannot be pinned to one language
+   regardless of who rings.
+6. The agent may never say something is sent, booked or done before it actually is.
+7. The agent never names its own machinery — no "system", "database", "lookup".`
+
+const MAX_RULES_PER_SUBMISSION = 8
+
+router.post('/company-rules/compile', async (req, res) => {
+  const { feedback, config } = req.body || {}
+  if (!feedback?.trim()) {
+    return res.status(400).json({ error: 'Tell us what the agent should do differently.' })
+  }
+
+  const cfg = (config && typeof config === 'object') ? config : {}
+  const businessName = String(cfg.business_name || '').trim() || 'this business'
+  const agentName = String(cfg.agent_name || '').trim() || 'the agent'
+
+  const instruction = `You convert a business owner's plain-English feedback about their AI phone agent
+into precise behavioural rules that are added to that agent's instructions.
+
+THE BUSINESS: ${businessName}. Their agent is called ${agentName}.
+
+HOW TO WRITE A RULE
+- One instruction per rule. Split compound feedback into separate rules.
+- Imperative and concrete: "Ask which project they are calling about before discussing
+  price", never "be more focused on projects".
+- Under about 20 words. No markdown, no bullet character, no heading, no preamble.
+- Only what the owner actually asked for. Never invent a number, name, policy or
+  detail they did not give you.
+- It must still make sense read on its own, with none of their feedback around it.
+
+WHAT YOU CANNOT ACCEPT
+These already govern the agent and outrank anything a business asks for. If the
+feedback can only be satisfied by breaking one, do NOT write it as a rule — reject it:
+${IMMUTABLE_RULES}
+
+Reject vague feedback too ("make it better", "sound nicer") — there is no behaviour
+to write down. Put the question you need answered in the suggestion.
+
+For every rejection give: what they asked for, a one-sentence reason in plain English
+that a non-technical owner will accept without feeling blocked, and the closest thing
+the agent CAN do instead.
+
+Feedback from the owner:
+"""
+${String(feedback).slice(0, 4000)}
+"""
+
+Return JSON only, in exactly this shape:
+{"rules":[{"text":"...","source":"..."}],"rejected":[{"text":"...","reason":"...","suggestion":"..."}]}
+"source" is the part of their own feedback that produced the rule, quoted in their words.`
+
+  try {
+    const completion = await ai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [{ role: 'user', content: instruction }],
+      max_tokens: 900,
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+    })
+
+    const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}')
+    const str = (v, max) => String(v || '').trim().slice(0, max)
+
+    const rules = (Array.isArray(parsed.rules) ? parsed.rules : [])
+      .map(r => ({
+        // The bullet is added when the layer renders; a model that includes one
+        // anyway would otherwise produce "- - Ask which project…".
+        text: str(r?.text, 300).replace(/^[-•*]\s*/, ''),
+        source: str(r?.source, 500),
+      }))
+      .filter(r => r.text)
+      .slice(0, MAX_RULES_PER_SUBMISSION)
+
+    const rejected = (Array.isArray(parsed.rejected) ? parsed.rejected : [])
+      .map(r => ({
+        text: str(r?.text, 300),
+        reason: str(r?.reason, 400),
+        suggestion: str(r?.suggestion, 400),
+      }))
+      .filter(r => r.text && r.reason)
+      .slice(0, MAX_RULES_PER_SUBMISSION)
+
+    res.json({ rules, rejected })
+  } catch (e) {
+    console.error('[AGENT] company-rules compile error:', e.message)
+    res.status(500).json({ error: 'Could not read that just now. Try again.' })
   }
 })
 
@@ -547,7 +668,9 @@ router.patch('/lookups', async (req, res) => {
 
 // Upload a data sheet for the 'table' backend. Accepts either a CSV file
 // (multipart field "file") or pasted CSV text in the JSON body.
-// Body/Query: { dataset } — the dataset name the table lookups reference.
+// Body/Query: { dataset, mode? } — mode 'append' adds to what is already there;
+// the default 'replace' wipes the dataset first, which is what a full re-export
+// wants but is destructive of anything added since.
 router.post('/lookups/dataset', ingestLimiter, datasetUpload.single('file'), uploadErrorHandler, async (req, res) => {
   const t = req.auth.tenantId
   if (req.file) {
@@ -556,20 +679,32 @@ router.post('/lookups/dataset', ingestLimiter, datasetUpload.single('file'), upl
   }
   const dataset = (req.body?.dataset || req.query?.dataset || '').toString().trim()
   if (!dataset) return res.status(400).json({ error: 'dataset name is required' })
+  const mode = (req.body?.mode || req.query?.mode || 'replace').toString()
 
-  let csv = ''
-  if (req.file) csv = req.file.buffer.toString('utf8')
-  else if (req.body?.csv) csv = String(req.body.csv)
-  if (!csv.trim()) return res.status(400).json({ error: 'Provide a CSV file or csv text' })
+  // Parsed by format, not by assuming CSV: the type check above accepts Excel,
+  // and decoding an .xlsx as text yields rows of zip binary that then REPLACE the
+  // client's real data without erroring.
+  let rows = []
+  try {
+    if (req.file) {
+      rows = await parseSheetFile(req.file.buffer, req.file.originalname, req.file.mimetype)
+    } else if (String(req.body?.csv || '').trim()) {
+      rows = parseCSV(String(req.body.csv))
+    } else {
+      return res.status(400).json({ error: 'Provide a CSV or Excel file, or csv text' })
+    }
+  } catch (e) {
+    console.error('[AGENT] dataset parse error:', e.message)
+    return res.status(422).json({ error: 'Could not read that file. Save it as CSV or Excel and try again.' })
+  }
 
-  const rows = parseCSV(csv)
   if (!rows.length) {
-    return res.status(422).json({ error: 'Could not read any rows. Use a header row + comma-separated values.' })
+    return res.status(422).json({ error: 'Could not read any rows. The first row must be the column names.' })
   }
 
   try {
-    const { rows_added } = await ingestDataset(t, dataset, rows, { replace: true })
-    res.json({ dataset, rows_added, columns: Object.keys(rows[0]) })
+    const { rows_added } = await ingestDataset(t, dataset, rows, { replace: mode !== 'append' })
+    res.json({ dataset, rows_added, mode: mode === 'append' ? 'append' : 'replace', columns: Object.keys(rows[0]) })
   } catch (e) {
     console.error('[AGENT] dataset upload error:', e.message)
     res.status(500).json({ error: 'Could not save dataset' })
@@ -581,6 +716,72 @@ router.delete('/lookups/dataset/:dataset', async (req, res) => {
   const t = req.auth.tenantId
   await deleteDataset(t, req.params.dataset)
   res.json({ success: true })
+})
+
+// ─── Editing the rows of an uploaded dataset ─────────────────────────────────
+// Without these, correcting one wrong phone number means re-uploading the entire
+// sheet — and since upload replaces, anything added since the last export is lost.
+//
+// Every handler passes the tenant id down to the query; the service keeps it in
+// the WHERE clause of both reads and writes. These routes sit under /lookups, so
+// the permission table at the top of this file already covers them: GET needs
+// knowledge:read, the rest need knowledge:write.
+
+// Browse/search a dataset. Query: { q?, limit?, offset? }
+router.get('/lookups/dataset/:dataset/rows', async (req, res) => {
+  try {
+    const out = await listDatasetRows(req.auth.tenantId, req.params.dataset, {
+      q: req.query.q, limit: req.query.limit, offset: req.query.offset,
+    })
+    res.json(out)
+  } catch (e) {
+    console.error('[AGENT] list dataset rows error:', e.message)
+    res.status(500).json({ error: 'Could not load rows' })
+  }
+})
+
+// Add one row.
+router.post('/lookups/dataset/:dataset/rows', async (req, res) => {
+  try {
+    const created = await createDatasetRow(req.auth.tenantId, req.params.dataset, req.body?.row)
+    res.status(201).json(created)
+  } catch (e) {
+    // Only a refusal normalizeRow raised is safe to echo back; a DB error is not.
+    if (!e.invalid) {
+      console.error('[AGENT] create dataset row error:', e.message)
+      return res.status(500).json({ error: 'Could not add the row' })
+    }
+    res.status(400).json({ error: e.message })
+  }
+})
+
+// Replace one row's contents.
+router.patch('/lookups/dataset/:dataset/rows/:id', async (req, res) => {
+  try {
+    const updated = await updateDatasetRow(
+      req.auth.tenantId, req.params.dataset, req.params.id, req.body?.row,
+    )
+    if (!updated) return res.status(404).json({ error: 'That row no longer exists' })
+    res.json(updated)
+  } catch (e) {
+    if (!e.invalid) {
+      console.error('[AGENT] update dataset row error:', e.message)
+      return res.status(500).json({ error: 'Could not save the row' })
+    }
+    res.status(400).json({ error: e.message })
+  }
+})
+
+// Remove one row.
+router.delete('/lookups/dataset/:dataset/rows/:id', async (req, res) => {
+  try {
+    const removed = await deleteDatasetRow(req.auth.tenantId, req.params.dataset, req.params.id)
+    if (!removed) return res.status(404).json({ error: 'That row no longer exists' })
+    res.json({ success: true })
+  } catch (e) {
+    console.error('[AGENT] delete dataset row error:', e.message)
+    res.status(500).json({ error: 'Could not delete the row' })
+  }
 })
 
 export default router

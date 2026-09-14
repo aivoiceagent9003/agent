@@ -24,6 +24,7 @@ import { useMe } from "@/lib/team";
 import { VoiceTester } from "@/components/portal/VoiceTester";
 import { VoicePicker } from "@/components/portal/VoicePicker";
 import { LiveDataSetup } from "@/components/portal/LiveDataSetup";
+import { CompanyRules } from "@/components/portal/CompanyRules";
 import {
   useAgentTemplates,
   useClientDocuments,
@@ -38,6 +39,7 @@ import {
   usePublishAgent,
   type AgentTemplate,
   type LookupConfig,
+  type CompanyRule,
 } from "@/lib/data";
 
 export const Route = createFileRoute("/onboarding")({
@@ -143,6 +145,7 @@ function Onboarding() {
     if (cfg.handoff_number) setHandoff(cfg.handoff_number);
     if (cfg.voice) setVoice(cfg.voice);
     if (Array.isArray(cfg.lookups)) setLookups(cfg.lookups);
+    if (Array.isArray(cfg.company_rules)) setCompanyRules(cfg.company_rules);
     if (agent.phone_number) setPhone(agent.phone_number);
     setStep(1); // skip "Choose your agent" — they already have one
   }, [agent]);
@@ -153,6 +156,9 @@ function Onboarding() {
 
   // Step 4 — live data lookups (orders, dues, bookings…)
   const [lookups, setLookups] = useState<LookupConfig[]>([]);
+
+  // Step 5 — what this company wants that the industry template does not cover
+  const [companyRules, setCompanyRules] = useState<CompanyRule[]>([]);
 
   if (!ready) return null;
 
@@ -175,6 +181,10 @@ function Onboarding() {
       cfg.enable_lookups = true;
     }
     if (voice.trim()) cfg.voice = voice.trim();
+    // Always sent, even when empty — same merge trap as recording_notice below.
+    // Omitting the key on the last deletion would leave the old rules in the
+    // database and the agent would keep following a rule the client just removed.
+    cfg.company_rules = companyRules;
     // Custom wording is kept only while recording is on, and cleared with an
     // empty string rather than by omitting the key: the API MERGES this object
     // over the stored config, so an absent key leaves the old value in the
@@ -699,6 +709,14 @@ function Onboarding() {
               <VoiceTester config={draftConfig()} />
             </div>
 
+            <div className="mt-6">
+              <CompanyRules
+                rules={companyRules}
+                onChange={setCompanyRules}
+                config={draftConfig()}
+              />
+            </div>
+
             <div className="mt-8 flex justify-between">
               <button
                 onClick={() => setStep(3)}
@@ -742,6 +760,10 @@ function Onboarding() {
               <Row
                 label="Live data lookups"
                 value={lookups.length ? `${lookups.length} configured` : "None"}
+              />
+              <Row
+                label="Your own rules"
+                value={companyRules.length ? `${companyRules.length} added` : "None"}
               />
             </div>
 

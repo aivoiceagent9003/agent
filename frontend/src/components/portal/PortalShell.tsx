@@ -8,6 +8,7 @@ import {
   Shield,
   Settings,
   BookOpen,
+  Database,
   Activity,
   Radio,
   Gauge,
@@ -147,6 +148,9 @@ export const clientNav: NavItem[] = [
   // reach their agents regardless of what else they can see.
   { to: "/app/messages", label: "Messages", icon: MessageSquare, useBadge: useMessagesUnread },
   { to: "/app/knowledge", label: "Knowledge", icon: BookOpen, perm: "knowledge:read" },
+  // The live per-caller data the agent reads out. Same permission as Knowledge:
+  // both are "keep what the agent says accurate", which is a manager's job.
+  { to: "/app/data", label: "Live data", icon: Database, perm: "knowledge:read" },
   { to: "/app/whatsapp", label: "WhatsApp", icon: MessageCircle, perm: "whatsapp:read" },
   { to: "/app/team", label: "Team", icon: UsersRound, perm: "team:manage" },
   { to: "/onboarding", label: "Agent settings", icon: Settings, perm: "agent:write" },
