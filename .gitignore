@@ -24,6 +24,7 @@ service-account*.json
 *.bin
 
 # Logs & audio artifacts
+/ui-review/
 *.log
 *.mulaw
 *.wav
@@ -33,3 +34,4 @@ service-account*.json
 # OS
 .DS_Store
 Thumbs.db
+voice-bench-out/

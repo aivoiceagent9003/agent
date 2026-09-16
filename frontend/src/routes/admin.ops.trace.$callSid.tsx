@@ -10,11 +10,11 @@ export const Route = createFileRoute("/admin/ops/trace/$callSid")({
 function spanColor(name: string) {
   if (/webhook|tenant|websocket|db_call/.test(name)) return "#64748b";
   if (/gemini_session/.test(name)) return "#22c55e";
-  if (/first_audio|model_thinking|turn/.test(name)) return "#3b82f6";
-  if (/rag|embedding|vector/.test(name)) return "#a855f7";
+  if (/first_audio|model_thinking|turn/.test(name)) return "var(--chart-1)";
+  if (/rag|embedding|vector/.test(name)) return "var(--chart-5)";
   if (/tool_call|lookup/.test(name)) return "#f59e0b";
-  if (/lead|finalize|recording/.test(name)) return "#06b6d4";
-  if (/barge_in|handoff/.test(name)) return "#ec4899";
+  if (/lead|finalize|recording/.test(name)) return "var(--chart-3)";
+  if (/barge_in|handoff/.test(name)) return "var(--chart-4)";
   return "#94a3b8";
 }
 

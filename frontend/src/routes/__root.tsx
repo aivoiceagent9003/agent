@@ -4,7 +4,6 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
-  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -14,7 +13,6 @@ import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { registerCacheReset } from "../lib/api";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { OrbField, type Variant } from "../components/site/OrbField";
 import { VisualPreloader } from "../components/VisualPreloader";
 
 function NotFoundComponent() {
@@ -88,7 +86,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,500;1,400;1,500&display=swap",
       },
     ],
   }),
@@ -99,9 +97,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 // Apply the saved theme before first paint, so there's no flash of the wrong theme.
-// Dark is the DEFAULT: only an explicit saved 'light' choice opts out. Runs in <head>
+// Ivory is the default; preserve an explicit saved dark preference. Runs in <head>
 // where document.documentElement already exists.
-const THEME_INIT = `(function(){try{var t=localStorage.getItem('vocera-theme');if(t!=='light')document.documentElement.classList.add('dark');}catch(e){document.documentElement.classList.add('dark');}})();`;
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('vocera-theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`;
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
@@ -118,18 +116,8 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
-// Exactly two pages carry a signature, and each one always carries the same one.
-// Anything else — dashboards, onboarding, employee views, password flows — gets a
-// plain background, because an animated canvas behind a table of leads is noise.
-//
-// This used to be a localStorage preference with a floating switcher, so the
-// marketing page's identity depended on whatever the last visitor clicked.
-function signatureFor(pathname: string): Variant | null {
-  if (pathname === "/") return "ribbon"; // Waveform — the public site
-  if (pathname === "/login") return "orb"; // Orb — sign in
-  return null;
-}
-
+// Public and login pages own their decorative sculpture. Data routes share the
+// same semantic palette without mounting a background animation.
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -140,17 +128,12 @@ function RootComponent() {
     registerCacheReset(() => queryClient.clear());
   }, [queryClient]);
 
-  // The orb is a marketing flourish — keep it off the data-dense client/admin
-  // dashboards so it never competes with leads, calls, or tables.
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const signature = signatureFor(pathname);
   return (
     <QueryClientProvider client={queryClient}>
-      {signature && <OrbField variant={signature} />}
       <VisualPreloader>
         <Outlet />
       </VisualPreloader>
-      <Toaster theme="dark" position="top-right" />
+      <Toaster position="top-right" toastOptions={{ style: { background: "var(--popover)", color: "var(--popover-foreground)", borderColor: "var(--border)" } }} />
     </QueryClientProvider>
   );
 }

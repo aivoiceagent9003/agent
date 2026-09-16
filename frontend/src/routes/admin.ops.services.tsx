@@ -282,7 +282,7 @@ function InfraPanel() {
                 type="monotone"
                 dataKey="heapUsedMb"
                 name="Heap MB"
-                stroke="#6366f1"
+                stroke="var(--chart-2)"
                 strokeWidth={2}
                 dot={false}
               />
@@ -305,7 +305,7 @@ function InfraPanel() {
                 type="monotone"
                 dataKey="eventLoopDelayMs"
                 name="mean"
-                stroke="#06b6d4"
+                stroke="var(--chart-3)"
                 strokeWidth={2}
                 dot={false}
               />

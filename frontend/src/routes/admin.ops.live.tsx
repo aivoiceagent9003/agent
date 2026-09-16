@@ -9,7 +9,7 @@ export const Route = createFileRoute("/admin/ops/live")({
 });
 
 const STATE_COLOR: Record<string, string> = {
-  listening: "bg-blue-500/15 text-blue-500 border-blue-500/30",
+  listening: "bg-primary/15 text-primary border-primary/30",
   speaking: "bg-success/15 text-success border-success/30",
   thinking: "bg-amber-500/15 text-amber-500 border-amber-500/30",
   active: "bg-muted text-muted-foreground border-border",

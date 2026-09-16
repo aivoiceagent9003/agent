@@ -14,6 +14,7 @@
 
 import { supabase, supabaseAdmin } from '../api/db.js'
 import { ingestText } from '../ingest.js'
+import { invalidateKnowledge } from './rag.js'
 
 const BUCKET = 'knowledge-files'
 
@@ -128,6 +129,7 @@ export async function deleteDocument(tenantId, docId) {
     .delete()
     .eq('document_id', docId)
     .eq('tenant_id', tenantId)
+  invalidateKnowledge(tenantId)
 
   const { error } = await supabase
     .from('documents')
@@ -181,6 +183,7 @@ export async function clearAllDocuments(tenantId) {
   await supabase.from('documents').delete().eq('tenant_id', tenantId)
   // Legacy chunks with no document_id aren't cascaded — remove them too.
   await supabase.from('knowledge_base').delete().eq('tenant_id', tenantId)
+  invalidateKnowledge(tenantId)
 
   return { success: true }
 }

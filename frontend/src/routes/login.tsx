@@ -9,12 +9,13 @@
 // them to the right place — the tab is a hint about who you are, not a gate.
 
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { setSession } from "@/lib/api";
 import { login, loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
 import { Phone, Eye, EyeOff } from "lucide-react";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+import { VoiceWave } from "@/components/site/VoiceWave";
 
 type Audience = "employee" | "business";
 
@@ -35,6 +36,7 @@ function LoginPage() {
   const [audience, setAudience] = useState<Audience>(tab ?? "business");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const orbRef = useRef<HTMLDivElement>(null);
 
   // One landing rule for both sign-in methods and both tabs.
   function land(role: string, isNew = false) {
@@ -85,26 +87,27 @@ function LoginPage() {
   const isEmployee = audience === "employee";
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-hero relative overflow-hidden">
+    <div className="forest-login min-h-screen grid lg:grid-cols-2">
+      <div className="forest-login-art enter-fade hidden lg:flex flex-col justify-between p-12 relative overflow-hidden">
+        <VoiceWave anchorRef={orbRef} tone="dark" />
         <Link to="/" className="flex items-center gap-2 font-display font-bold text-lg z-10">
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
             <Phone className="w-4 h-4 text-primary-foreground" />
           </div>
           AnswerLabs
         </Link>
-        <div className="z-10">
-          <p className="text-2xl font-display max-w-md leading-snug">
+        <div ref={orbRef} className="forest-login-orb" aria-hidden="true" />
+        <div className="relative z-10 forest-login-quote">
+          <p className="forest-display text-3xl max-w-md leading-snug">
             "AnswerLabs handles every after-hours call so our agents only deal with qualified leads."
           </p>
           <p className="mt-4 text-sm text-muted-foreground">— Sunrise Realty</p>
         </div>
-        <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-primary/30 blur-3xl" />
       </div>
 
-      <div className="flex items-center justify-center p-8">
-        <div className="w-full max-w-sm">
-          <h1 className="text-3xl font-bold">Sign in to AnswerLabs</h1>
+      <div className="forest-login-form flex items-center justify-center p-8">
+        <div className="w-full max-w-sm enter-stagger">
+          <h1 className="forest-display text-4xl">Sign in to AnswerLabs</h1>
           <p className="mt-2 text-sm text-muted-foreground">Choose how you work with AnswerLabs.</p>
 
           {/* Segmented toggle */}
@@ -126,9 +129,12 @@ function LoginPage() {
           </div>
 
           <p className="mt-3 text-sm text-muted-foreground">
-            {isEmployee
-              ? "Sign in with your invite credentials."
-              : "Sign in to manage your agent and your team."}
+            {/* Keyed so the copy fades when the tab switches instead of snapping. */}
+            <span key={audience} className="inline-block animate-fade-up">
+              {isEmployee
+                ? "Sign in with your invite credentials."
+                : "Sign in to manage your agent and your team."}
+            </span>
           </p>
 
           <form onSubmit={onSubmit} className="mt-5 grid gap-4">

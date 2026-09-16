@@ -1,21 +1,34 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { BASE_URL } from "@/lib/api";
 
 export function ContactForm() {
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const form = e.currentTarget;
     setLoading(true);
-    const fd = new FormData(e.currentTarget);
-    const payload = Object.fromEntries(fd.entries());
+    const fd = new FormData(form);
+    const phone = String(fd.get("phone") || "").trim();
+    // The existing endpoint stores name/email/company/message. Preserve the
+    // optional phone in the message rather than silently losing it on the server.
+    const payload = {
+      name: String(fd.get("name") || "").trim(),
+      email: String(fd.get("email") || "").trim(),
+      company: String(fd.get("company") || "").trim(),
+      message: [String(fd.get("message") || "").trim(), phone ? `Phone: ${phone}` : ""].filter(Boolean).join("\n\n"),
+    };
     try {
-      // Hook up to your real public endpoint when ready.
-      // await apiFetch("/api/public/contact", { method: "POST", body: JSON.stringify(payload) });
-      await new Promise((r) => setTimeout(r, 700));
-      console.log("Contact form submitted:", payload);
+      const response = await fetch(`${BASE_URL}/api/public/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.success !== true) throw new Error(result.error || "Could not submit. Please try again.");
       toast.success("Thanks! We'll be in touch within one business day.");
-      (e.target as HTMLFormElement).reset();
+      form.reset();
     } catch (err: any) {
       toast.error(err.message || "Something went wrong.");
     } finally {
@@ -44,10 +57,11 @@ export function ContactForm() {
           <Field name="phone" label="Phone (optional)" />
         </div>
         <div className="grid gap-1.5">
-          <label className="text-sm text-muted-foreground">
+          <label htmlFor="demo-message" className="text-sm text-muted-foreground">
             What do you want to use AnswerLabs for?
           </label>
           <textarea
+            id="demo-message"
             name="message"
             rows={4}
             className="bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -77,8 +91,9 @@ function Field({
 }) {
   return (
     <div className="grid gap-1.5">
-      <label className="text-sm text-muted-foreground">{label}</label>
+      <label htmlFor={`demo-${name}`} className="text-sm text-muted-foreground">{label}</label>
       <input
+        id={`demo-${name}`}
         name={name}
         type={type}
         required={required}

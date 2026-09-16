@@ -14,7 +14,7 @@ import { requirePermission } from './permissions.js'
 import { TEMPLATES, getTemplate } from './templates.js'
 import { streamAIReply, clearHistory } from '../services/llm.js'
 import { buildContext, describeLayers } from '../config/conversation/index.js'
-import { retrieveKnowledge } from '../services/rag.js'
+import { retrieveKnowledge, invalidateKnowledge } from '../services/rag.js'
 import { listGeminiVoices } from '../services/gemini-voices.js'
 import { ingestText } from '../ingest.js'
 import {
@@ -599,6 +599,7 @@ router.delete('/knowledge/:chunkId', async (req, res) => {
     .from('knowledge_base').delete()
     .eq('id', req.params.chunkId).eq('tenant_id', t)
   if (error) return res.status(500).json({ error: 'Could not delete chunk' })
+  invalidateKnowledge(t)
   res.json({ success: true })
 })
 

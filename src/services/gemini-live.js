@@ -19,6 +19,7 @@ import 'dotenv/config'
 import { buildSystemPrompt, getHistory } from './llm.js'
 import { buildLookupTools, runLookup, sanitizeName, noteSpokenDigits } from './lookups.js'
 import { retrieveKnowledge, warmupRAG } from './rag.js'
+import { createUsageMeter } from './gemini-cost.js'
 import { resolveGreeting } from './greeting.js'
 import { addToDnd } from './dnd.js'
 import { whatsappReady, resolveCfg, tenantWa, sendDocument, sendConfirmation, logWhatsApp } from './whatsapp.js'
@@ -63,6 +64,25 @@ const HANGUP_STALL_MS = Number(process.env.HANGUP_STALL_MS || 15000)
 // language-manager.js is kept intact (and still unit-tested) so that is a
 // one-variable rollback, not a re-implementation.
 const LANGUAGE_MODEL_LED = process.env.LANGUAGE_CONTROL !== 'app'
+
+// ─── Context window compression ──────────────────────────────────────────────
+// A Live session bills the WHOLE context again on every turn: system prompt, every
+// tool result, all caller audio AND the agent's own earlier replies (which come
+// back as input audio). Left alone, context grows all call long, so a 10-minute
+// call costs several times a 3-minute one for the same talking.
+//
+// The sliding window caps it: once the context passes triggerTokens, the oldest
+// USER turns are dropped until targetTokens remain. The system instruction is never
+// dropped (it sits outside the window), so identity, language and safety rules
+// survive — what ages out is the early conversation, which ConversationState
+// already re-states on reconnect.
+//
+// It also removes the 15-minute cap on audio-only sessions.
+// Set GEMINI_CONTEXT_TRIGGER_TOKENS=0 to switch it off.
+const CONTEXT_TRIGGER_TOKENS = Number(process.env.GEMINI_CONTEXT_TRIGGER_TOKENS ?? 20000)
+const CONTEXT_TARGET_TOKENS = Number(process.env.GEMINI_CONTEXT_TARGET_TOKENS ?? 12000)
+// Per-turn token accounting in the log — for tuning the two numbers above.
+const USAGE_DEBUG = process.env.GEMINI_USAGE_DEBUG === '1'
 
 // ─── Audio helpers ───────────────────────────────────────────────────────────
 // G.711 μ-law → linear PCM16, as a 256-entry table because this runs on every
@@ -373,6 +393,8 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   // to surface the two quality failures nothing else measures: repeated questions
   // and repeated offers.
   const convState = new ConversationState({ callSid, tenantConfig })
+  // Billed tokens for the whole call, summed across reconnects (see gemini-cost.js).
+  const usageMeter = createUsageMeter()
   let pendingSteerLang = null  // language steer to send once the model is idle
   // Agent-initiated hangup. The model asks for it; we wait for its closing line to
   // reach the caller's ear before the line actually drops (see the sink's endCall).
@@ -460,7 +482,7 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   // is Hindi or Telugu.
   const openingLang = langMgr ? toName(langMgr.guessLanguage(resolveGreeting(tenantConfig, { includeNotice: false }))) : null
   if (LANGUAGE_MODEL_LED) console.log('[GEMINI] 🗣️ language: MODEL-LED (no manager, no gate, no steering)')
-  if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG()
+  if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG(tenantConfig.tenant_id)
 
   const sendAudioToCaller = (mulawB64) => {
     if (twilioWs.readyState === 1) twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: mulawB64 } }))
@@ -747,6 +769,14 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
   async function handleMessage(msg) {
     gotMessage = true
     const sc = msg.serverContent
+    if (msg.usageMetadata) {
+      usageMeter.add(msg.usageMetadata)
+      if (USAGE_DEBUG) {
+        const u = msg.usageMetadata
+        const part = (d) => (d || []).map(x => `${x.modality}:${x.tokenCount}`).join(" ")
+        console.log(`[GEMINI] 🧾 turn context ${u.promptTokenCount} tok (${part(u.promptTokensDetails)}) → out ${u.responseTokenCount} (${part(u.responseTokensDetails)})`)
+      }
+    }
 
     // Caller transcript (incremental) — accumulate BEFORE we look at any model
     // output, so the gate/classifier always see the complete utterance.
@@ -976,6 +1006,12 @@ export function createGeminiLiveConnection(callSid, tenantConfig, twilioWs, stre
           tools: buildGeminiTools(tenantConfig),
           inputAudioTranscription: {},
           outputAudioTranscription: {},
+          ...(CONTEXT_TRIGGER_TOKENS > 0 ? {
+            contextWindowCompression: {
+              triggerTokens: String(CONTEXT_TRIGGER_TOKENS),
+              slidingWindow: { targetTokens: String(CONTEXT_TARGET_TOKENS) },
+            },
+          } : {}),
         },
         callbacks: {
           onopen: () => {
@@ -1069,6 +1105,22 @@ Then continue in whatever language the caller replies in.` }] }],
       trace?.set('stateSnapshot', snap)
       if (snap.outcome) trace?.set('derivedOutcome', snap.outcome)
     } catch { /* never let telemetry break a hangup */ }
+    // What this call cost. Stored on the trace, so it is persisted with the call in
+    // call_traces.summary.usage.
+    try {
+      const u = usageMeter.summary()
+      if (u.turns) {
+        const mins = trace ? ((Date.now() - trace.startedAt) / 60000) : 0
+        const perMin = mins > 0.1 ? ` · ₹${(u.costInr / mins).toFixed(2)}/min` : ''
+        console.log(
+          `[GEMINI] 💰 call cost ≈ ₹${u.costInr} ($${u.costUsd})${perMin} over ${u.turns} turns — ` +
+          `text in ${u.textIn} tok ₹${u.byPartInr.textIn} · audio in ${u.audioIn} tok ₹${u.byPartInr.audioIn} ` +
+          `(${u.audioInMinutesBilled} min billed) · audio out ${u.audioOut} tok ₹${u.byPartInr.audioOut} · ` +
+          `peak context ${u.peakPrompt} tok`
+        )
+        trace?.set('usage', u)
+      }
+    } catch { /* never let cost accounting break a hangup */ }
     if (session) { try { session.close() } catch {} session = null }
     console.log('[GEMINI] Connection closed')
   }

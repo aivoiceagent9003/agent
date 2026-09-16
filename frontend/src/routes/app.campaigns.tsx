@@ -159,7 +159,7 @@ function CampaignCard({ c }: { c: Campaign }) {
         </span>
       </div>
       {startAt && (
-        <div className="mt-2 text-xs text-blue-500 inline-flex items-center gap-1">
+        <div className="mt-2 text-xs text-primary inline-flex items-center gap-1">
           <Clock className="w-3 h-3" /> Starts{" "}
           {startAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
         </div>

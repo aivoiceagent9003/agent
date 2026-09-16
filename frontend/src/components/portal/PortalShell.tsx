@@ -80,7 +80,7 @@ export function PortalShell({
   // not a fixed-height shell with an internally-scrolling <main>: that would move
   // scrolling off the window and silently break the router's scroll restoration.
   return (
-    <div className="min-h-screen flex">
+    <div className="forest-portal min-h-screen flex">
       <aside className="sticky top-0 h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col">
         <div className="p-6 shrink-0 flex items-center gap-2 font-display font-bold">
           <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
@@ -187,6 +187,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   return (
     <Link
       to={item.to}
+      activeOptions={{ exact: item.to === "/app" || item.to === "/admin" }}
       className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"

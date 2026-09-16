@@ -223,7 +223,7 @@ const AVATAR_COLORS = [
   "bg-emerald-600",
   "bg-orange-500",
   "bg-sky-600",
-  "bg-violet-600",
+  "bg-stone-600",
   "bg-rose-500",
 ];
 function avatarColor(seed: string) {

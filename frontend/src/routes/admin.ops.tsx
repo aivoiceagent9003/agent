@@ -177,7 +177,7 @@ function ExecDashboard() {
                 type="monotone"
                 dataKey="heapUsedMb"
                 name="Heap MB"
-                stroke="#6366f1"
+                stroke="var(--chart-2)"
                 strokeWidth={2}
                 dot={false}
               />
@@ -201,7 +201,7 @@ function ExecDashboard() {
                 type="monotone"
                 dataKey="eventLoopDelayMs"
                 name="mean"
-                stroke="#06b6d4"
+                stroke="var(--chart-3)"
                 strokeWidth={2}
                 dot={false}
               />
@@ -222,8 +222,8 @@ function ExecDashboard() {
             <AreaChart data={series}>
               <defs>
                 <linearGradient id="ws" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
+                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
@@ -239,7 +239,7 @@ function ExecDashboard() {
                 type="monotone"
                 dataKey="websockets"
                 name="WebSockets"
-                stroke="#8b5cf6"
+                stroke="var(--chart-1)"
                 fill="url(#ws)"
                 strokeWidth={2}
               />

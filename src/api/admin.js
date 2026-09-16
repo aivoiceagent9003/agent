@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { supabase } from './db.js'
 import { requireAdmin } from './auth.js'
 import { ingestText } from '../ingest.js'
+import { invalidateKnowledge } from '../services/rag.js'
 import { listMessages, recipientsOf } from '../services/conversations.js'
 import { notify } from '../services/notifications.js'
 import hub from '../services/realtime-hub.js'
@@ -159,6 +160,7 @@ router.delete('/tenants/:id/knowledge/:chunkId', async (req, res) => {
     .from('knowledge_base').delete()
     .eq('id', req.params.chunkId).eq('tenant_id', req.params.id)
   if (error) return res.status(500).json({ error: 'Could not delete chunk' })
+  invalidateKnowledge(req.params.id)
   res.json({ success: true })
 })
 
@@ -167,6 +169,7 @@ router.delete('/tenants/:id/knowledge', async (req, res) => {
   const { error } = await supabase
     .from('knowledge_base').delete().eq('tenant_id', req.params.id)
   if (error) return res.status(500).json({ error: 'Could not clear knowledge' })
+  invalidateKnowledge(req.params.id)
   res.json({ success: true })
 })
 

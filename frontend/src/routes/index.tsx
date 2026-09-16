@@ -28,7 +28,7 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="forest-site min-h-screen flex flex-col">
       <SiteNav />
       <main className="flex-1">
         <OrbHero />

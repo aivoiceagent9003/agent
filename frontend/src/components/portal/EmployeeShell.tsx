@@ -45,7 +45,7 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
     // Deliberately not a fixed-height shell with an internally-scrolling <main>:
     // that would move scrolling off the window and silently break the router's
     // scroll restoration.
-    <div className="min-h-screen flex bg-background">
+    <div className="forest-portal min-h-screen flex bg-background">
       <aside className="sticky top-0 h-screen w-64 shrink-0 border-r border-border flex flex-col">
         <div className="p-5 shrink-0">
           <Link to="/work/leads" className="flex items-center gap-2 font-display font-bold text-lg">

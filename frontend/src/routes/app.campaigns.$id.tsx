@@ -106,7 +106,7 @@ function CampaignDetail() {
                 onClick={() => setScheduling((v) => !v)}
                 icon={Clock}
                 label="Schedule"
-                cls="border-blue-500/40 text-blue-500 hover:bg-blue-500/10"
+                cls="border-primary/40 text-primary hover:bg-primary/10"
               />
             </>
           )}
@@ -120,7 +120,7 @@ function CampaignDetail() {
       </div>
 
       {scheduledFor && (
-        <div className="mt-4 flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-500">
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
           <Clock className="w-4 h-4" /> Scheduled to start automatically on{" "}
           {scheduledFor.toLocaleString([], { dateStyle: "full", timeStyle: "short" })}.
         </div>

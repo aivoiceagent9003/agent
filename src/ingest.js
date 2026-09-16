@@ -4,6 +4,7 @@
 
 import OpenAI from 'openai'
 import { supabase } from './api/db.js'
+import { invalidateKnowledge } from './services/rag.js'
 import { readFileSync } from 'fs'
 import 'dotenv/config'
 
@@ -156,6 +157,7 @@ export async function ingestText(
 
   if (replace) {
     await supabase.from('knowledge_base').delete().eq('tenant_id', tenantId)
+    invalidateKnowledge(tenantId)
   }
 
   const chunks = chunkText(text)
@@ -186,6 +188,7 @@ export async function ingestText(
     console.error('[INGEST] insert error:', error.message)
     throw new Error(`Could not save this document's chunks: ${error.message}`)
   }
+  invalidateKnowledge(tenantId)
 
   // Auto-derive the recognition vocabulary from this document. Fire-and-forget so
   // it never delays the upload response (it's a background enrichment).
