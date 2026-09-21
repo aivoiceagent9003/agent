@@ -1,6 +1,6 @@
 // services/recording.js — capture a playable recording of the call.
 //
-// WHY: in a speech-to-speech engine the live caller transcription is an unreliable
+// WHY: the live caller transcription can be an unreliable
 // side-channel (it mis-transcribes Indic speech into the wrong language). The audio
 // itself is the ground truth, so for the client dashboard we record the call and
 // show the RECORDING + an English summary instead of a noisy transcript.

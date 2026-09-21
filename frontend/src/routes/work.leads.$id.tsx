@@ -25,6 +25,7 @@ import {
   type LeadStatus,
   type LeadComment,
 } from "@/lib/team";
+import { CallTranscript } from "@/components/portal/CallTranscript";
 import {
   ArrowLeft,
   User,
@@ -190,13 +191,28 @@ function CapturedPanel({ lead }: { lead: any }) {
         Call recording
       </h2>
       <RecordingPlayer url={lead.recording_url} seconds={lead.duration_seconds} />
+
+      {/* Transcript UNDER the recording, not instead of it. The audio stays the
+          record of last resort — when a transcript line looks wrong, or a figure
+          matters enough to hear said out loud, the recording is right there. */}
+      <hr className="my-5 border-border" />
+      <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        What was said
+      </h2>
+      <div className="mt-3">
+        <CallTranscript
+          raw={lead.transcript}
+          emptyLabel="No transcript for this call — play the recording above."
+          className="max-h-96"
+        />
+      </div>
     </section>
   );
 }
 
-// The recording, not a transcript. Automatic transcription of code-mixed Indian
-// phone audio isn't reliable enough to put in front of staff who will act on it —
-// the audio is the real record of what was said.
+// The recording is the ground truth for a call: it is the only artefact nothing has
+// interpreted. The transcript below it is verbatim too, but it is still a machine's
+// reading of the audio, so the player stays first.
 function RecordingPlayer({ url, seconds }: { url: string | null; seconds: number | null }) {
   if (!url) {
     return (

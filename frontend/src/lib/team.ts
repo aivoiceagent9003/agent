@@ -258,6 +258,8 @@ export type LeadDetail = Lead & {
   /** Signed, expiring URL for the call recording. Null if the call wasn't recorded. */
   recording_url: string | null;
   duration_seconds: number | null;
+  /** The call verbatim, in the language it was spoken. Parse with parseTranscript(). */
+  transcript: string | null;
   assignee: { id: string; name: string } | null;
   email: string | null;
   alt_phone: string | null;

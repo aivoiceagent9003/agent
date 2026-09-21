@@ -6,6 +6,7 @@ import OpenAI from 'openai'
 import { supabase } from '../api/db.js'
 import telemetry from './telemetry.js'
 import 'dotenv/config'
+import { isOverviewQuery, extractCatalogue, catalogueContext, catalogueMatches, selectDiverseChunks, comparisonAnchors } from './knowledge-selection.js'
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -112,10 +113,28 @@ async function loadTenantIndex(tenantId) {
     if (data.length < PAGE) break
   }
 
-  const parsed = rows.map(r => (typeof r.embedding === 'string' ? JSON.parse(r.embedding) : r.embedding))
-  const dim = parsed[0]?.length || 0
+  // Parsing is done in slices, yielding to the event loop between them.
+  //
+  // This looked like harmless CPU work and was not: each row holds a 1536-float
+  // embedding as a JSON STRING, so the whole index is ~634 JSON.parse calls plus a
+  // normalise pass, and doing it in one go blocks Node entirely. On a real call it
+  // blocked long enough that the greeting's TTS audio could not be forwarded to the
+  // caller until it finished — "greeting first audio 5181ms after the call connected",
+  // against ~1200ms when nothing is in the way. The caller sat in silence through it.
+  //
+  // Warming the index during a call is still the right thing to do; hogging the one
+  // thread that is also feeding the caller's audio is not.
+  const first = rows[0]?.embedding
+  const dim = (typeof first === 'string' ? JSON.parse(first) : first)?.length || 0
   const vecs = new Float32Array(rows.length * dim)
-  parsed.forEach((values, i) => vecs.set(toUnitVector(values), i * dim))
+  const SLICE = 64
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i].embedding
+    vecs.set(toUnitVector(typeof raw === 'string' ? JSON.parse(raw) : raw), i * dim)
+    // setImmediate rather than a microtask: a resolved promise would run before I/O
+    // callbacks and still starve the socket that is carrying the agent's voice.
+    if (i % SLICE === SLICE - 1) await new Promise(setImmediate)
+  }
 
   TENANT_INDEX.set(tenantId, {
     contents: rows.map(r => r.content),
@@ -199,10 +218,13 @@ const RAG_CACHE_TTL = 5 * 60 * 1000     // 5 minutes
 const RAG_CACHE_MAX = 500
 const ragKey = (tenantId, q) => `${tenantId}|${normalizeQ(q)}`
 
-export async function retrieveKnowledge(tenantId, question, matchCount = 3) {
+export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mode } = {}) {
   if (!tenantId || !question) return ''
+  const overview = isOverviewQuery(question, mode)
+  matchCount = Math.min(12, Math.max(1, Math.floor(Number(matchCount) || 3)))
+  const candidateCount = overview ? 60 : matchCount
 
-  const key = ragKey(tenantId, question)
+  const key = `${ragKey(tenantId, question)}|${overview ? 'overview' : 'detail'}|${matchCount}`
   const hit = RAG_CACHE.get(key)
   if (hit && Date.now() - hit.ts < RAG_CACHE_TTL) {
     console.log(`[RAG] ⚡ cache hit "${question.slice(0, 40)}"`)
@@ -227,13 +249,13 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3) {
     //    otherwise via the pgvector RPC function
     const tSearch = Date.now()
     const idx = getReadyIndex(tenantId)
-    let data = idx ? searchIndex(idx, queryEmbedding, matchCount) : null
+    let data = idx ? searchIndex(idx, queryEmbedding, candidateCount) : null
     const where = data ? 'memory' : 'db'
     if (!data) {
       const res = await supabase.rpc('match_knowledge', {
         query_embedding: Array.from(queryEmbedding),
         match_tenant_id: tenantId,
-        match_count: matchCount,
+        match_count: candidateCount,
       })
       if (res.error) {
         console.error('[RAG] Search error:', res.error.message)
@@ -244,7 +266,7 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3) {
     }
     telemetry.recordLatency('vector_search', Date.now() - tSearch, { tenantId, where })
 
-    if (!data || data.length === 0) {
+    if ((!data || data.length === 0) && !overview) {
       console.log('[RAG] No matching knowledge found')
       telemetry.incr('rag_no_match')
       telemetry.recordLatency('rag_retrieval', Date.now() - t0, { tenantId })
@@ -253,20 +275,48 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3) {
 
     // 3. Filter by similarity threshold — ignore weak matches
     // (cosine similarity: 1 = identical, 0 = unrelated)
-    const relevant = data.filter(d => d.similarity > 0.3)
+    let relevant = (data || []).filter(d => d.similarity > 0.3)
 
-    if (relevant.length === 0) {
+    if (relevant.length === 0 && !overview) {
       console.log(`[RAG] Matches too weak (best: ${data[0].similarity.toFixed(2)})`)
       telemetry.incr('rag_no_match')
       telemetry.recordLatency('rag_retrieval', Date.now() - t0, { tenantId })
       return cache('')
     }
 
-    const knowledge = relevant.map(d => d.content).join('\n\n')
-    console.log(`[RAG] Found ${relevant.length} chunks in ${Date.now() - t0}ms (embed ${tSearch - t0}ms, search ${Date.now() - tSearch}ms ${where}, best similarity: ${relevant[0].similarity.toFixed(2)})`)
+    let catalogue = ''
+    if (overview) {
+      // Scan names across the corpus, not only the top vector hits. This also
+      // works when twenty plans were uploaded together as one document.
+      let contents = idx?.contents
+      let truncated = false
+      if (!contents) {
+        const rows = await supabase.from('knowledge_base').select('content')
+          .eq('tenant_id', tenantId).order('id').limit(INDEX_MAX_CHUNKS + 1)
+        if (!rows.error) {
+          truncated = rows.data.length > INDEX_MAX_CHUNKS
+          contents = rows.data.slice(0, INDEX_MAX_CHUNKS).map(r => r.content)
+        }
+      }
+      const entries = extractCatalogue(contents || [])
+      const matches = catalogueMatches(entries, question)
+      catalogue = catalogueContext(entries, question, { truncated })
+      // When the catalogue identifies the requested family/category, keep detail
+      // evidence inside it instead of borrowing benefits from unrelated products.
+      if (matches.length) relevant = relevant.filter(row => matches.some(e =>
+        row.content.toLowerCase().includes(e.name.toLowerCase())))
+      const anchors = comparisonAnchors(contents || [], matches, relevant)
+      relevant = selectDiverseChunks([...anchors, ...relevant], entries, 6)
+    }
+    if (!catalogue && !relevant.length) return cache('')
+    const knowledge = catalogue + (overview
+      ? 'DETAIL EXCERPTS — a selected sample, not the whole catalogue. If benefits are missing, search the exact named products.\n'
+      : '') + relevant.map(d => d.content).join('\n\n')
+    const bestSimilarity = Math.max(0, ...relevant.map(row => row.similarity || 0))
+    console.log(`[RAG] Found ${relevant.length} chunks${overview ? ' + catalogue discovery' : ''} in ${Date.now() - t0}ms (embed ${tSearch - t0}ms, search ${Date.now() - tSearch}ms ${where}, best similarity: ${bestSimilarity.toFixed(2)})`)
     telemetry.recordLatency('rag_retrieval', Date.now() - t0, { tenantId })
     // Similarity distribution (0-100) and chunk count, for the RAG dashboard.
-    telemetry.recordLatency('rag_similarity', Math.round(relevant[0].similarity * 100), { tenantId })
+    telemetry.recordLatency('rag_similarity', Math.round(bestSimilarity * 100), { tenantId })
     telemetry.recordLatency('rag_chunks', relevant.length, { tenantId })
 
     return cache(knowledge)
@@ -279,7 +329,7 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3) {
 }
 // ─── Knowledge gaps ──────────────────────────────────────────────────────────
 // Every question the agent looked up and couldn't answer. Collected on the trace
-// during the call (gemini-live.js) and flushed here once, at hangup, so nothing
+// during the call by the engine, and flushed here once at hangup, so nothing
 // touches the database on the latency-critical tool path.
 //
 // This is what turns "81% info hit rate" on the dashboard into something a client

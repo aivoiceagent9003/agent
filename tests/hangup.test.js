@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { createPlayoutTracker } from '../src/telephony/playout.js'
 import { hangupUrl } from '../src/telephony/provider.js'
-import { buildGeminiTools } from '../src/services/gemini-live.js'
+import { buildAgentTools } from '../src/services/agent-tools.js'
 
 // A controllable clock, so the drain behaviour is testable without waiting for it.
 function fakeClock(start = 1_000_000) {
@@ -127,7 +127,7 @@ describe('the provider hangup endpoint', () => {
 })
 
 describe('the end_call tool', () => {
-  const decls = (cfg) => buildGeminiTools(cfg)[0]?.functionDeclarations || []
+  const decls = (cfg) => buildAgentTools(cfg)[0]?.functionDeclarations || []
   const endCall = (cfg = {}) => decls(cfg).find(d => d.name === 'end_call')
 
   it('is offered to every agent, whatever else they have', () => {

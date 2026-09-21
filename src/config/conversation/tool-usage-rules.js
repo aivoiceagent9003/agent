@@ -29,7 +29,9 @@ export function toolUsageRules(ctx) {
   cannot help with their own account until you have actually tried.`)
   } else if (hasKb) {
     parts.push(`WHERE FACTS COME FROM
-- Search the knowledge base before stating any fact about this business.
+- Ground business facts in supplied business information or successful knowledge
+  results from THIS call. Search when the information needed is missing; do not
+  search again just to repeat or explain a fact already retrieved.
 - It holds general material only. It never holds anything about an individual caller.`)
   } else if (hasLookups) {
     parts.push(`WHERE FACTS COME FROM
@@ -38,10 +40,56 @@ export function toolUsageRules(ctx) {
   }
 
   if (hasKb) {
+    // A real call: the caller asked in Telugu, the agent searched in Telugu, the
+    // search scored 0.18 against English source material and found nothing — and the
+    // agent told the caller the business had no term insurance options. The material
+    // a business uploads (brochures, price lists, policy documents) is overwhelmingly
+    // English; a tenant whose knowledge base is not would need this rule revisited.
+    parts.push(`SEARCH IN ENGLISH, ANSWER IN THEIR LANGUAGE
+- The stored material is written in English. Write every search in English, whatever
+  language the caller used — a search written in their script matches nothing at all,
+  and you end up telling them the business has no information when it does.
+- Turn what they asked into a few plain English words: a caller asking about term
+  insurance options searches for "term insurance options", never for the same phrase
+  in their own script.
+- This applies ONLY to the search. What you SAY stays in the caller's language.
+- Search for what the caller ACTUALLY asked about. If they named a plan or company,
+  include that name — products are worded almost identically, so a generic search
+  lands on the wrong one. If they named nothing, do not put a name in: a search you
+  narrowed yourself returns one product's page and tells you nothing about the rest.`)
+
+    // A real call: one search returned a single company's pages, and the agent then
+    // told the caller — three times, through their corrections — that the business had
+    // nothing else, when it carries ten companies. Never search once and generalise.
+    parts.push(`NEVER SAY "WE DO NOT HAVE IT" WITHOUT LOOKING FOR IT
+- What you retrieved is a few paragraphs, never the whole catalogue. Finding one plan
+  is not evidence that the others do not exist.
+- Before you tell a caller the business does not offer something, does not deal with
+  some company, or has only one option, SEARCH FOR THAT THING. If the search comes
+  back empty, say you don't have it to hand and offer to have the team confirm —
+  which is different from saying it does not exist.
+- If the caller says you have missed something — "you should have ten companies",
+  "you also do X" — they are usually right and they know the business. Search again
+  using THEIR words before you answer. Never repeat your denial without searching.`)
+
     parts.push(`DO NOT RE-FETCH WHAT YOU ALREADY HAVE
 - Check what you retrieved earlier in THIS conversation first. If the answer is already
   there — you pulled a plan's full details and they now ask its price — answer from it.
 - Search only for something you have not already retrieved on this call.`)
+
+    parts.push(`DISCOVER BEFORE YOU RECOMMEND
+- A request for the best plan, available options or a recommendation needs a catalogue
+  overview: use search_knowledge with mode="overview" and the requested category.
+  Do not put a company or variant in the query just because you mentioned it earlier.
+- For variants, search the parent product family in overview mode. A search narrowed
+  to one variant cannot establish which other variants exist.
+- Catalogue names establish available choices, not their benefits or suitability.
+  Detail excerpts are a sample, never proof that the first match is best or the only one.
+- Offer two or three relevant, verified choices or explain the supported difference
+  between variants. Do not read the whole catalogue aloud. If the details do not
+  support a comparison yet, retrieve the missing product details before claiming one.
+- Keep company, product family and variant separate. Do not call twenty variants
+  twenty companies. Do not claim an exact catalogue total from a sampled result.`)
   }
 
   if (hasLookups) {

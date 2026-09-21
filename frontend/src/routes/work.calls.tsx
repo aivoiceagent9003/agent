@@ -6,7 +6,8 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useClientCalls, parseTranscript } from "@/lib/data";
+import { useClientCalls } from "@/lib/data";
+import { CallTranscript } from "@/components/portal/CallTranscript";
 import { PhoneCall, Clock, ChevronDown } from "lucide-react";
 
 export const Route = createFileRoute("/work/calls")({
@@ -67,7 +68,7 @@ function WorkCalls() {
 
                 {open && (
                   <div className="px-5 pb-5 border-t border-border pt-4">
-                    <Transcript raw={c.transcript} />
+                    <CallTranscript raw={c.transcript} />
                   </div>
                 )}
               </article>
@@ -75,32 +76,6 @@ function WorkCalls() {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function Transcript({ raw }: { raw?: string | null }) {
-  const turns = parseTranscript(raw);
-  if (!turns.length) {
-    return <p className="text-sm text-muted-foreground">No transcript for this call.</p>;
-  }
-  return (
-    <div className="space-y-2 max-h-80 overflow-y-auto">
-      {turns.map((t, i) => (
-        <div key={i} className="text-sm">
-          <span
-            className={`font-medium ${t.who === "agent" ? "text-primary" : "text-muted-foreground"}`}
-          >
-            {t.who === "agent" ? "Agent" : "Caller"}:
-          </span>{" "}
-          <span>{t.native}</span>
-          {/* Callers often speak Hindi/Telugu; the stored English gloss is what
-              makes the transcript usable for staff who don't share the language. */}
-          {t.en && t.en !== t.native && (
-            <span className="text-muted-foreground italic"> — {t.en}</span>
-          )}
-        </div>
-      ))}
     </div>
   );
 }

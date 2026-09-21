@@ -145,7 +145,7 @@ router.get('/gemini', (_req, res) => {
     firstAudio: lat.first_audio || null,
     turn: lat.turn || null,
     modelThinking: lat.model_thinking || null,
-    // Token usage is not exposed by the Gemini Live SDK in this integration.
+    // Token usage comes from the cascade cost meter, not from here.
     tokenUsageAvailable: false,
   })
 })

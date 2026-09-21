@@ -1,7 +1,7 @@
 // LiveDemo — the public "try it live" section.
 //
 // A REAL voice call: the visitor picks a sector, allows the mic, and talks to the
-// actual agent running the same Gemini Live engine a phone call uses. The call
+// actual agent running the same engine a phone call uses. The call
 // plumbing lives in the shared useVoiceCall hook (also used by "Talk to Priya").
 
 import { useEffect, useState } from "react";

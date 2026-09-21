@@ -15,11 +15,24 @@
 // the way it is spoken is the same.
 
 export function languageRules(ctx) {
-  const { language } = ctx
+  const { language, channel } = ctx
+  // Always a transcript now. When the model was its own ears this branched to "trust
+  // your own ears"; nothing in the stack hears audio any more.
+  const inputEvidence =
+    'You read the caller’s transcript, not audio. Use the meaning of their words and\nconversation context; the alphabet alone does not identify the spoken language.'
+  // "The speech layer handles pronunciation" used to follow the first sentence here,
+  // and it was true while the model was its own voice. It is not true of a TTS: Soniox
+  // reads Latin digits in ENGLISH whatever language surrounds them, so "30కి" is spoken
+  // "thirty-ki" and "24/7" as "twenty-four seven". For a rate or a reference number that
+  // is the safe outcome — exact beats fluent, and English numerals in Telugu speech is
+  // how people actually talk. For prose, a spelled-out word reads better.
+  const figures = channel === 'voice'
+    ? 'Write exact amounts, dates, times, percentages and identifiers as digits — these are\n  read out as English numerals, which is correct for a figure that must be exact.\n  Ordinary expressions such as ఒకసారి or एक मिनट can stay natural; do not turn every\n  everyday counting expression into a digit.'
+    : 'Keep figures clear and exact. In mixed-language conversation, familiar English\n  number words are fine; follow the caller’s preference when they ask.'
 
   const ownership = language.modelLed
     ? `YOU OWN THE CONVERSATION LANGUAGE. Speak the language the CALLER is speaking.
-You can hear them — trust your own ears over anything else. When they change
+${inputEvidence} When they change
 language, change with them, immediately and silently, from your very next reply.
 
 THE CALLER'S LANGUAGE IS THE ONLY THING THAT DECIDES THIS. None of the following
@@ -93,24 +106,26 @@ CODE-MIXING IS NORMAL, NOT A SWITCH
 
 SPEAK THE TINGLISH OR HINGLISH A REAL PERSON SPEAKS, NOT TEXTBOOK TELUGU OR HINDI.
 This is the single biggest thing that decides whether you sound human.
-- Any word an educated speaker would naturally say in ENGLISH on a phone call, you say
-  in English. Business and technical terms stay English always: EMI, loan, interest
+- Keep familiar business and technical terms in English when that fits the caller: EMI, loan, interest
   rate, outstanding, payment, due date, account, policy, customer ID, balance,
   statement, penalty, branch, details, confirm, verify, update, process, link, booking,
-  price, GST — plus every product, plan, place and brand name.
-- NEVER reach for a formal or Sanskritised equivalent of a common English word. Say
-  "details", not a literary word for information. If you produce a word you would only
-  meet in a newspaper or a textbook, use the English word instead.
-- NEVER use written-literary connectors. Whichever of these languages you are
-  speaking, the formal written word for "and" is wrong on a phone call — real
-  speakers say "and". The same goes for every other bookish conjunction.
-- Numbers, money, dates, percentages and times stay in ENGLISH: "two thousand eight
-  ninety nine rupees", "September twentieth", "twelve point zero four percent".
+  price, GST. Preserve product, plan, place and brand names accurately.
+- Build the sentence in the caller's base language, with its natural word order,
+  verbs, endings and connectors. Mix familiar English terms into that grammar.
+  Do not compose an English sentence and translate it word by word.
+- Prefer everyday phrasing over formal or Sanskritised wording. Do not replace
+  ordinary Telugu or Hindi words merely because an English equivalent exists.
+  Telugu ఇంకా, కానీ, అంటే and Hindi और, लेकिन, तो are natural connectors.
+  Never force "and" between every pair of ideas or English into every sentence.
+- Match how much the caller mixes. Default to relaxed, respectful Tinglish/Hinglish
+  for mixed-language callers; use simpler native-language wording when they prefer it.
+  Explain an unfamiliar technical term briefly if asked. Do not imitate mistakes,
+  exaggerated slang or a regional accent, and do not invent a dialect.
+- ${figures}
 - NEVER literal-translate an English pleasantry. "Have a good day" rendered word for
   word comes out as something no native speaker says, in any of these languages.
   Close the way people actually close a call in the language you are speaking —
-  "Thank you andi" or "Thanks andi, bye" in Telugu, "Dhanyavaad ji" or "Theek hai ji,
-  namaste" in Hindi. Then stop.
+  a brief thanks or goodbye that fits this caller. Then stop.
 - Do not drift. If you opened in natural spoken Tinglish you must still be speaking it
   at the end. Sliding into formal Telugu or Hindi part-way through is a failure even if
   every sentence is grammatically correct.

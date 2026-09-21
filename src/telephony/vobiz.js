@@ -2,9 +2,9 @@
 //
 // Both providers stream G.711 mu-law 8kHz over a bidirectional WebSocket and speak the
 // same <Stream> XML and playAudio/clearAudio frames, so ONE adapter serves both and the
-// Gemini Live engine runs UNCHANGED. This module only adapts the TRANSPORT:
+// voice engine runs UNCHANGED. This module only adapts the TRANSPORT:
 //   • /answer  webhook → returns <Stream> XML
-//   • /media-stream-vobiz WS → feeds provider frames into the Gemini Live engine
+//   • /media-stream-vobiz WS → feeds provider frames into the voice engine
 //   • outbound audio → 'playAudio' frames (re-chunked to 20ms/160 bytes)
 //
 // The filename and the /media-stream-vobiz route keep their original names on purpose:
@@ -16,14 +16,22 @@
 // (extraHeaders key → number fields). Confirmed on Plivo: extra_headers arrives as
 // "{X-PH-callkey: <uuid>, ...}" and streamId/callId sit under start.
 
-import { createGeminiLiveConnection } from '../services/gemini-live.js'
-import { clearHistory, getHistory } from '../services/llm.js'
+import { createSonioxCascadeConnection } from '../services/soniox-cascade.js'
+import { clearHistory } from '../services/llm.js'
 import { TAG, PROVIDER } from './provider.js'
 import { createPlayoutTracker } from './playout.js'
 import { hangUpCall } from './hangup.js'
 
-// Live calls run on Gemini Live speech-to-speech (the only engine).
-const createVoiceConnection = createGeminiLiveConnection
+// One engine: Soniox STT → LLM → Soniox TTS (see services/soniox-cascade.js).
+//
+// There used to be a per-tenant selector here, because the platform ran Gemini Live
+// speech-to-speech as well. That engine is gone: it re-billed the whole conversation on
+// every turn, and the cascade answers faster, costs a fraction, and is the only path
+// that gets the latency and prompt-cache work. Keeping a second engine alive meant
+// every fix had to be made twice.
+function voiceEngineFor() {
+  return { name: 'soniox', create: createSonioxCascadeConnection }
+}
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
 import { recordingNotice } from '../services/greeting.js'
@@ -317,7 +325,7 @@ function parseExtraHeaders(raw) {
 // missing, the tenant was resolved from the phone number in the start frame — a
 // value supplied by whoever opened the socket. Since the socket itself is
 // unauthenticated, that meant anyone could connect, name a customer's published
-// business number, and be handed a full Gemini Live session on that customer's
+// business number, and be handed a full agent session on that customer's
 // agent, prompt, and knowledge base — billed to them. The number in the start
 // frame is now treated as what it is: an untrusted claim.
 //
@@ -392,7 +400,7 @@ export function handleVobizConnection(ws) {
       callSid = streamId || callId || `vobiz-${Date.now()}`
       callStart = Date.now()
 
-      // ── Telemetry: open the trace for this call. Engines (gemini-live) look it
+      // ── Telemetry: open the trace for this call. The engine looks it
       // up by callSid via telemetry.getTrace(), so it MUST exist before the engine
       // is created. The webhook phase (captured in pendingCalls) is replayed as
       // spans so the waterfall starts at the webhook, not the WS connect.
@@ -403,7 +411,7 @@ export function handleVobizConnection(ws) {
         tenantName: tenant.name,
         callerNumber,
         businessNumber: tm.calledNumber || null,
-        engine: 'gemini',
+        engine: voiceEngineFor(tenant.config || {}).name,
         startedAt: tm.webhookAt || callStart,
       })
       if (tm.webhookAt) {
@@ -441,7 +449,8 @@ export function handleVobizConnection(ws) {
       recorder = recordingOn ? new CallRecorder() : null
       const sink = makeVobizSink(ws, getStreamId, recorder, trace, () => tenantConfig.provider_call_id)
 
-      dg = createVoiceConnection(
+      const voiceEngine = voiceEngineFor(tenantConfig)
+      dg = voiceEngine.create(
         callSid,
         tenantConfig,
         sink,                       // outbound audio → playAudio frames
@@ -454,7 +463,7 @@ export function handleVobizConnection(ws) {
         },
         callerNumber,
       )
-      console.log(`[${TAG}] Pipeline started for tenant: ${tenant.name} (engine: gemini)`)
+      console.log(`[${TAG}] Pipeline started for tenant: ${tenant.name} (engine: ${voiceEngine.name})`)
       return
     }
 
@@ -567,8 +576,18 @@ export function handleVobizConnection(ws) {
       })
 
       if (tenant) {
-        const history = getHistory(callSid)
-        if (history && history.length > 0) {
+        // The conversation, for the extractor — built from the SAME turns that became
+        // the transcript above, so the two can never disagree about what was said.
+        //
+        // This deliberately does NOT use llm.js getHistory(). That store was only ever
+        // filled by the old speech-to-speech engine, which pushed each turn into it by
+        // hand. The cascade keeps its own messages and never wrote there, so after the
+        // engine swap getHistory() returned [] on every call and lead extraction
+        // stopped running entirely — silently, because the emptiness was checked here,
+        // in front of the code that would have logged it. Every call still recorded a
+        // transcript, so nothing looked broken except that no leads appeared.
+        const history = transcriptBuffer.map(t => ({ role: t.role, content: t.text }))
+        if (history.length > 0) {
           const leadSpan = trace?.span('lead_extraction')
           try {
             // The live classifier measured the call language turn by turn; the
@@ -587,6 +606,12 @@ export function handleVobizConnection(ws) {
           } catch (e) {
             leadSpan?.end({ error: e })
           }
+        } else {
+          // Say so. Extraction quietly not running is exactly how it went unnoticed
+          // after the engine swap: the transcript still saved, the call still looked
+          // healthy, and only the absence of leads gave it away. A genuinely empty
+          // call (wrong number, silence) prints this too — that is the cheaper error.
+          console.warn(`[${TAG}] no conversation turns — skipping lead extraction (call ${callId})`)
         }
       }
     }

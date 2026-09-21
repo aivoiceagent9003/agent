@@ -1,7 +1,7 @@
 // services/language-manager.js — the authoritative conversation-language state machine.
 //
 // ─── ROOT CAUSE THIS FILE EXISTS TO FIX ──────────────────────────────────────
-// Gemini Live decides its own reply language by listening to the caller. On
+// The model decides its own reply language from the caller's transcript. On
 // code-mixed Indian speech that is unstable: "Sir, naa EMI payment pending undi"
 // is Telugu grammar carrying five English nouns, and the model would answer it in
 // English — then in Hindi the next turn. The application, not the model, has to
@@ -35,7 +35,7 @@
 // script reach the classifier.
 //
 // This module only DECIDES. Transport — when to inject a steer into the live
-// session — stays in gemini-live.js, which must respect the model's turn state.
+// session — stays in the engine, which must respect the model's turn state.
 
 import { GoogleGenAI } from '@google/genai'
 
@@ -703,7 +703,7 @@ export class LanguageManager {
       classifierUsed: this._classifierUsed,
       classifierLatencyMs: this._classifierMs,
     }
-    // Kept for existing telemetry call sites in gemini-live.js.
+    // Kept for existing telemetry call sites.
     this.lastDecision = {
       detected: result.detectedLanguage,
       language: action === 'none' ? null : this.currentLanguage,

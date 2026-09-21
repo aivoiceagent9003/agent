@@ -1,7 +1,7 @@
 // tts.js — Sarvam text-to-speech. The ONLY remaining use of TTS is the campaign
 // platform's "Template Call" type (a pre-rendered spoken message, no conversation):
 // services/campaigns/broadcast.js renders a template to μ-law audio via fetchTTSAudio.
-// Live AI calls do NOT use this — they run on Gemini Live speech-to-speech.
+// Live AI calls do NOT use this — they run the Soniox cascade, which has its own TTS.
 
 import 'dotenv/config'
 

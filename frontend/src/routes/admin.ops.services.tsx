@@ -95,7 +95,7 @@ function GeminiPanel() {
       </TwoCol>
       <CounterBars title="Close codes" data={g.closeCodes} />
       {!g.tokenUsageAvailable && (
-        <Note>Token usage is not exposed by the Gemini Live SDK in this integration.</Note>
+        <Note>Token usage is reported by the cascade cost meter at hangup, not here.</Note>
       )}
     </>
   );

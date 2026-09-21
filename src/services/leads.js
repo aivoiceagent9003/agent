@@ -67,7 +67,7 @@ product or service. NOT every call is a lead. Judge interest from the whole call
 Rules:
 - Output ONLY the JSON object, nothing else
 - Use null for missing fields, not empty strings
-- TRANSCRIPTION RELIABILITY: the "Caller:" lines are the speech-to-speech engine's
+- TRANSCRIPTION RELIABILITY: the "Caller:" lines are the speech recogniser's
   own transcription of the caller. They are usually accurate, though Indic speech
   and heavy code-mixing can still come through imperfectly. Read them as the
   primary record of what the caller actually said.
@@ -101,7 +101,10 @@ Rules:
 }
 
 // ─── Extract lead from conversation history ───────────────────────────────────
-// `history` is the array from llm.js getHistory(callSid): [{role, content}, ...]
+// `history` is the call's turns as [{role, content}, ...] — the callers build it from
+// the transcript they collected during the call. It used to come from llm.js
+// getHistory(); that store is written by nothing since the speech-to-speech engine was
+// retired, so reading it here returned an empty conversation and no lead.
 
 // knownLanguage: the LanguageManager verdict for this call, when there was one.
 // It is a measurement of the audio, so it WINS over anything the model infers
@@ -157,66 +160,17 @@ export async function extractLead(history, tenantConfig = {}, { knownLanguage = 
   }
 }
 
-// ─── Build the client-facing transcript (bilingual: native + English) ──────────
-// In a speech-to-speech engine the live "Caller:" lines are a NOISY side-channel
-// (inputAudioTranscription), frequently garbled or romanized into the wrong Indic
-// language — they are NOT what the model actually understood. The "Agent:" lines
-// are reliable and restate the caller's intent. This post-call pass:
-//   1. rewrites each caller turn into what they most likely said (from the agent's
-//      replies), so the conversation reads coherently, and
-//   2. adds an English translation of every turn, so the client can always read it
-//      regardless of the call language.
-// Returns a STRUCTURED JSON string ({ v:2, turns:[{role, native, english}] }) that
-// the dashboard renders as native text with an English sub-line. On any failure it
-// falls back to the raw "Caller:/Agent:" text, which the UI still parses. Runs
-// POST-call, so it adds zero latency to the live conversation.
-export async function cleanTranscript(rawTranscript, tenantConfig = {}) {
-  if (!rawTranscript?.trim()) return rawTranscript
-  try {
-    const completion = await ai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You reconstruct a clean, readable phone-call transcript for a business client's dashboard.
-
-CRITICAL — the "Caller:" lines are almost always WRONG. They come from a broken speech-to-text that frequently outputs a COMPLETELY DIFFERENT language than the caller actually spoke (you may see Korean, Hindi, Portuguese, or gibberish the caller never said). DO NOT translate or preserve the literal caller words, and NEVER carry their wrong language into the output.
-
-The "Agent:" lines are ACCURATE. The agent speaks the SAME language as the caller (it mirrors them) and restates what the caller said, asked, or gave — locations, budgets, project names, the caller's name and phone number. INFER each caller turn from the agent's surrounding replies.
-
-THE CONVERSATION'S REAL LANGUAGE IS THE LANGUAGE THE AGENT SPEAKS. Reconstruct EVERY caller turn in THAT language (e.g. if the agent speaks Telugu, every caller turn must be in Telugu — never Hindi/Korean/etc.).
-
-Produce a JSON object {"turns": [ ... ]}. Each turn has:
-- "role": "caller" or "agent"
-- "native": for an agent turn, keep it essentially as-is. For a caller turn, write a SHORT, natural reconstruction of what they most likely said, in the agent's language, inferred from the agent's replies. You MAY keep a concrete fact from the raw caller line (a phone number, a name, a place) ONLY if the agent's reply confirms or uses it. If a caller turn cannot be inferred at all, use a short placeholder in the agent's language meaning "(could not be understood)".
-- "english": a faithful English translation of "native".
-
-Rules:
-- Do NOT invent specifics the agent never addressed. Keep caller turns concise.
-- Preserve the real turn order.
-- Output ONLY the JSON object, no markdown, no backticks, no prose.`,
-        },
-        { role: 'user', content: rawTranscript },
-      ],
-      max_tokens: 1800,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-    })
-    const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}')
-    const turns = (Array.isArray(parsed) ? parsed : parsed.turns || [])
-      .map(t => ({
-        role: t.role === 'agent' || t.role === 'assistant' ? 'agent' : 'caller',
-        native: String(t.native ?? t.text ?? '').trim(),
-        english: String(t.english ?? t.en ?? '').trim(),
-      }))
-      .filter(t => t.native || t.english)
-    if (!turns.length) return rawTranscript
-    return JSON.stringify({ v: 2, turns })
-  } catch (e) {
-    console.error('[TRANSCRIPT] cleanup failed:', e.message)
-    return rawTranscript   // legacy "Caller:/Agent:" text — the UI still parses it
-  }
-}
+// ─── REMOVED: cleanTranscript() ───────────────────────────────────────────────
+// A post-call LLM pass that rewrote every caller turn. It existed because Gemini
+// Live's inputAudioTranscription mangled Indic speech — its prompt began "the
+// Caller: lines are almost always WRONG ... INFER each caller turn from the agent's
+// replies", i.e. it threw the caller's words away and reconstructed them.
+//
+// Soniox transcribes the caller directly and accurately, so that pass would now
+// paraphrase good data and quietly invent the difference. It had no callers when it
+// was deleted. If a translation layer is wanted later it is a NEW function that only
+// TRANSLATES — never one that reconstructs what the caller said.
+// ──────────────────────────────────────────────────────────────────────────────
 
 // ─── Lead qualification ───────────────────────────────────────────────────────
 // A lead is a potential customer who showed at least a slight identifiable

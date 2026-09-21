@@ -23,6 +23,8 @@ import { join } from 'path'
 const INR = {
   sarvamPerChar: Number(process.env.SARVAM_INR_PER_CHAR ?? 0.003),
   elevenPerChar: Number(process.env.ELEVENLABS_INR_PER_1K_CHARS ?? 4.8) / 1000,
+  // Cartesia Sonic: ~$35 per 1M characters => ~₹3.36 per 1K chars.
+  cartesiaPerChar: Number(process.env.CARTESIA_INR_PER_1K_CHARS ?? 3.36) / 1000,
 }
 
 const LINES = [
@@ -72,9 +74,47 @@ async function eleven(text, _lang, { telephony, model = 'eleven_flash_v2_5' }) {
   return { ms: Date.now() - t0, ttfb, buf: Buffer.concat(chunks), ext: telephony ? 'ulaw' : 'mp3' }
 }
 
+
+// Cartesia Sonic. Billed per character (~$35/1M chars) and the fastest of the three
+// on paper (sub-90ms claimed, ~166ms median in their own changelog). Supports 9
+// Indian languages including Telugu, so it is a candidate for BOTH tiers, not just
+// English. Untested here until CARTESIA_API_KEY exists.
+async function cartesia(text, lang, { telephony, model = process.env.CARTESIA_TTS_MODEL || 'sonic-3.6' }) {
+  const t0 = Date.now()
+  const res = await fetch('https://api.cartesia.ai/tts/bytes', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.CARTESIA_API_KEY}`,
+      'Cartesia-Version': process.env.CARTESIA_VERSION || '2026-08-14',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model_id: model,
+      transcript: text,
+      voice: { id: process.env.CARTESIA_VOICE_ID || 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4' },
+      language: (lang || 'en-IN').split('-')[0],
+      output_format: telephony
+        ? { container: 'raw', encoding: 'pcm_mulaw', sample_rate: 8000 }
+        : { container: 'wav', encoding: 'pcm_s16le', sample_rate: 22050 },
+    }),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 300)}`)
+  const reader = res.body.getReader()
+  const chunks = []
+  let ttfb = null
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (ttfb === null) ttfb = Date.now() - t0
+    chunks.push(Buffer.from(value))
+  }
+  return { ms: Date.now() - t0, ttfb, buf: Buffer.concat(chunks), ext: telephony ? 'ulaw' : 'wav' }
+}
+
 const ENGINES = [
   { name: 'sarvam-bulbul-v3', run: sarvam, rate: INR.sarvamPerChar, enabled: !!process.env.SARVAM_API_KEY },
   { name: 'eleven-flash-v2.5', run: eleven, rate: INR.elevenPerChar, enabled: !!process.env.ELEVENLABS_API_KEY },
+  { name: 'cartesia-sonic', run: cartesia, rate: INR.cartesiaPerChar, enabled: !!process.env.CARTESIA_API_KEY },
   { name: 'eleven-v3-convo', run: (t, l, o) => eleven(t, l, { ...o, model: 'eleven_v3_conversational' }), rate: INR.elevenPerChar, enabled: !!process.env.ELEVENLABS_API_KEY },
 ]
 

@@ -1,7 +1,7 @@
 // telephony/demo.js — Public "try it live" demo call for the marketing site.
 //
 // Anonymous visitors talk to a REAL agent from the browser, using the SAME engine
-// a phone call uses (VOICE_ENGINE) — not a scripted chat. The browser is the audio
+// a phone call uses — not a scripted chat. The browser is the audio
 // transport (mulaw 8kHz frames, exactly like Vobiz/Twilio), so the engines work
 // unchanged. No tenant, no DB writes, no telephony.
 //
@@ -16,18 +16,19 @@
 //   • per-IP hourly cap (DEMO_MAX_PER_IP_PER_HOUR)
 //   • kill switch (DEMO_ENABLED=false)
 
-import { createGeminiLiveConnection } from '../services/gemini-live.js'
+import { createSonioxCascadeConnection } from '../services/soniox-cascade.js'
 import { clearHistory } from '../services/llm.js'
 import { getTemplate } from '../api/templates.js'
 import 'dotenv/config'
 
-// The demo ALWAYS runs on Gemini Live (GEMINI_LIVE_MODEL) — true speech-to-speech.
-// Deliberately not the VOICE_ENGINE selector: the other engines involve a separate
-// TTS step, which is exactly the robotic sound we don't want on the marketing page.
-const createVoiceConnection = createGeminiLiveConnection
+// The demo runs the SAME engine a real call runs. It used to run a different one, on
+// the theory that a marketing page should sound better than the product; that is
+// exactly backwards — a demo that flatters the stack is a demo that lies.
+const createVoiceConnection = createSonioxCascadeConnection
 
-// Browser clients get Gemini's native audio (24kHz PCM out, 16kHz PCM in) instead
-// of the 8kHz µ-law telephony codec — no needless quality loss on a web page.
+// Browser clients still get proper audio (24kHz PCM out, 16kHz PCM in) rather than the
+// 8kHz µ-law telephony codec — Soniox speaks both, so there is no reason to degrade a
+// web page to phone quality. See AUDIO_PROFILES in soniox-cascade.js.
 const DEMO_AUDIO = { format: 'pcm16', outputSampleRate: 24000, inputSampleRate: 16000 }
 
 const ENABLED = process.env.DEMO_ENABLED !== 'false'
@@ -53,7 +54,7 @@ export const DEMO_SECTORS = [
     business_name: 'Sunrise Realty',
     agent_name: 'Priya',
     language_code: 'en-IN',   // Indian English accent, not US
-    voice: 'Leda',            // warm female
+    tts_voice: 'Priya',       // Indian English, warm female
     facts: `DEMO BUSINESS FACTS (treat these as your knowledge base — this is a sample business):
 - Sunrise Realty sells residential apartments in Hyderabad.
 - Projects:
@@ -74,7 +75,7 @@ export const DEMO_SECTORS = [
     business_name: 'Smile Dental Care',
     agent_name: 'Asha',
     language_code: 'en-IN',   // Indian English accent, not US
-    voice: 'Aoede',           // warm female
+    tts_voice: 'Kavya',       // warm female
     facts: `DEMO BUSINESS FACTS (treat these as your knowledge base — this is a sample business):
 - Smile Dental Care is a dental clinic in Jubilee Hills, Hyderabad.
 - Doctors: Dr. Meera Rao (root canal, crowns), Dr. Arjun Nair (braces, aligners), Dr. Kavya Reddy (general dentistry, cleaning).
@@ -92,7 +93,7 @@ export const DEMO_SECTORS = [
     business_name: 'Nova Electronics',
     agent_name: 'Ravi',
     language_code: 'en-IN',   // Indian English accent, not US
-    voice: 'Charon',          // steady male (Ravi)
+    tts_voice: 'Arjun',       // Indian English, steady male (Ravi)
     facts: `DEMO BUSINESS FACTS (treat these as your knowledge base — this is a sample business):
 - Nova Electronics sells home appliances online across India.
 - Delivery: 3-5 working days metro, 5-8 days elsewhere. Free above ₹2,000.
@@ -119,7 +120,7 @@ export const DEMO_PERSONAS = {
     agent_name: 'Priya',
     business_name: 'AnswerLabs',
     language_code: 'en-IN',   // Indian English accent, not US
-    voice: 'Leda',            // warm, natural female voice
+    tts_voice: 'Priya',       // warm, natural female voice
     max_seconds: VOCERA_MAX_SECONDS,   // long session — she's explaining the product
     greeting_message:
       "Hi! I'm Priya from AnswerLabs — the AI voice agent you're reading about, live on this call. Tell me, what kind of business do you run?",
@@ -197,7 +198,9 @@ function buildDemoConfig(sector) {
     greeting_message: sector.greeting_message || base.greeting_message,
     template_id: templateId,
     language_code: sector.language_code || base.language_code,   // e.g. 'en-IN' accent
-    voice: sector.voice || base.voice,
+    // tts_voice, not voice: `voice` held a Gemini Live voice name and Soniox
+    // rejects one. See services/soniox-voices.js.
+    tts_voice: sector.tts_voice || base.tts_voice,
     system_prompt: systemPrompt,
     tenant_id: null,
     enable_kb: false,        // no knowledge base in a public demo
@@ -252,7 +255,7 @@ export function handleDemoConnection(ws, req) {
 
       activeSessions++
       counted = true
-      console.log(`[DEMO] ${sid} started sector=${sector.id} engine=gemini-live hi-fi cap=${maxSeconds}s (active=${activeSessions})`)
+      console.log(`[DEMO] ${sid} started sector=${sector.id} engine=soniox hi-fi cap=${maxSeconds}s (active=${activeSessions})`)
 
       // Hard stop so a forgotten tab can't burn minutes forever.
       timer = setTimeout(() => {

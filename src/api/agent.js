@@ -15,7 +15,7 @@ import { TEMPLATES, getTemplate } from './templates.js'
 import { streamAIReply, clearHistory } from '../services/llm.js'
 import { buildContext, describeLayers } from '../config/conversation/index.js'
 import { retrieveKnowledge, invalidateKnowledge } from '../services/rag.js'
-import { listGeminiVoices } from '../services/gemini-voices.js'
+import { listSonioxVoices } from '../services/soniox-voices.js'
 import { ingestText } from '../ingest.js'
 import {
   createDocument,
@@ -182,10 +182,16 @@ router.get('/prompt-layers', async (req, res) => {
 })
 
 // ─── Available voices (for the "Choose what voice to speak" picker) ───────────
-// Live calls run on Gemini Live, so the caller hears a Gemini prebuilt voice. All
-// Gemini voices speak Indic languages natively; they differ in tone.
-router.get('/voices', (_req, res) => {
-  res.json(listGeminiVoices())
+// Calls are synthesised by Soniox, so these are Soniox voices — built-in ones plus any
+// this account has cloned. The chosen id belongs in `tts_voice`, NOT the older `voice`
+// field, which still holds Gemini Live names for tenants created before the switch and
+// would fail a call if handed to Soniox.
+router.get('/voices', async (_req, res) => {
+  try {
+    res.json(await listSonioxVoices())
+  } catch {
+    res.status(502).json({ error: 'voice list unavailable' })
+  }
 })
 
 // ─── Auto Build: generate a system prompt from a plain-English description ─────

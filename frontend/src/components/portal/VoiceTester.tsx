@@ -6,7 +6,7 @@ import { floatToPcm16Base64, StreamPlayer } from "@/lib/webcall";
 type Status = "idle" | "connecting" | "live";
 
 // Real web-call agent test: the browser is the audio transport, and the backend
-// runs the SAME Gemini Live engine a phone call uses. Hi-fi audio (24kHz PCM out /
+// runs the SAME engine a phone call uses. Hi-fi audio (24kHz PCM out /
 // 16kHz PCM in), so the client hears their agent at full quality.
 export function VoiceTester({ config }: { config: any }) {
   const [status, setStatus] = useState<Status>("idle");
@@ -91,7 +91,8 @@ export function VoiceTester({ config }: { config: any }) {
       const ctx: AudioContext = new Ctx();
       ctxRef.current = ctx;
       await ctx.resume();
-      // Continuous player ready before the first audio frame. Gemini outputs 24kHz.
+      // Continuous player ready before the first audio frame. The engine sends 24kHz
+      // PCM to a browser rather than the 8kHz telephony codec.
       playerRef.current = await StreamPlayer.create(ctx, 24000);
 
       const ws = new WebSocket(`${WS_BASE}/test-stream`);
@@ -106,7 +107,7 @@ export function VoiceTester({ config }: { config: any }) {
           }),
         );
 
-        // Capture mic → 16kHz PCM16 frames (Gemini's native input). ScriptProcessor
+        // Capture mic → 16kHz PCM16 frames (what Soniox STT takes). ScriptProcessor
         // must be connected to the graph to run, so route it through a muted gain
         // node (no mic loopback).
         const source = ctx.createMediaStreamSource(stream);

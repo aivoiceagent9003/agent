@@ -3,7 +3,7 @@
 // The TRANSPORT side of barge-in is already handled and is not touched here: the live
 // engine watches for serverContent.interrupted, drops the buffered agent transcript,
 // and sends a clear frame so the telephony provider flushes audio already queued at
-// the caller's ear (see gemini-live.js). That machinery works.
+// the caller's ear (see soniox-cascade.js barge-in). That machinery works.
 //
 // What was missing is the BEHAVIOURAL half. Cutting the audio stops the old sentence
 // from being heard; it does nothing to stop the model from resuming the same thought

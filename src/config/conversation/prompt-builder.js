@@ -55,10 +55,16 @@ export function buildContext(tenantConfig = {}, opts = {}) {
 
   return {
     tenantConfig,
-    // 'speech' = Gemini Live speaks directly. 'text' = the legacy cascade, where a
-    // separate layer translates and a separate engine speaks, so pronunciation rules
-    // do not apply and the model always works in English.
-    channel: opts.channel === 'speech' ? 'speech' : 'text',
+    // 'voice' = a phone call. The model WRITES and a TTS engine reads it aloud, so
+    //           figures go out as digits and tts-text.js spells them. Telling the model
+    //           to write number WORDS is actively wrong here — it produces Telugu number
+    //           words the voice then mangles ("seven thousand five vandalaku").
+    // 'text'  = not a phone call at all.
+    //
+    // There was a third, 'speech', for when the model was its own voice under Gemini
+    // Live. That engine is gone; anything still passing 'speech' falls through to
+    // 'text', which is the safe direction to be wrong in.
+    channel: opts.channel === 'voice' ? 'voice' : 'text',
     template: opts.template !== undefined ? opts.template : resolveTemplate(tenantConfig),
     capabilities: {
       lookups,
@@ -196,11 +202,13 @@ function businessLayer(ctx) {
   const terms = [...(c.kb_keyterms || []), ...(c.stt_keyterms || [])]
     .map(t => String(t || '').trim())
     .filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
-  if (terms.length && ctx.channel === 'speech') {
-    parts.push(`NAMES THIS BUSINESS ACTUALLY USES — this is the complete list: ${terms.join(', ')}.
-When the caller says a name, map what you heard to the closest match here. If what you
-think you heard is not on this list, you misheard — read back the closest one and
-confirm before acting on it. Never act on, search for, or repeat a name that is not here.`)
+  if (terms.length && ctx.channel !== 'text') {
+    parts.push(`NAMES THIS BUSINESS ACTUALLY USES — recognition hints: ${terms.join(', ')}.
+This vocabulary may be incomplete. Use it to recognise names, not to deny an
+unlisted product or force every unclear phrase into a product name. Interpret the
+phrase in the caller's context: an amount correction is not a request for a new
+product. If a name or number is uncertain, confirm the likely interpretation before
+acting. Never silently replace it with the nearest name from this list.`)
   }
 
   return parts.join('\n\n')

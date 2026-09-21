@@ -1,7 +1,7 @@
 import express from 'express'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { createGeminiLiveConnection } from './services/gemini-live.js'
+import { createSonioxCascadeConnection } from './services/soniox-cascade.js'
 import { clearHistory } from './services/llm.js'
 import { supabase } from './api/db.js'
 import publicRoutes from './api/public.js'
@@ -303,7 +303,7 @@ msgWss.on('connection', async (ws, req) => {
 })
 
 // ─── Browser "web call" test stream ───────────────────────────────────────────
-// A client tests their agent from the browser using the SAME Gemini Live engine a
+// A client tests their agent from the browser using the SAME engine a
 // real phone call uses. The browser sends/receives telephony-format audio frames
 // (base64 mulaw 8kHz), so the engine runs exactly as it does on a call. No phone,
 // no call/lead rows.
@@ -360,7 +360,7 @@ testWss.on('connection', (ws) => {
       }
       const streamSid = msg.start?.streamSid || sid
 
-      engine = createGeminiLiveConnection(
+      engine = createSonioxCascadeConnection(
         sid,                 // callSid → key for LLM history
         tenantConfig,
         ws,                  // browser ws receives telephony-format media frames

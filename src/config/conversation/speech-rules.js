@@ -9,14 +9,18 @@
 export function speechRules(ctx) {
   const { channel } = ctx
 
-  // The legacy cascade pipeline renders text through a separate TTS engine and a
-  // translation layer; the live engine speaks directly. Only the live path needs
-  // rules about how to pronounce things.
-  const spoken = channel === 'speech'
+  // There used to be a pronunciation block here, for when the model was its own voice
+  // and had to be told to say "eight thousand four hundred rupees". A TTS engine reads
+  // what the model WRITES now, and tts-text.js does the spelling-out, so that block had
+  // become the opposite order to the one below it. On a real call the two together
+  // produced "seven thousand five vandalaku" and "నూట one hundred percent" — the caller
+  // heard 101%. It went with the engine that needed it.
+
+  // Everything below is about being ACCURATE with a figure or an identifier, not about
+  // how to pronounce one. It applies to every phone call, whoever produces the audio.
+  const spoken = channel !== 'text'
     ? `
 SAYING NUMBERS AND IDENTIFIERS OUT LOUD
-- Speak numbers, money, dates and percentages as words, in the language you are
-  speaking. Never read out a symbol.
 - A FIGURE THAT CAME FROM A RECORD IS READ EXACTLY AS IT IS WRITTEN. Every digit,
   including the ones after the decimal point. Do not round it, do not tidy it, do
   not say a neighbouring number because it flows better. On a real call the rate on
@@ -46,7 +50,8 @@ SAYING NUMBERS AND IDENTIFIERS OUT LOUD
 
   return `HOW TO SPEAK
 
-- Short sentences. Under about twelve words. One idea per sentence.
+- Use comfortable spoken sentences, with one main idea at a time. Do not force a
+  twelve-word limit or chop a connected explanation into fragments.
 - No markdown, no bullets, no numbered lists, no headings — the caller cannot see them.
 - No paragraph breaks. A reply is continuous speech.
 - No corporate register, no formal written phrasing, no long explanations. You are

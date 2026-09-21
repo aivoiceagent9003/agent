@@ -7,7 +7,7 @@
 //
 // It exists for three concrete jobs, not as decoration:
 //
-//   1. RECONNECT. A Gemini Live reconnect opens a brand-new session with no
+//   1. RECONNECT. A dropped engine session reopens with no
 //      server-side history. Today the agent comes back having forgotten the entire
 //      call and asks for the customer ID it was given ninety seconds ago. The state
 //      renders a short recap that gets baked into the fresh system instruction.

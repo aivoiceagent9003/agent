@@ -61,7 +61,8 @@ function clearHistory(callSid) {
 /**
  * @param {object} tenantConfig merged tenant + campaign config
  * @param {object} opts
- * @param {boolean} [opts.speechToSpeech] the live engine speaks directly
+ * @param {'voice'|'text'} [opts.channel] 'voice' is a phone call: the model writes and
+ *        a TTS engine reads it aloud. Anything else is 'text'.
  * @param {string}  [opts.knowledge] retrieved text to inline (cascade path only)
  * @param {object}  [opts.language] { modelLed, locked, opening }
  * @param {object}  [opts.conversationState] a ConversationState, for reconnects
@@ -70,7 +71,7 @@ function clearHistory(callSid) {
  */
 function buildSystemPrompt(tenantConfig = {}, opts = {}) {
   return buildAgentPrompt(buildContext(tenantConfig, {
-    channel: opts.speechToSpeech ? 'speech' : 'text',
+    channel: opts.channel === 'voice' ? 'voice' : 'text',
     knowledge: opts.knowledge,
     language: opts.language,
     conversationState: opts.conversationState,

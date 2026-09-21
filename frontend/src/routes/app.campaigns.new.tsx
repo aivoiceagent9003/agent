@@ -17,7 +17,7 @@ const TYPES: { id: CampaignType; label: string; desc: string; example: string; i
   {
     id: "ai_sales",
     label: "AI Call",
-    desc: "A real Gemini conversation with your knowledge base, RAG, qualification and lead capture.",
+    desc: "A real AI conversation with your knowledge base, RAG, qualification and lead capture.",
     example: "“We've launched a new project — are you interested?”",
     icon: Sparkles,
   },
@@ -174,7 +174,7 @@ function NewCampaign() {
             </Field>
           </div>
           <p className="text-xs text-muted-foreground">
-            Uses the same Gemini Live engine, your knowledge base, RAG, and lead extraction.
+            Uses the same voice engine as an inbound call, your knowledge base, RAG, and lead extraction.
           </p>
         </Section>
       )}

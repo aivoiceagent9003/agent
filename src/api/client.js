@@ -860,16 +860,21 @@ router.get('/leads/:id', requirePermission('leads:read'), async (req, res) => {
     if (error) throw error
     if (!lead) return res.status(404).json({ error: 'Lead not found' })
 
-    // The recording and its length live on the call, not the lead.
+    // The recording, its length and the transcript live on the call, not the lead.
     let recording_url = null
     let duration_seconds = null
+    let transcript = null
     if (lead.call_id) {
       const { data: call } = await supabase
-        .from('calls').select('duration_seconds, recording_path')
+        .from('calls').select('duration_seconds, recording_path, transcript')
         .eq('id', lead.call_id).eq('tenant_id', t).maybeSingle()
       if (call) {
         duration_seconds = call.duration_seconds ?? null
         recording_url = await getRecordingUrl(call.recording_path)  // signed, expiring
+        // Verbatim, in whatever language was spoken. The lead's `summary` is the AI's
+        // reading of the call; this is the call. Someone chasing the lead needs to be
+        // able to check one against the other without downloading the audio.
+        transcript = call.transcript ?? null
       }
     }
 
@@ -887,6 +892,7 @@ router.get('/leads/:id', requirePermission('leads:read'), async (req, res) => {
         ...lead,
         recording_url,
         duration_seconds,
+        transcript,
         assignee,
         ...contactFields(lead),
         ...priorityFields(lead),

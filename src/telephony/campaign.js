@@ -3,7 +3,7 @@
 // The dialer (worker) originates a call and stashes context in Redis keyed by a
 // correlation_id (campaign-registry.js). When the provider connects the media
 // stream here, we resolve that context and either:
-//   • AI Sales  → createGeminiLiveConnection with the campaign's merged config
+//   • AI Sales  → createSonioxCascadeConnection with the campaign's merged config
 //   • Broadcast → stream the rendered TTS message, then hang up
 //
 // This is the OUTBOUND counterpart to the inbound src/telephony/vobiz.js and is kept
@@ -13,8 +13,8 @@
 // Provider-agnostic: handles both Vobiz frames (streamId + playAudio) and Twilio
 // frames (streamSid + media), detected from the 'start' payload.
 
-import { createGeminiLiveConnection } from '../services/gemini-live.js'
-import { clearHistory, getHistory } from '../services/llm.js'
+import { createSonioxCascadeConnection } from '../services/soniox-cascade.js'
+import { clearHistory } from '../services/llm.js'
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
 import { runBroadcast } from '../services/campaigns/broadcast.js'
@@ -33,9 +33,9 @@ import 'dotenv/config'
 // Tunable, because a provider that buffers more deeply needs more of it.
 const TAIL_MS = Number(process.env.HANGUP_TAIL_MS || 700)
 
-// AI Sales calls run on Gemini Live speech-to-speech; Template ('broadcast')
+// AI Sales calls run the Soniox cascade, same as an inbound call; Template ('broadcast')
 // calls play a pre-rendered TTS message instead (see runBroadcast).
-const createVoiceConnection = createGeminiLiveConnection
+const createVoiceConnection = createSonioxCascadeConnection
 
 // Extract the correlation id from either provider's 'start' frame shape.
 function extractCorrelation(msg) {
@@ -252,15 +252,21 @@ export function handleCampaignConnection(ws) {
       // `savedLead` reflects whether an actual lead was recorded.
       let savedLead = false
       if (ctx.type !== 'broadcast') {
-        const history = getHistory(callSid)
-        if (history && history.length > 0) {
-          // Same measured language the inbound path uses — without it the
-          // extractor re-guesses from a transcript whose caller lines are a
-          // known-unreliable side-channel, and lands on Hindi far too often.
+        // Built from the turns collected for the transcript, NOT llm.js getHistory() —
+        // only the retired speech-to-speech engine wrote to that store, so reading it
+        // has returned [] (and skipped extraction, silently) since the engine swap.
+        // See the matching note in vobiz.js finalize().
+        const history = transcriptBuffer.map(t => ({ role: t.role, content: t.text }))
+        if (history.length > 0) {
+          // Same measured language the inbound path uses. The live classifier heard
+          // the audio; the extractor would only be inferring language from text, and
+          // it landed on Hindi far too often when left to do that.
           const lead = await extractLead(history, ctx.config || {}, {
             knownLanguage: trace?.state?.dominantLanguage || trace?.state?.language || null,
           })
           if (lead) savedLead = await saveLead(supabase, { tenantId: ctx.tenantId, callId, callerNumber: ctx.phone, lead })
+        } else {
+          console.warn(`[CAMPAIGN] no conversation turns — skipping lead extraction (call ${callId})`)
         }
       }
 

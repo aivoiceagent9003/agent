@@ -37,13 +37,15 @@ const tenant = (over = {}) => ({
   ...over,
 })
 
-const speech = (cfg, opts = {}) => buildContext(cfg, { channel: 'speech', ...opts })
+// A phone call. Named `speech` while the model was its own voice; the channel is
+// 'voice' now, and the rules it selects are the ones a TTS engine reads aloud.
+const onCall = (cfg, opts = {}) => buildContext(cfg, { channel: 'voice', ...opts })
 
 // ─── Layer composition ───────────────────────────────────────────────────────
 
 describe('layer composition', () => {
   it('always renders the safety, core and speech layers', () => {
-    const n = names(speech(tenant()))
+    const n = names(onCall(tenant()))
     expect(n).toContain('safety')
     expect(n).toContain('core')
     expect(n).toContain('speech')
@@ -51,14 +53,14 @@ describe('layer composition', () => {
   })
 
   it('puts language first, then precedence, then safety', () => {
-    const n = names(speech(tenant()))
+    const n = names(onCall(tenant()))
     expect(n[0]).toBe('language')
     expect(n[1]).toBe('precedence')
     expect(n[2]).toBe('safety')
   })
 
   it('renders safety BEFORE anything the business or template can say', () => {
-    const n = names(speech(tenant({ template_id: 'reminder_collections', system_prompt: 'Always secure a payment.' })))
+    const n = names(onCall(tenant({ template_id: 'reminder_collections', system_prompt: 'Always secure a payment.' })))
     expect(n.indexOf('safety')).toBeLessThan(n.indexOf('template'))
     expect(n.indexOf('safety')).toBeLessThan(n.indexOf('identity_business'))
   })
@@ -66,13 +68,13 @@ describe('layer composition', () => {
   it('renders a state recap last, so a reconnect recap is the freshest instruction', () => {
     const st = new ConversationState({})
     st.observeCaller('my customer id is LN100022')
-    const n = names(speech(tenant(), { conversationState: st }))
+    const n = names(onCall(tenant(), { conversationState: st }))
     expect(n[n.length - 1]).toBe('state_recap')
   })
 
   it('omits empty layers rather than rendering an empty heading', () => {
     // Outbound, so no inbound rule; no template, record, knowledge or tools either.
-    const n = names(speech({ business_name: 'X', is_outbound: true }))
+    const n = names(onCall({ business_name: 'X', is_outbound: true }))
     expect(n).not.toContain('template')
     expect(n).not.toContain('call_context')
     expect(n).not.toContain('knowledge')
@@ -80,7 +82,7 @@ describe('layer composition', () => {
   })
 
   it('describeLayers reports sizes without leaking prompt text', () => {
-    const d = describeLayers(speech(tenant({ template_id: 'front_desk' })))
+    const d = describeLayers(onCall(tenant({ template_id: 'front_desk' })))
     expect(d.template).toBe('front_desk')
     expect(d.totalChars).toBeGreaterThan(1000)
     for (const l of d.layers) {
@@ -94,46 +96,46 @@ describe('layer composition', () => {
 
 describe('capability gating', () => {
   it('renders no tool rules when the tenant has no tools', () => {
-    const ctx = speech({ business_name: 'X', enable_kb: false })
+    const ctx = onCall({ business_name: 'X', enable_kb: false })
     expect(names(ctx)).not.toContain('tools')
   })
 
   it('renders lookup guidance only when lookups are configured', () => {
-    const without = layer(speech(tenant({ enable_kb: false })), 'tools')
+    const without = layer(onCall(tenant({ enable_kb: false })), 'tools')
     expect(without).toBe('')
 
-    const with_ = layer(speech(tenant({ lookups: [{ name: 'loan_status' }] })), 'tools')
+    const with_ = layer(onCall(tenant({ lookups: [{ name: 'loan_status' }] })), 'tools')
     expect(with_).toMatch(/identifier/i)
   })
 
   it('does not tell an agent to search a knowledge base it does not have', () => {
-    const ctx = speech(tenant({ enable_kb: false, lookups: [{ name: 'loan_status' }] }))
+    const ctx = onCall(tenant({ enable_kb: false, lookups: [{ name: 'loan_status' }] }))
     expect(layer(ctx, 'tools')).not.toMatch(/knowledge base/i)
   })
 
   it('tells an agent with no handoff number never to promise a transfer', () => {
-    const ctx = speech(tenant())            // no handoff_number
+    const ctx = onCall(tenant())            // no handoff_number
     const esc = layer(ctx, 'escalation')
     expect(esc).toMatch(/no one to transfer/i)
     expect(esc).not.toContain('[HANDOFF]')
   })
 
   it('gives the handoff marker only when a handoff number exists', () => {
-    const ctx = speech(tenant({ handoff_number: '+919999999999' }))
+    const ctx = onCall(tenant({ handoff_number: '+919999999999' }))
     expect(layer(ctx, 'escalation')).toContain('[HANDOFF]')
   })
 
   it('adds the template-specific escalation triggers to the universal ones', () => {
-    const ctx = speech(tenant({ handoff_number: '+91', template_id: 'reminder_collections' }))
+    const ctx = onCall(tenant({ handoff_number: '+91', template_id: 'reminder_collections' }))
     expect(layer(ctx, 'escalation')).toMatch(/dispute the amount/i)
   })
 
   it('names only the sources of fact that actually exist', () => {
-    const bare = layer(speech({ business_name: 'X', enable_kb: false }), 'core')
+    const bare = layer(onCall({ business_name: 'X', enable_kb: false }), 'core')
     expect(bare).not.toMatch(/knowledge base result/i)
     expect(bare).not.toMatch(/lookup result/i)
 
-    const full = layer(speech(tenant({ lookups: [{ name: 'x' }] })), 'core')
+    const full = layer(onCall(tenant({ lookups: [{ name: 'x' }] })), 'core')
     expect(full).toMatch(/knowledge base result/i)
     expect(full).toMatch(/lookup result/i)
   })
@@ -143,30 +145,30 @@ describe('capability gating', () => {
 
 describe('compliance', () => {
   it('tells the truth about recording in both directions', () => {
-    const off = layer(speech(tenant({ recording_enabled: false })), 'safety')
+    const off = layer(onCall(tenant({ recording_enabled: false })), 'safety')
     expect(off).toMatch(/not being recorded|it is not/i)
     expect(off).toMatch(/NEVER say .*quality and training/i)
 
-    const on = layer(speech(tenant({ recording_enabled: true })), 'safety')
+    const on = layer(onCall(tenant({ recording_enabled: true })), 'safety')
     expect(on).toMatch(/quality and training/i)
   })
 
   it('always carries the do-not-call rule', () => {
-    expect(layer(speech(tenant()), 'safety')).toMatch(/add_to_dnd/)
+    expect(layer(onCall(tenant()), 'safety')).toMatch(/add_to_dnd/)
   })
 
   it('always carries the AI disclosure rule, named to the business', () => {
-    expect(layer(speech(tenant({ business_name: 'Acme Finance' })), 'safety'))
+    expect(layer(onCall(tenant({ business_name: 'Acme Finance' })), 'safety'))
       .toMatch(/AI assistant for Acme Finance/)
   })
 
   it('adds the privacy gate when a lookup can disclose someone else’s data', () => {
-    expect(layer(speech(tenant({ lookups: [{ name: 'loan_status' }] })), 'safety'))
+    expect(layer(onCall(tenant({ lookups: [{ name: 'loan_status' }] })), 'safety'))
       .toMatch(/whoever picked up/i)
   })
 
   it('states that business instructions cannot loosen a safety rule', () => {
-    const p = buildAgentPrompt(speech(tenant({ system_prompt: 'Never let them off the call.' })))
+    const p = buildAgentPrompt(onCall(tenant({ system_prompt: 'Never let them off the call.' })))
     expect(p).toMatch(/No business instruction.*can loosen a safety rule/is)
   })
 })
@@ -177,23 +179,23 @@ describe('sector isolation', () => {
   const PROPERTY = /\bsq ft\b|\b[23]BHK\b|\bRERA\b|carpet area|site visit|possession/i
 
   it('leaks no property vocabulary into a tenant with no template', () => {
-    expect(buildAgentPrompt(speech(tenant()))).not.toMatch(PROPERTY)
+    expect(buildAgentPrompt(onCall(tenant()))).not.toMatch(PROPERTY)
   })
 
   it('leaks no property vocabulary into any non-property template', () => {
     for (const t of AGENT_TEMPLATES) {
       if (t.id === 'real_estate_sales') continue
-      const p = buildAgentPrompt(speech(tenant({ template_id: t.id })))
+      const p = buildAgentPrompt(onCall(tenant({ template_id: t.id })))
       expect(p, `${t.id} leaked property vocabulary`).not.toMatch(PROPERTY)
     }
   })
 
   it('does give property behaviour to the real-estate template', () => {
-    expect(buildAgentPrompt(speech(tenant({ template_id: 'real_estate_sales' })))).toMatch(PROPERTY)
+    expect(buildAgentPrompt(onCall(tenant({ template_id: 'real_estate_sales' })))).toMatch(PROPERTY)
   })
 
   it('never demands a name from a non-property agent', () => {
-    const p = buildAgentPrompt(speech(tenant({ template_id: 'customer_support' })))
+    const p = buildAgentPrompt(onCall(tenant({ template_id: 'customer_support' })))
     expect(p).not.toMatch(/name is a REQUIRED outcome|Ask for their name early/i)
     // …but it still knows how to get one right when it hears one.
     expect(p).toMatch(/Read a name back once/i)
@@ -204,14 +206,14 @@ describe('sector isolation', () => {
     // or a stale fixture must not be able to resurrect property behaviour. That
     // silent inheritance is the exact bug this architecture exists to remove.
     for (const stale of [{ real_estate_agent: true }, { generic_agent: true }]) {
-      const ctx = speech(tenant(stale))
+      const ctx = onCall(tenant(stale))
       expect(ctx.template).toBeNull()
       expect(buildAgentPrompt(ctx)).not.toMatch(PROPERTY)
     }
   })
 
   it('takes property behaviour only from an explicit template_id', () => {
-    const ctx = speech(tenant({ template_id: 'real_estate_sales' }))
+    const ctx = onCall(tenant({ template_id: 'real_estate_sales' }))
     expect(ctx.template?.id).toBe('real_estate_sales')
     expect(buildAgentPrompt(ctx)).toMatch(PROPERTY)
   })
@@ -224,7 +226,7 @@ describe('sector isolation', () => {
 
 describe('company rules', () => {
   const withRules = (rules, over = {}) =>
-    speech(tenant({ template_id: 'real_estate_sales', company_rules: rules, ...over }))
+    onCall(tenant({ template_id: 'real_estate_sales', company_rules: rules, ...over }))
 
   const RULE = 'Ask which project they are calling about before discussing price.'
 
@@ -268,7 +270,7 @@ describe('company rules', () => {
   })
 
   it('reaches the composed prompt on a tenant with no template at all', () => {
-    const p = buildAgentPrompt(speech(tenant({ company_rules: [{ id: 'a', text: RULE }] })))
+    const p = buildAgentPrompt(onCall(tenant({ company_rules: [{ id: 'a', text: RULE }] })))
     expect(p).toContain(RULE)
   })
 })
@@ -277,12 +279,12 @@ describe('company rules', () => {
 
 describe('call context', () => {
   it('adds the inbound rule only on an inbound call', () => {
-    expect(layer(speech(tenant()), 'call_context')).toMatch(/INBOUND/)
-    expect(layer(speech(tenant({ is_outbound: true })), 'call_context')).not.toMatch(/INBOUND/)
+    expect(layer(onCall(tenant()), 'call_context')).toMatch(/INBOUND/)
+    expect(layer(onCall(tenant({ is_outbound: true })), 'call_context')).not.toMatch(/INBOUND/)
   })
 
   it('injects the caller record and closes the set', () => {
-    const ctx = speech(tenant({ is_outbound: true, contact_name: 'Ravi', contact_fields: { policy_no: 'LN100022', due: '2026-10-01' } }))
+    const ctx = onCall(tenant({ is_outbound: true, contact_name: 'Ravi', contact_fields: { policy_no: 'LN100022', due: '2026-10-01' } }))
     const t = layer(ctx, 'call_context')
     expect(t).toContain('Ravi')
     expect(t).toContain('LN100022')
@@ -292,19 +294,19 @@ describe('call context', () => {
   it('bounds a very wide contact row', () => {
     const fields = {}
     for (let i = 0; i < 80; i++) fields[`f${i}`] = 'x'.repeat(500)
-    const t = layer(speech(tenant({ is_outbound: true, contact_fields: fields })), 'call_context')
+    const t = layer(onCall(tenant({ is_outbound: true, contact_fields: fields })), 'call_context')
     expect(t.split('\n').filter(l => l.startsWith('- ')).length).toBeLessThanOrEqual(30)
     expect(t).not.toContain('x'.repeat(300))
   })
 
   it('stringifies nested values instead of printing [object Object]', () => {
-    const t = layer(speech(tenant({ is_outbound: true, contact_fields: { plan: { tier: 'gold' } } })), 'call_context')
+    const t = layer(onCall(tenant({ is_outbound: true, contact_fields: { plan: { tier: 'gold' } } })), 'call_context')
     expect(t).not.toContain('[object Object]')
     expect(t).toContain('gold')
   })
 
   it('skips empty and null fields', () => {
-    const t = layer(speech(tenant({ is_outbound: true, contact_fields: { a: '', b: null, c: 'kept' } })), 'call_context')
+    const t = layer(onCall(tenant({ is_outbound: true, contact_fields: { a: '', b: null, c: 'kept' } })), 'call_context')
     expect(t).toContain('kept')
     expect(t).not.toMatch(/^- a:/m)
     expect(t).not.toMatch(/^- b:/m)
@@ -317,7 +319,7 @@ describe('call context', () => {
 // past a caller who had only just picked up.
 
 describe('addressing the caller with respect', () => {
-  const t = () => flat(layer(speech(tenant()), 'speech'))
+  const t = () => flat(layer(onCall(tenant()), 'speech'))
 
   it('requires a respect marker on the name in Telugu and Hindi', () => {
     expect(t()).toMatch(/Manoj garu/)
@@ -348,7 +350,7 @@ describe('addressing the caller with respect', () => {
 })
 
 describe('mirroring the caller, whatever language they use', () => {
-  const t = () => flat(layer(speech(tenant({ agent_name: 'Aruna', business_name: 'GSK insurance' })), 'language'))
+  const t = () => flat(layer(onCall(tenant({ agent_name: 'Aruna', business_name: 'GSK insurance' })), 'language'))
 
   it('says the caller is the ONLY thing that picks the language', () => {
     expect(t()).toMatch(/THE CALLER'S LANGUAGE IS THE ONLY THING THAT DECIDES THIS/)
@@ -378,7 +380,7 @@ describe('mirroring the caller, whatever language they use', () => {
 
   it('gives Telugu and Hindi equal weight in the whole prompt', () => {
     // Not cosmetic: the examples are what the model pattern-matches against.
-    const p = buildAgentPrompt(speech(tenant()))
+    const p = buildAgentPrompt(onCall(tenant()))
     const te = (p.match(/Telugu/g) || []).length
     const hi = (p.match(/Hindi/g) || []).length
     expect(Math.abs(te - hi), 'Telugu ' + te + ' vs Hindi ' + hi).toBeLessThanOrEqual(1)
@@ -390,7 +392,7 @@ describe('mirroring the caller, whatever language they use', () => {
 })
 
 describe('not asking "anything else?" after every answer', () => {
-  const t = () => flat(layer(speech(tenant()), 'human_conversation'))
+  const t = () => flat(layer(onCall(tenant()), 'human_conversation'))
 
   it('names the phrase family outright', () => {
     // The abstract version of this rule was ignored through seven turns, because the
@@ -406,17 +408,18 @@ describe('not asking "anything else?" after every answer', () => {
   })
 
   it('says what to do instead', () => {
-    expect(t()).toMatch(/When you have answered, STOP/)
-    expect(t()).toMatch(/Silence is the correct end of a reply/i)
+    expect(t()).toMatch(/Do not abandon an unfinished decision after a fact/)
+    expect(t()).toMatch(/specific question/)
   })
 
-  it('makes answer-then-stop the default shape of a reply', () => {
-    expect(t()).toMatch(/That is the DEFAULT shape of a reply: answer, then stop talking/)
+  it('distinguishes a factual answer from an unfinished buying decision', () => {
+    expect(t()).toMatch(/A direct factual question can end with its answer/)
+    expect(t()).toMatch(/An unfinished buying decision needs guidance/)
   })
 })
 
 describe('saying an identifier and looking it up', () => {
-  const t = () => flat(layer(speech(tenant()), 'speech'))
+  const t = () => flat(layer(onCall(tenant()), 'speech'))
 
   it('requires the spoken value and the searched value to be identical', () => {
     // The caller gave LN100077, the agent said it back correctly, and searched
@@ -437,7 +440,7 @@ describe('saying an identifier and looking it up', () => {
 })
 
 describe('reading a figure off a record', () => {
-  const t = () => flat(layer(speech(tenant()), 'speech'))
+  const t = () => flat(layer(onCall(tenant()), 'speech'))
 
   it('demands the exact digits, decimals included', () => {
     // The record said 14.07 and the agent said "fourteen point zero four". On a loan
@@ -453,7 +456,7 @@ describe('reading a figure off a record', () => {
 })
 
 describe('ending the call', () => {
-  const t = () => flat(layer(speech(tenant()), 'speech'))
+  const t = () => flat(layer(onCall(tenant()), 'speech'))
 
   it('tells the agent to hang up rather than wait to be hung up on', () => {
     expect(t()).toMatch(/Then HANG UP/)
@@ -475,14 +478,14 @@ describe('ending the call', () => {
 
   it('is the same rule for every template — no agent opts out of hanging up', () => {
     for (const tpl of AGENT_TEMPLATES) {
-      const s = flat(layer(speech(tenant({ template_id: tpl.id })), 'speech'))
+      const s = flat(layer(onCall(tenant({ template_id: tpl.id })), 'speech'))
       expect(s, tpl.id).toMatch(/Then HANG UP/)
     }
   })
 })
 
 describe('delivery pace', () => {
-  const t = () => flat(layer(speech(tenant()), 'speech'))
+  const t = () => flat(layer(onCall(tenant()), 'speech'))
 
   it('tells the agent to slow the opening line down', () => {
     expect(t()).toMatch(/SAY YOUR OPENING LINE SLOWLY/)
@@ -501,14 +504,34 @@ describe('delivery pace', () => {
 // ─── Channel differences ─────────────────────────────────────────────────────
 
 describe('channel', () => {
-  it('gives pronunciation rules only to the speech channel', () => {
-    expect(layer(speech(tenant()), 'speech')).toMatch(/CHARACTER BY CHARACTER/)
+  it('gives the say-it-exactly rules to a phone call and not to text', () => {
+    expect(layer(onCall(tenant()), 'speech')).toMatch(/CHARACTER BY CHARACTER/)
     expect(layer(buildContext(tenant(), { channel: 'text' }), 'speech')).not.toMatch(/CHARACTER BY CHARACTER/)
+  })
+
+  it('never tells the model to spell figures out as words', () => {
+    // It used to, on the channel where the model was its own voice. A TTS engine reads
+    // what the model writes now and tts-text.js does the spelling-out, so this
+    // instruction would contradict the digits rule sitting right below it — which on a
+    // real call produced "seven thousand five vandalaku" and a premium heard as 101%.
+    // (The positive instruction — write digits — lives in VOICE_OUTPUT_RULES next to
+    // the engine that needs it. What matters here is that the contradiction is gone.)
+    const rules = layer(onCall(tenant()), 'speech')
+    expect(rules).not.toMatch(/as ENGLISH words/)
+    expect(rules).not.toMatch(/three point five crore/)
+    expect(rules).toMatch(/SAYING NUMBERS AND IDENTIFIERS OUT LOUD/)
+  })
+
+  it('treats an unknown channel as text rather than as a phone call', () => {
+    // 'speech' was a real channel while Gemini Live was. Anything still passing it
+    // should get the conservative answer, not phone-call rules by accident.
+    expect(names(buildContext(tenant(), { channel: 'speech' })))
+      .toEqual(names(buildContext(tenant(), { channel: 'text' })))
   })
 
   it('renders the recognition vocabulary only on a live call', () => {
     const cfg = tenant({ kb_keyterms: ['Kokapet', 'Gachibowli'] })
-    expect(layer(speech(cfg), 'identity_business')).toContain('Kokapet')
+    expect(layer(onCall(cfg), 'identity_business')).toContain('Kokapet')
     expect(layer(buildContext(cfg, { channel: 'text' }), 'identity_business')).not.toContain('Kokapet')
   })
 
@@ -524,28 +547,28 @@ describe('channel', () => {
 
 describe('language', () => {
   it('hands the model ownership by default', () => {
-    expect(layer(speech(tenant()), 'language')).toMatch(/YOU OWN THE CONVERSATION LANGUAGE/)
+    expect(layer(onCall(tenant()), 'language')).toMatch(/YOU OWN THE CONVERSATION LANGUAGE/)
   })
 
   it('hands the application ownership when the manager is driving', () => {
-    const t = flat(layer(speech(tenant(), { language: { modelLed: false } }), 'language'))
+    const t = flat(layer(onCall(tenant(), { language: { modelLed: false } }), 'language'))
     expect(t).toMatch(/THE APPLICATION OWNS THE CONVERSATION LANGUAGE/)
     expect(t).toMatch(/LANGUAGE CONTROL directive/)
   })
 
   it('treats code-mixing as normal in both modes', () => {
     for (const modelLed of [true, false]) {
-      const t = layer(speech(tenant(), { language: { modelLed } }), 'language')
+      const t = layer(onCall(tenant(), { language: { modelLed } }), 'language')
       expect(t).toMatch(/CODE-MIXING IS NORMAL/i)
       expect(t).toMatch(/Tinglish|Hinglish/i)
     }
   })
 
   it('uses the greeting language only as a fallback, and drops it once locked', () => {
-    const opening = layer(speech(tenant(), { language: { opening: 'Telugu' } }), 'language')
+    const opening = layer(onCall(tenant(), { language: { opening: 'Telugu' } }), 'language')
     expect(opening).toMatch(/DEFAULT WHILE YOU CANNOT TELL/)
 
-    const locked = layer(speech(tenant(), { language: { opening: 'Telugu', locked: 'Hindi' } }), 'language')
+    const locked = layer(onCall(tenant(), { language: { opening: 'Telugu', locked: 'Hindi' } }), 'language')
     expect(locked).toMatch(/CURRENT CONVERSATION LANGUAGE: Hindi/)
     expect(locked).not.toMatch(/DEFAULT WHILE YOU CANNOT TELL/)
   })
@@ -610,12 +633,12 @@ describe('template library', () => {
   })
 
   it('tells the model the strategy is not an order of operations', () => {
-    const p = buildAgentPrompt(speech(tenant({ template_id: 'customer_support' })))
+    const p = buildAgentPrompt(onCall(tenant({ template_id: 'customer_support' })))
     expect(p).toMatch(/not an order of operations/i)
   })
 
   it('treats every listed outcome as a legitimate ending', () => {
-    const p = buildAgentPrompt(speech(tenant({ template_id: 'outbound_sales' })))
+    const p = buildAgentPrompt(onCall(tenant({ template_id: 'outbound_sales' })))
     expect(p).toMatch(/all of them legitimate/i)
     expect(p).toMatch(/Do not keep a caller on the line/i)
   })
@@ -831,7 +854,7 @@ describe('conversation state', () => {
 // assert the rule is REACHABLE in a composed prompt, not how it is worded.
 
 describe('conversation behaviours reach the prompt', () => {
-  const p = buildAgentPrompt(speech(tenant({
+  const p = buildAgentPrompt(onCall(tenant({
     template_id: 'policy_renewal',
     handoff_number: '+91',
     lookups: [{ name: 'policy_status' }],
