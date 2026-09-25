@@ -1,6 +1,6 @@
 // api/webhook-auth.js — authentication for provider webhooks and signed callbacks.
 //
-// Vobiz does not sign its requests, so there is no signature to verify. What we
+// Plivo's request signature (X-Plivo-Signature-V3) is not verified here. What we
 // can control is the URL we hand the provider, so the secret rides in the URL and
 // every webhook mount checks it. That is weaker than real request signing — anyone
 // who can read the URL can replay it — which is exactly why the transfer endpoint
@@ -28,7 +28,7 @@ function safeEqual(a, b) {
 }
 
 // Express gate for provider webhooks. The secret may arrive as ?k= (what we put in
-// the URLs configured in the Vobiz console) or as an X-Webhook-Secret header.
+// the URLs configured in the Plivo console) or as an X-Webhook-Secret header.
 export function requireWebhookSecret() {
   return (req, res, next) => {
     if (!SECRET) {
@@ -49,7 +49,7 @@ export function requireWebhookSecret() {
 }
 
 // ─── Signed transfer destinations ─────────────────────────────────────────────
-// The handoff flow hands Vobiz a URL and Vobiz fetches it back to get <Dial> XML.
+// The handoff flow hands Plivo a URL and Plivo fetches it back to get <Dial> XML.
 // The destination number therefore makes a round trip through a third party and
 // returns as a query string, so it cannot be trusted on the way back: without a
 // signature, anyone who can reach the endpoint dials any number they like on our
@@ -87,7 +87,7 @@ export function verifyDestination(to, callerId, sig) {
 
 // ─── Value hygiene for XML interpolation ──────────────────────────────────────
 
-// Vobiz dials E.164. Anything else is either a mistake or an attempt to smuggle
+// Plivo dials E.164. Anything else is either a mistake or an attempt to smuggle
 // something into the XML, and both should be refused rather than normalised.
 export function isE164(n) {
   return /^\+?[0-9]{8,15}$/.test(String(n || ''))

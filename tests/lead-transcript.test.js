@@ -50,8 +50,12 @@ vi.mock('../src/api/auth.js', () => ({
     next()
   },
 }))
+// The client router now mounts owner-only billing routes too. Mocked open: this
+// file tests the lead endpoint, and a permission gate it does not exercise should not
+// decide whether it can import the module.
 vi.mock('../src/api/permissions.js', () => ({
   requirePermission: () => (_req, _res, next) => next(),
+  requireOwner: () => (_req, _res, next) => next(),
   permissionsFor: () => [],
 }))
 vi.mock('../src/services/notifications.js', () => ({ notify: vi.fn() }))

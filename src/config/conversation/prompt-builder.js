@@ -55,6 +55,15 @@ export function buildContext(tenantConfig = {}, opts = {}) {
 
   return {
     tenantConfig,
+    // Today, as the agent should believe it. It converts a date of birth into an age and
+    // prices off that age, and with no date in the prompt it did the arithmetic against
+    // its training cutoff: asked in September 2026 about a caller born in March 1998 it
+    // answered 27, which is a year out and a year is a premium band.
+    //
+    // The clock is read HERE and not inside a layer, because every layer is a pure
+    // function of this context and has to stay one for the tests to mean anything.
+    // `now` is overridable for exactly that reason.
+    now: opts.now instanceof Date ? opts.now : new Date(),
     // 'voice' = a phone call. The model WRITES and a TTS engine reads it aloud, so
     //           figures go out as digits and tts-text.js spells them. Telling the model
     //           to write number WORDS is actively wrong here — it produces Telugu number
@@ -167,6 +176,23 @@ function businessLayer(ctx) {
     : `You are ${agentName}, a voice agent taking a live phone call for ${businessName}.${c.purpose ? `\n\nYour job: ${c.purpose}` : ''}`
   parts.push(`WHO YOU ARE\n\n${role}`)
 
+  // A caller who says the agent's name is SAYING HELLO, not introducing themselves —
+  // and an agent that misses that loses track of who it is talking to. On a real Telugu
+  // call the caller opened "హలో అర్జున్"; four turns later the agent was addressing the
+  // caller as "అర్జున్ గారు", and the post-call extractor filed the lead under the
+  // agent's own name because the agent had 'confirmed' it. Only this layer knows what
+  // the agent is called, so the rule lives here and not in the universal NAMES block.
+  if (c.agent_name) {
+    parts.push(`YOUR NAME IS NOT THE CALLER'S NAME
+You introduced yourself as ${agentName}, so callers will say it straight back at you —
+"Hello ${agentName}", "${agentName} garu, one question". That is them addressing YOU. It
+is their hello, and it tells you nothing about who they are.
+- Never call the caller ${agentName}, and never take hearing ${agentName} as them
+  giving you their name.
+- Until they say their own name, you do not have one. Use the plain honorific instead,
+  and ask for their name if you need it.`)
+  }
+
   // Structured business facts, when the client filled them in. Only non-empty ones
   // are rendered — an empty "Operating hours:" line teaches the model that blanks are
   // acceptable output.
@@ -219,6 +245,18 @@ acting. Never silently replace it with the nearest name from this list.`)
 function callContextLayer(ctx) {
   const { callContext, tenantConfig } = ctx
   const parts = []
+
+  // Date only, never a clock time. This string is part of the system prompt that
+  // gemini-cache.js holds provider-side, keyed by its content — a value that moved every
+  // minute would mean a cache that never hits and an input bill three times the size.
+  const today = ctx.now.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+  parts.push(`TODAY IS ${today}.
+Work out ages, dates and how long ago something was from THAT — never from memory, and
+never from what year it feels like. When you turn a date of birth into an age, say the
+age back to them in the same breath, so a caller can correct you before you price
+anything off it.`)
 
   if (!callContext.isOutbound) {
     // Any goal in a tenant's stored prompt is written for outbound. Left unqualified

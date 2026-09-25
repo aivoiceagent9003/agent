@@ -73,7 +73,7 @@ describe('the retired history store is no longer in the lead path', () => {
     // name getHistory repeatedly, and a test that trips over its own documentation
     // teaches people to delete the documentation.
     const { readFile } = await import('node:fs/promises')
-    for (const f of ['src/telephony/vobiz.js', 'src/telephony/campaign.js']) {
+    for (const f of ['src/telephony/plivo.js', 'src/telephony/campaign.js']) {
       const src = await readFile(new URL(`../${f}`, import.meta.url), 'utf8')
       const llmImport = /import\s*\{([^}]*)\}\s*from\s*['"][^'"]*services\/llm\.js['"]/.exec(src)
       expect(llmImport, `${f} should still import from llm.js`).not.toBeNull()
@@ -84,7 +84,7 @@ describe('the retired history store is no longer in the lead path', () => {
   it('says out loud when it skips extraction', async () => {
     // The failure was invisible. Whatever else changes, a skipped extraction logs.
     const { readFile } = await import('node:fs/promises')
-    for (const f of ['src/telephony/vobiz.js', 'src/telephony/campaign.js']) {
+    for (const f of ['src/telephony/plivo.js', 'src/telephony/campaign.js']) {
       const src = await readFile(new URL(`../${f}`, import.meta.url), 'utf8')
       expect(src, `${f} must log a skipped extraction`).toMatch(/skipping lead extraction/)
     }

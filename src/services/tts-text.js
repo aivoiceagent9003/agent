@@ -1,7 +1,7 @@
 // tts-text.js — turn what the model WROTE into what the voice should SAY.
 //
-// TTS engines read punctuation literally in Indic languages. Soniox, given Telugu
-// text, says "chukka" (dot) for a full stop. Written text also carries things no
+// TTS engines read punctuation literally in Indic languages: given Telugu text, one
+// said "chukka" (dot) for a full stop. Written text also carries things no
 // one speaks: "₹15,960", "Rs.", "98.4%", "approx.", "...". Each engine guesses at
 // those differently, and a wrong guess is spoken to the caller.
 //
@@ -209,6 +209,15 @@ function yearWords(n) {
 // Optional tenant-owned pronunciations change only speech, never transcripts,
 // search queries or product identifiers. Match whole names, longest first, once.
 // Shape: { "Sanjeevani": { te: "సంజీవని", hi: "संजीवनी" } }.
+// 29 → "twenty ninth": only the last word changes form.
+const ORDINAL_LAST = { one: 'first', two: 'second', three: 'third', five: 'fifth', eight: 'eighth', nine: 'ninth', twelve: 'twelfth' }
+function ordinalWords(n) {
+  const words = numberToEnglishWords(n).split(' ')
+  const last = words.pop()
+  words.push(ORDINAL_LAST[last] || (last.endsWith('y') ? `${last.slice(0, -1)}ieth` : `${last}th`))
+  return words.join(' ')
+}
+
 export function applyPronunciations(input, pronunciations) {
   const text = String(input || '')
   if (!pronunciations || typeof pronunciations !== 'object' || Array.isArray(pronunciations)) return text
@@ -262,6 +271,11 @@ export function normalizeForTts(input, { keepQuestionMark = true, pronunciations
 
   // Figures the model wrote in the caller's own words ("ఎనిమిది వేల నాలుగు వందల").
   t = indicNumberWordsToEnglish(t)
+
+  // Ordinals, before the rule below mistakes "29th" for an identifier and reads it a
+  // digit at a time: a real call said "two nine th August". The \b in front keeps a
+  // code with letters before its digits (LN12th) out of this.
+  t = t.replace(/\b(\d{1,4})(?:st|nd|rd|th)\b/gi, (_, n) => ordinalWords(Number(n)))
 
   // Every remaining figure becomes English words, so the voice never reads a digit.
   t = t.replace(/\d+/g, (num, offset, whole) => {
@@ -326,38 +340,7 @@ const ABBREV_END = /\b(?:Rs|Mr|Mrs|Ms|Dr|No|vs|etc|approx|Ltd|Pvt|St|e\.g|i\.e)\
  * hold up the first audio indefinitely.
  */
 export function createSentenceChunker({ maxChars = 220 } = {}) {
-  const inner = createStreamChunker({ maxChars, clauseMinChars: Infinity })
-  return {
-    push(token) { return inner.push(token).map(p => p.text) },
-    flush() { return inner.flush().map(p => p.text) },
-  }
-}
-
-/**
- * The same cut, but it also hands back CLAUSE fragments of a sentence still being
- * written, each marked `final: false`. Streaming TTS can start speaking an opening
- * clause while the model is still writing the rest of the sentence, which is where
- * the latency goes on a long reply — measured, a 130-character sentence reached the
- * caller 817ms sooner this way.
- *
- * Only ", " and friends count, never the comma inside "39,900", and never a bare
- * space — a Telugu number phrase must reach tts-text.js whole or it is read wrong.
- *
- * The FIRST clause of a reply is cut shorter than the rest, because it is the only
- * one the caller is waiting in silence for. That is safe because Soniox's
- * time-to-first-audio does not depend on how much text it was given:
- * scripts/ttfa-bench.mjs measures 382ms for 12 characters and 428ms for a whole
- * sentence, flat within noise. So holding the opening back for a longer clause buys
- * nothing and costs however long the model takes to write the extra words. Later
- * clauses keep the higher threshold — they are pushed into the SAME stream, where
- * bigger pieces give Soniox more to work with and the caller is already listening.
- *
- * @returns {{text: string, final: boolean}[]} `final` = this ends the sentence.
- */
-export function createStreamChunker({ maxChars = 220, clauseMinChars = 60, firstClauseMinChars = clauseMinChars } = {}) {
   let buf = ''
-  let emitted = false
-  const piece = (text, final) => { emitted = true; return { text: text.trim(), final } }
   return {
     push(token) {
       buf += String(token || '')
@@ -374,47 +357,24 @@ export function createStreamChunker({ maxChars = 220, clauseMinChars = 60, first
           break
         }
         if (cut !== -1) {
-          out.push(piece(buf.slice(0, cut), true))
+          out.push(buf.slice(0, cut).trim())
           buf = buf.slice(cut)
           continue
         }
         // A run-on with no punctuation at all still has to start playing.
         if (buf.length > maxChars) {
           const at = Math.max(buf.lastIndexOf(', ', maxChars), buf.lastIndexOf(' ', maxChars))
-          if (at > 40) { out.push(piece(buf.slice(0, at + 1), true)); buf = buf.slice(at + 1); continue }
-        }
-        // An opening clause of a sentence that is still being written. The cut is the
-        // first clause boundary at or past the threshold — NOT simply the first
-        // boundary, tested against the threshold. That distinction is the whole
-        // feature: "అవును అండి, మన దగ్గర term insurance options ఉన్నాయి" has a comma
-        // at character 11, so checking only the first one meant the test failed
-        // forever and the sentence was never streamed a clause at a time. Every
-        // reply opening with a short courtesy phrase — which in Telugu is most of
-        // them — silently fell back to waiting for the full stop.
-        const minChars = emitted ? clauseMinChars : firstClauseMinChars
-        if (Number.isFinite(minChars)) {
-          const clause = /[,;।][ \t]/g
-          let end = -1
-          let cm
-          while ((cm = clause.exec(buf))) {
-            const at = cm.index + cm[0].length
-            if (at >= minChars) { end = at; break }
-          }
-          if (end !== -1) {
-            out.push(piece(buf.slice(0, end), false))
-            buf = buf.slice(end)
-            continue
-          }
+          if (at > 40) { out.push(buf.slice(0, at + 1).trim()); buf = buf.slice(at + 1); continue }
         }
         break
       }
-      return out.filter(p => p.text)
+      return out.filter(Boolean)
     },
-    /** Whatever is left once the stream ends. Always closes the sentence. */
+    /** Whatever is left once the stream ends. */
     flush() {
       const s = buf.trim()
       buf = ''
-      return s ? [piece(s, true)] : []
+      return s ? [s] : []
     },
   }
 }

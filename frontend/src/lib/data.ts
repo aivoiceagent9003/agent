@@ -96,7 +96,112 @@ export interface Voice {
   id: string;
   label: string;
   gender: string;
+  /** The Indian language or accent, read off the description server-side. Null for a
+   *  cloned voice, which has no description to read. */
+  accent: string | null;
   note: string;
+  kind: "built-in" | "cloned";
+}
+
+export interface Billing {
+  plan: { id: string; name: string; monthlyInr: number; includedMinutes: number; overageInrPerMin: number; includedNumbers: number; blurb: string; assumed: boolean };
+  cycle: { start: string; end: string; daysTotal: number; daysElapsed: number; isFirstCycle: boolean };
+  usage: { calls: number; rawMinutes: number; billableMinutes: number; averageCallSeconds: number; allowanceMinutes: number; freeMinutes: number; remainingMinutes: number; percentUsed: number; overageMinutes: number };
+  charges: { monthlyInr: number; overageInr: number; extraNumbersInr: number; totalInr: number; overageInrPerMin: number };
+  projection: { minutes: number; overageMinutes: number; totalInr: number };
+  subscription?: { planSince: string | null; pendingPlan: string | null; extraNumbers: number };
+  invoicing?: { ready: boolean; missing: string[]; migrationPending?: boolean };
+  daily: { date: string; minutes: number }[];
+}
+
+// Derived server-side from calls.duration_seconds every time it is asked for, so it is
+// cheap to refetch and never stale against the call list.
+export function useBilling() {
+  return useQuery({
+    queryKey: ["client", "billing"],
+    enabled: isBrowser,
+    queryFn: async (): Promise<Billing> => apiFetch("/api/client/billing"),
+  });
+}
+
+export interface Invoice {
+  id: string; number: string; status: "draft" | "open" | "paid" | "void";
+  period_start: string; period_end: string; plan_name: string | null;
+  total_paise: number; totalInr: number;
+  issued_at: string | null; due_at: string | null; paid_at: string | null;
+}
+
+export interface BillingProfile {
+  legal_name?: string | null; gstin?: string | null; pan?: string | null;
+  address_line1?: string | null; address_line2?: string | null; city?: string | null;
+  state?: string | null; state_code?: string | null; pincode?: string | null;
+  billing_email?: string | null; phone?: string | null;
+}
+
+export function usePlans() {
+  return useQuery({
+    queryKey: ["client", "plans"],
+    enabled: isBrowser,
+    staleTime: 60 * 60 * 1000,   // a catalogue, not tenant data
+    queryFn: async (): Promise<{ plans: any[] }> => apiFetch("/api/client/billing/plans"),
+  });
+}
+
+export function useInvoices() {
+  return useQuery({
+    queryKey: ["client", "invoices"],
+    enabled: isBrowser,
+    queryFn: async (): Promise<{ invoices: Invoice[]; migrationPending?: boolean }> =>
+      apiFetch("/api/client/billing/invoices"),
+  });
+}
+
+export function useBillingProfile() {
+  return useQuery({
+    queryKey: ["client", "billing-profile"],
+    enabled: isBrowser,
+    queryFn: async (): Promise<{ profile: BillingProfile | null; ready: { ready: boolean; missing: string[] }; migrationPending?: boolean }> =>
+      apiFetch("/api/client/billing/profile"),
+  });
+}
+
+export function useSaveBillingProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (profile: BillingProfile) =>
+      apiFetch("/api/client/billing/profile", { method: "PUT", body: JSON.stringify(profile) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client", "billing-profile"] });
+      qc.invalidateQueries({ queryKey: ["client", "billing"] });
+    },
+  });
+}
+
+// Says what WILL happen without doing it — an upgrade takes money today, so the
+// amount has to be showable before the button is pressed.
+export function usePreviewPlan() {
+  return useMutation({
+    mutationFn: async (plan: string) =>
+      apiFetch("/api/client/billing/plan/preview", { method: "POST", body: JSON.stringify({ plan }) }),
+  });
+}
+
+export function useChangePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (plan: string) =>
+      apiFetch("/api/client/billing/plan", { method: "POST", body: JSON.stringify({ plan }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", "billing"] }),
+  });
+}
+
+export function usePayInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      apiFetch(`/api/client/billing/invoices/${id}/pay`, { method: "POST", body: "{}" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", "invoices"] }),
+  });
 }
 
 export function useAgentTemplates() {

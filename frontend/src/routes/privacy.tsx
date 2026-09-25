@@ -75,13 +75,23 @@ function Privacy() {
             </thead>
             <tbody className="divide-y divide-border">
               <tr>
-                <td className="px-4 py-2 font-medium">Google (Gemini)</td>
+                <td className="px-4 py-2 font-medium">Sarvam AI</td>
                 <td className="px-4 py-2">
-                  Live call audio, to understand and respond in real time
+                  Live call audio, turned into text as the caller speaks
                 </td>
               </tr>
               <tr>
-                <td className="px-4 py-2 font-medium">Vobiz</td>
+                <td className="px-4 py-2 font-medium">Google (Gemini)</td>
+                <td className="px-4 py-2">
+                  The call&apos;s text, to understand the caller and write each reply
+                </td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2 font-medium">Telnyx</td>
+                <td className="px-4 py-2">The agent&apos;s replies, turned into speech</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2 font-medium">Plivo</td>
                 <td className="px-4 py-2">Telephony — connecting and carrying the call</td>
               </tr>
               <tr>
@@ -91,7 +101,8 @@ function Privacy() {
               <tr>
                 <td className="px-4 py-2 font-medium">OpenAI</td>
                 <td className="px-4 py-2">
-                  Text embeddings for the business&apos;s own knowledge base
+                  Text embeddings for the business&apos;s own knowledge base, and reading
+                  the call transcript afterwards to summarise the enquiry
                 </td>
               </tr>
               <tr>

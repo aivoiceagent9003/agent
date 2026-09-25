@@ -3,17 +3,14 @@
 // The dialer (worker) originates a call and stashes context in Redis keyed by a
 // correlation_id (campaign-registry.js). When the provider connects the media
 // stream here, we resolve that context and either:
-//   • AI Sales  → createSonioxCascadeConnection with the campaign's merged config
+//   • AI Sales  → createCascadeConnection with the campaign's merged config
 //   • Broadcast → stream the rendered TTS message, then hang up
 //
-// This is the OUTBOUND counterpart to the inbound src/telephony/vobiz.js and is kept
+// This is the OUTBOUND counterpart to the inbound src/telephony/plivo.js and is kept
 // deliberately separate so the two flows never entangle. Every call row written here
 // is tagged direction='outbound' with campaign linkage.
-//
-// Provider-agnostic: handles both Vobiz frames (streamId + playAudio) and Twilio
-// frames (streamSid + media), detected from the 'start' payload.
 
-import { createSonioxCascadeConnection } from '../services/soniox-cascade.js'
+import { createCascadeConnection, PIPELINE } from '../services/cascade.js'
 import { clearHistory } from '../services/llm.js'
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
@@ -33,14 +30,10 @@ import 'dotenv/config'
 // Tunable, because a provider that buffers more deeply needs more of it.
 const TAIL_MS = Number(process.env.HANGUP_TAIL_MS || 700)
 
-// AI Sales calls run the Soniox cascade, same as an inbound call; Template ('broadcast')
-// calls play a pre-rendered TTS message instead (see runBroadcast).
-const createVoiceConnection = createSonioxCascadeConnection
 
-// Extract the correlation id from either provider's 'start' frame shape.
+// Extract the correlation id from Plivo's 'start' frame.
 function extractCorrelation(msg) {
   return (
-    msg.start?.customParameters?.correlation_id ||   // Twilio <Parameter>
     msg.start?.correlation_id ||
     msg.correlation_id ||
     parseExtraHeaders(msg.extra_headers || msg.start?.extra_headers).correlation_id ||
@@ -49,24 +42,23 @@ function extractCorrelation(msg) {
   )
 }
 
-// Reuse the inbound extraHeaders parsing convention ("{X-PH-key: val}" on Plivo,
-// "{X-VH-key: val}" on Vobiz). Strips either prefix — see the note in vobiz.js.
+// Reuse the inbound extraHeaders parsing convention ("{X-PH-key: val}") — see the
+// note in plivo.js.
 function parseExtraHeaders(raw) {
   const out = {}
   if (!raw) return out
-  if (typeof raw === 'object') { for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-(VH|PH)-/i, '')] = v; return out }
+  if (typeof raw === 'object') { for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-PH-/i, '')] = v; return out }
   const inner = String(raw).trim().replace(/^\{/, '').replace(/\}$/, '')
   for (const part of inner.split(',')) {
     const idx = part.indexOf(':'); if (idx === -1) continue
-    const key = part.slice(0, idx).trim().replace(/^X-(VH|PH)-/i, ''); const val = part.slice(idx + 1).trim()
+    const key = part.slice(0, idx).trim().replace(/^X-PH-/i, ''); const val = part.slice(idx + 1).trim()
     if (key) out[key] = val
   }
   return out
 }
 
-// Unified outbound sink. Twilio accepts arbitrary media chunk sizes; Vobiz wants
-// 20ms/160-byte playAudio frames. Mirrors makeVobizSink for the Vobiz case.
-function makeSink(ws, getStreamId, recorder, trace, provider, getProviderCallId) {
+// Outbound sink. Plivo wants 20ms/160-byte playAudio frames. Mirrors makePlivoSink.
+function makeSink(ws, getStreamId, recorder, trace, getProviderCallId) {
   let ending = false
   const playout = createPlayoutTracker()
   return {
@@ -79,23 +71,18 @@ function makeSink(ws, getStreamId, recorder, trace, provider, getProviderCallId)
       if (m.event === 'media' && m.media?.payload) {
         const buf = Buffer.from(m.media.payload, 'base64')
         recorder?.addOutbound(buf)
-        if (provider === 'twilio') {
-          ws.send(JSON.stringify({ event: 'media', streamSid: getStreamId(), media: { payload: m.media.payload } }))
-          trace?.packet('out', 1)
-        } else {
-          let frames = 0
-          for (let off = 0; off < buf.length; off += 160) {
-            ws.send(JSON.stringify({ event: 'playAudio', media: { contentType: 'audio/x-mulaw', sampleRate: 8000, payload: buf.subarray(off, off + 160).toString('base64') } }))
-            frames++
-          }
-          trace?.packet('out', frames)
+        let frames = 0
+        for (let off = 0; off < buf.length; off += 160) {
+          ws.send(JSON.stringify({ event: 'playAudio', media: { contentType: 'audio/x-mulaw', sampleRate: 8000, payload: buf.subarray(off, off + 160).toString('base64') } }))
+          frames++
         }
+        trace?.packet('out', frames)
         playout.queued(buf.length)
         return
       }
       if (m.event === 'clear') {
         playout.cleared()
-        ws.send(JSON.stringify(provider === 'twilio' ? { event: 'clear', streamSid: getStreamId() } : { event: 'clearAudio', streamId: getStreamId() }))
+        ws.send(JSON.stringify({ event: 'clearAudio', streamId: getStreamId() }))
         return
       }
       ws.send(str)
@@ -124,8 +111,8 @@ function makeSink(ws, getStreamId, recorder, trace, provider, getProviderCallId)
   }
 }
 
-// ─── /answer-campaign webhook (Vobiz outbound answer_url) ─────────────────────
-// Vobiz fetches this when the callee answers; we return <Stream> XML pointing at
+// ─── /answer-campaign webhook (Plivo outbound answer_url) ─────────────────────
+// Plivo fetches this when the callee answers; we return <Stream> XML pointing at
 // the campaign WS, carrying the correlation id through extraHeaders (like inbound).
 export async function answerCampaign(req, res) {
   const cid = req.query.cid || req.body?.correlation_id || req.body?.cid || ''
@@ -147,7 +134,7 @@ export async function answerCampaign(req, res) {
 // ─── WS handler ────────────────────────────────────────────────────────────────
 export function handleCampaignConnection(ws) {
   console.log('[CAMPAIGN] WS connected')
-  let ctx = null, dg = null, streamId = null, provider = 'vobiz'
+  let ctx = null, dg = null, streamId = null
   let callSid = null, callId = null, ready = false, finalized = false
   let providerCallId = null   // the REST control handle, for hanging the call up
   let audioBuffer = [], transcriptBuffer = [], recorder = null, trace = null, callStart = null
@@ -159,8 +146,7 @@ export function handleCampaignConnection(ws) {
     try { msg = JSON.parse(raw) } catch { return }
 
     if (msg.event === 'start') {
-      provider = msg.start?.streamSid ? 'twilio' : 'vobiz'
-      streamId = msg.start?.streamSid || msg.streamId || msg.start?.streamId || null
+      streamId = msg.streamId || msg.start?.streamId || null
       const cid = extractCorrelation(msg)
       ctx = cid ? await takePending(cid) : null
       if (!ctx) { console.error('[CAMPAIGN] no context for correlation', cid); ws.close(); return }
@@ -171,19 +157,19 @@ export function handleCampaignConnection(ws) {
       providerCallId = callId || msg.start?.callId || msg.start?.CallUUID || msg.callUuid || msg.CallUUID || null
       callSid = streamId || callId || `campaign-${Date.now()}`
       callStart = Date.now()
-      // Opt-in, same as inbound — see the note in vobiz.js.
+      // Opt-in, same as inbound — see the note in plivo.js.
       const recordingOn = (ctx.config || {}).recording_enabled === true
       recorder = recordingOn ? new CallRecorder() : null
       trace = telemetry.startTrace({
         callSid, tenantId: ctx.tenantId, tenantName: ctx.tenantName,
         callerNumber: ctx.phone, businessNumber: ctx.fromNumber,
-        engine: ctx.type === 'broadcast' ? 'broadcast' : 'gemini',
+        engine: ctx.type === 'broadcast' ? 'broadcast' : PIPELINE.label,
       })
       trace?.set('direction', 'outbound')
       trace?.set('campaignId', ctx.campaignId)
       trace?.set('conversationState', 'active')
 
-      const sink = makeSink(ws, getStreamId, recorder, trace, provider, () => providerCallId)
+      const sink = makeSink(ws, getStreamId, recorder, trace, () => providerCallId)
 
       await logCampaign(ctx, 'answered', { callSid })
 
@@ -193,7 +179,7 @@ export function handleCampaignConnection(ws) {
       }
 
       // AI Sales — reuse the exact live engine, with the campaign's merged config.
-      dg = createVoiceConnection(
+      dg = createCascadeConnection(
         callSid,
         ctx.config,
         sink,
@@ -255,7 +241,7 @@ export function handleCampaignConnection(ws) {
         // Built from the turns collected for the transcript, NOT llm.js getHistory() —
         // only the retired speech-to-speech engine wrote to that store, so reading it
         // has returned [] (and skipped extraction, silently) since the engine swap.
-        // See the matching note in vobiz.js finalize().
+        // See the matching note in plivo.js finalize().
         const history = transcriptBuffer.map(t => ({ role: t.role, content: t.text }))
         if (history.length > 0) {
           // Same measured language the inbound path uses. The live classifier heard

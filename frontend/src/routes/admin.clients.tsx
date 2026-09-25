@@ -1,10 +1,18 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { useTenants } from "@/lib/data";
 import { Plus } from "lucide-react";
 
 export const Route = createFileRoute("/admin/clients")({
-  component: ClientsList,
+  component: ClientsRoute,
 });
+
+// This route has two children — "/admin/clients/new" and "/admin/clients/$id" — and
+// this page links to both. Without an Outlet the URL changed and the LIST re-rendered,
+// so both links looked dead while every route, guard and query behind them worked.
+function ClientsRoute() {
+  const childMatches = useChildMatches();
+  return childMatches.length > 0 ? <Outlet /> : <ClientsList />;
+}
 
 function ClientsList() {
   const { data: tenants = [] } = useTenants();

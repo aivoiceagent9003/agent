@@ -4,10 +4,7 @@
 // or throws. The dial worker calls this; the answer webhook + WS then bind the media
 // stream to the campaign via correlationId (see campaign-registry.js).
 //
-// Providers: plivo | vobiz — selected by TELEPHONY_PROVIDER (see telephony/provider.js).
-// The two expose the same Call API shape, so one code path serves both; only auth and
-// the base URL differ. Marked CONFIRM-ON-FIRST-CALL (matching the defensive style of
-// the inbound src/telephony/vobiz.js).
+// The carrier is Plivo; its credentials and URLs come from telephony/provider.js.
 
 import { credentials, authHeaders, originateUrl, TAG, PROVIDER } from '../../telephony/provider.js'
 import 'dotenv/config'
@@ -17,7 +14,7 @@ import 'dotenv/config'
 // fallback, same as the inbound path.
 const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NGROK_URL || ''
 
-// Vobiz's carrier requires BOTH numbers in full E.164. A national-format caller ID
+// The carrier requires BOTH numbers in full E.164. A national-format caller ID
 // like '08071583556' (how tenant.phone_number is often stored) is ACCEPTED by the API
 // (201 "call queued") but can't be originated from → the phone never rings ("Busy Line").
 // Normalise Indian national numbers to E.164; anything already in +CC form passes through
@@ -34,7 +31,7 @@ function toE164India(raw) {
   return `+${d}`                                                      // best effort
 }
 
-// ─── Outbound adapter (Plivo / Vobiz Call API — identical request shape) ──────
+// ─── Outbound adapter (Plivo Call API) ────────────────────────────────────────
 // POST <base>/Account/{AUTH_ID}/Call/ with body { from, to, answer_url,
 // answer_method }. On answer the provider fetches answer_url, which returns our
 // <Stream> XML (see src/telephony/campaign.js answerCampaign) and audio flows over
@@ -42,8 +39,7 @@ function toE164India(raw) {
 // so it survives back to /answer-campaign and the WS 'start' without relying on the
 // provider echoing custom params.
 //
-// Auth and base URL come from telephony/provider.js — the only two things that
-// differ between Plivo and Vobiz.
+// Auth and base URL come from telephony/provider.js.
 async function providerOriginate({ to, from, correlationId, answerUrl }) {
   const { authId, authToken, idVar, tokenVar } = credentials()
   if (!authId || !authToken) throw new Error(`${idVar} / ${tokenVar} not set — get them from the ${TAG} console`)

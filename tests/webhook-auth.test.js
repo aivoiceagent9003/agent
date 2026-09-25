@@ -3,7 +3,7 @@
 // This is the boundary where an unauthenticated caller could otherwise make the
 // platform place a phone call. The transfer endpoint is the sharp end: it takes a
 // destination number and dials it, so an unsigned or forgeable destination is a
-// stranger using your Vobiz balance to ring any number they like.
+// stranger using your Plivo balance to ring any number they like.
 //
 // WEBHOOK_SECRET is read once at import, so these tests set it before importing.
 

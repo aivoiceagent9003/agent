@@ -1,7 +1,7 @@
 // gemini-native.js — Gemini's own streaming API, wearing the OpenAI chat interface.
 //
 // The cascade talks to its brain through `chat.completions.create({stream: true})` and
-// reads OpenAI-shaped chunks. That is worth keeping: the turn loop in soniox-cascade.js
+// reads OpenAI-shaped chunks. That is worth keeping: the turn loop in cascade.js
 // handles tool-call accumulation, abort, usage and finish reasons, and none of that
 // should have to learn a second dialect.
 //
@@ -84,10 +84,13 @@ export function toGeminiContents(messages) {
  * @param {number} [p.temperature]
  * @param {number} [p.maxTokens]
  * @param {AbortSignal} [p.signal]
+ * @param {object} [p.timing]            filled in as the request progresses, so a slow
+ *        first token can be split into its parts: sentAt, headersAt, firstByteAt,
+ *        requestBytes, and usage (Gemini's raw usageMetadata, last report wins).
  */
 export async function* streamGemini({
   apiKey, model, messages, tools, cachedContent,
-  temperature = 0.3, maxTokens = 400, signal,
+  temperature = 0.3, maxTokens = 400, signal, timing = {},
 }) {
   const { system, contents } = toGeminiContents(messages)
   const body = {
@@ -111,12 +114,16 @@ export async function* streamGemini({
     }
   }
 
+  const payload = JSON.stringify(body)
+  timing.requestBytes = payload.length
+  timing.sentAt = Date.now()
   const res = await fetch(`${API}/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: payload,
     signal,
   })
+  timing.headersAt = Date.now()
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     const err = new Error(`Gemini ${res.status}: ${detail.slice(0, 300)}`)
@@ -129,6 +136,7 @@ export async function* streamGemini({
   let toolIndex = 0
   for await (const part of res.body) {
     if (signal?.aborted) return
+    timing.firstByteAt ||= Date.now()
     buf += Buffer.from(part).toString()
     let nl
     while ((nl = buf.indexOf('\n')) !== -1) {
@@ -175,6 +183,7 @@ export async function* streamGemini({
 
       if (j.usageMetadata) {
         const u = j.usageMetadata
+        timing.usage = u
         yield {
           choices: [],
           usage: {
@@ -182,6 +191,9 @@ export async function* streamGemini({
             completion_tokens: u.candidatesTokenCount || 0,
             total_tokens: u.totalTokenCount || 0,
             prompt_tokens_details: { cached_tokens: u.cachedContentTokenCount || 0 },
+            // Thinking is billed and waited for, but was never reported. A model that
+            // thinks before answering looks exactly like a slow network.
+            completion_tokens_details: { reasoning_tokens: u.thoughtsTokenCount || 0 },
           },
         }
       }

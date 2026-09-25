@@ -42,3 +42,42 @@ acknowledgement or "anything else" ending. Do not list these instructions.`
   }
   return [{ role: 'system', content: `${system}\n\n${guidance}`.trim() }, ...rest]
 }
+
+export const TOOL_RESULT_STUB = '[Earlier lookup result removed to keep the conversation short. Search again if you need these details.]'
+
+/**
+ * Keep what the model re-reads on every turn small. Mutates `messages` in place.
+ *
+ * Only the system prompt and tool schemas sit in the provider's prompt cache; the
+ * conversation after them is processed from scratch on every request. A knowledge
+ * search puts six catalogue chunks — thousands of characters — into that history, and
+ * they used to stay for the rest of the call, so every lookup made every later turn
+ * slower. On real calls (2026-09-21/22) the model was the slowest leg on 53 of 77
+ * turns, and replies drifted from ~2.9s towards 6s as calls went on.
+ *
+ *  - A long tool result older than the last `keepToolTurns` caller turns becomes a
+ *    one-line note. The agent's spoken answer stays, so what it actually told the
+ *    caller is still in the conversation, and the model can search again for the rest.
+ *    Short results ("sent", "ended") stay: they cost nothing, and forgetting one
+ *    invites the model to do the thing again.
+ *  - Past `maxTurns` caller turns, the oldest turns go whole, always cut at a caller
+ *    message, so a tool call is never separated from its result — both providers
+ *    reject a result whose call is missing.
+ */
+export function compactHistory(messages, { keepToolTurns = 2, maxTurns = 24, maxToolChars = 400 } = {}) {
+  const userAt = []
+  messages.forEach((m, i) => { if (m.role === 'user') userAt.push(i) })
+  const keepFrom = userAt.length > keepToolTurns ? userAt[userAt.length - keepToolTurns] : 0
+  for (let i = 0; i < keepFrom; i++) {
+    const m = messages[i]
+    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > maxToolChars) {
+      messages[i] = { ...m, content: TOOL_RESULT_STUB }
+    }
+  }
+  if (userAt.length > maxTurns) {
+    const cut = userAt[userAt.length - maxTurns]
+    const start = messages.findIndex(m => m.role !== 'system')
+    if (start !== -1 && cut > start) messages.splice(start, cut - start)
+  }
+  return messages
+}

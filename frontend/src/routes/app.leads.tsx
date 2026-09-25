@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useClientLeads, exportLeadsCsv } from "@/lib/data";
 import {
@@ -11,14 +11,23 @@ import {
   type LeadStatus,
 } from "@/lib/team";
 import { SentimentBadge } from "./app.calls.$id";
-import { Download, FileText } from "lucide-react";
+import { ArrowUpRight, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 10;
 
 export const Route = createFileRoute("/app/leads")({
-  component: LeadsList,
+  component: LeadsRoute,
 });
+
+// "/app/leads/$id" is a CHILD of this route, so this component has to render the
+// nested route. Without it the detail page resolves, the URL changes, and the LIST
+// renders — which reads as a broken link rather than as a routing mistake, and
+// nothing anywhere throws. Same shape as /app/calls, for the same reason.
+function LeadsRoute() {
+  const childMatches = useChildMatches();
+  return childMatches.length > 0 ? <Outlet /> : <LeadsList />;
+}
 
 function LeadsList() {
   const [intent, setIntent] = useState("");
@@ -195,7 +204,13 @@ function LeadCard({
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <h3 className="font-semibold">
-            {lead.name || <span className="text-muted-foreground">Unknown caller</span>}
+            <Link
+              to="/app/leads/$id"
+              params={{ id: lead.id }}
+              className="hover:underline decoration-primary underline-offset-4"
+            >
+              {lead.name || <span className="text-muted-foreground">Unknown caller</span>}
+            </Link>
           </h3>
           {/* Its own line, at full length — this is the number someone has to
               read out or copy, so it is never truncated. */}
@@ -250,6 +265,13 @@ function LeadCard({
             Owner
             <OwnerCell lead={lead} members={members} meId={meId} />
           </label>
+          <Link
+            to="/app/leads/$id"
+            params={{ id: lead.id }}
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline whitespace-nowrap"
+          >
+            <ArrowUpRight className="w-4 h-4" /> Open lead
+          </Link>
           {lead.call_id && (
             <Link
               to="/app/calls/$id"

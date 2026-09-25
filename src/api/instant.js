@@ -69,7 +69,7 @@ router.put('/', async (req, res) => {
     settings.preset = preset || 'generic'
   }
   if (from_number !== undefined) {
-    // Store the caller ID verbatim — providers are picky about format (Vobiz wants
+    // Store the caller ID verbatim — providers are picky about format (Plivo wants
     // full E.164 like +918071583556; a national '08071583556' fails at the carrier).
     // We only trim; the operator is trusted to enter the exact working number.
     settings.from_number = String(from_number).trim() || null

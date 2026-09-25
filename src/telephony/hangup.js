@@ -6,7 +6,7 @@
 // the call reliably, so we also send the provider's explicit hangup.
 //
 // Both providers expose the same shape — DELETE on the per-call resource — so this
-// works for Plivo and Vobiz through the same adapter as origination and transfer.
+// goes through the same Plivo adapter as origination and transfer.
 //
 // Best-effort by design: it never throws. If the REST call fails, the stream close
 // has almost certainly ended the call anyway, and a failed hangup must not take the

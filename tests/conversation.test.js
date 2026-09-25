@@ -73,12 +73,24 @@ describe('layer composition', () => {
   })
 
   it('omits empty layers rather than rendering an empty heading', () => {
-    // Outbound, so no inbound rule; no template, record, knowledge or tools either.
+    // Outbound, so no inbound rule; no template, knowledge or tools either.
     const n = names(onCall({ business_name: 'X', is_outbound: true }))
     expect(n).not.toContain('template')
-    expect(n).not.toContain('call_context')
     expect(n).not.toContain('knowledge')
     expect(n).not.toContain('state_recap')
+  })
+
+  // call_context is the exception, and deliberately so: it carries today's date, which
+  // every call needs and no tenant configures. An agent that does not know the date
+  // works out an age from a date of birth against its training cutoff and quotes the
+  // premium for somebody a year older. So the layer is always present — but on a call
+  // with no caller record it must still carry ONLY the date.
+  it('always carries the date, and nothing else when there is no caller record', () => {
+    const ctx = onCall({ business_name: 'X', is_outbound: true })
+    expect(names(ctx)).toContain('call_context')
+    const text = layer(ctx, 'call_context')
+    expect(text).toMatch(/TODAY IS \w+day, \d{1,2} \w+ \d{4}\./)
+    expect(text).not.toContain('WHAT YOU KNOW ABOUT THIS CALLER')
   })
 
   it('describeLayers reports sizes without leaking prompt text', () => {
@@ -577,8 +589,8 @@ describe('language', () => {
 // ─── Template library ────────────────────────────────────────────────────────
 
 describe('template library', () => {
-  it('ships all ten templates', () => {
-    expect(AGENT_TEMPLATES).toHaveLength(10)
+  it('ships all eleven templates', () => {
+    expect(AGENT_TEMPLATES).toHaveLength(11)
   })
 
   it('keeps every id that a tenant may already have stored', () => {
@@ -666,8 +678,8 @@ describe('templates API', () => {
     }
   })
 
-  it('exposes all ten with the fields the picker renders', () => {
-    expect(TEMPLATES).toHaveLength(10)
+  it('exposes all eleven with the fields the picker renders', () => {
+    expect(TEMPLATES).toHaveLength(11)
     for (const t of TEMPLATES) {
       expect(t.id).toBeTruthy()
       expect(t.label).toBeTruthy()

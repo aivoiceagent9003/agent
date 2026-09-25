@@ -113,11 +113,39 @@ export function acknowledgementFor({ tool, language, turn = 0, seed = '' } = {})
   return { text: options[(hash + turn) % options.length], family, language: lang }
 }
 
-/** Every line, for pre-rendering into the TTS cache before a call needs one. */
+/**
+ * Every line, for pre-rendering into the TTS cache before a call needs one.
+ *
+ * Ordered FAMILY-first, and that order is the point: the warm-up renders these one at a
+ * time and a line that is not rendered yet masks nothing. Language-major put Telugu
+ * knowledge at positions 9-11 of 27, roughly seven seconds into the process's first
+ * call — and a real call reached its first knowledge turn before that and went
+ * unmasked at 6.7s, against 2.5s for the same shape of turn once warm.
+ *
+ * `knowledge` leads because it is the family that covers search_knowledge, which is
+ * both the commonest slow tool and the one whose second model round the caller waits
+ * through in silence. Within a family every language comes before the next family, so
+ * whichever of the three a caller speaks is ready at roughly the same time.
+ */
 export function allAcknowledgements() {
   const out = []
-  for (const lang of LANGUAGES) for (const family of FAMILIES) {
+  for (const family of FAMILIES) for (const lang of LANGUAGES) {
     for (const text of LINES[lang][family]) out.push({ text, language: lang, family })
   }
   return out
+}
+
+/**
+ * The other lines that would have served just as well.
+ *
+ * acknowledgementFor picks one of three deterministically, and determinism is worth
+ * keeping — a test can assert on it and a recording can be reproduced. But it means the
+ * pick can land on the one line of the three that has not been rendered yet, and the
+ * turn then goes unmasked while two perfectly good alternatives sit in the cache. These
+ * are those alternatives, in order, for a caller that has audio and needs any of them.
+ */
+export function siblingAcknowledgements({ family, language, text } = {}) {
+  const lines = LINES[language]?.[family]
+  if (!lines) return []
+  return lines.filter(t => t !== text).map(t => ({ text: t, family, language }))
 }

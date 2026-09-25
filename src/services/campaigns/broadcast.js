@@ -15,7 +15,7 @@ export function renderTemplate(template, contact = {}) {
 
 // Stream a rendered broadcast message over `sink`, then call onDone() after the
 // audio has had time to play. `sink.send` accepts a Twilio-style media frame; the
-// Vobiz/campaign sink re-chunks as needed.
+// campaign sink re-chunks as needed.
 export async function runBroadcast(sink, streamId, text, { onDone } = {}) {
   const done = () => { try { onDone?.() } catch {} }
   if (!text?.trim()) { done(); return }

@@ -18,6 +18,22 @@ const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 function buildExtractionPrompt(tenantConfig = {}, knownLanguage = null) {
   const businessName = tenantConfig.business_name || 'the business'
+  // The agent introduces itself by name, so the caller says that name BACK at it —
+  // "Hello Arjun", "Arjun garu, one question". That is a form of address, and the model
+  // read it as a self-introduction: a Telugu call that opened "హలో అర్జున్" was filed
+  // under name "Arjun", which is the agent. The agent had also started calling the
+  // caller Arjun by then, so the "trust the agent's confirmation" rule below — normally
+  // the strongest evidence in the transcript — pointed straight at the wrong answer.
+  const agentName = String(tenantConfig.agent_name || '').trim()
+  const agentNameRule = agentName
+    ? `
+- THE AGENT ON THIS CALL IS CALLED "${agentName}". Callers say that name to ADDRESS the
+  agent ("Hello ${agentName}", "${agentName} garu, one question") — it is their hello,
+  not their name. The agent may itself have slipped and called the CALLER "${agentName}";
+  that is the same mistake repeated, not a confirmation. So "${agentName}" is NEVER the
+  answer for "name". Return null unless the caller clearly gave a DIFFERENT name as
+  their own.`
+    : ''
   const knownCode = toCode(knownLanguage)
   // When the live classifier reached a verdict it is a direct measurement of the
   // audio. Asking the model to re-derive it from a transcript can only be worse,
@@ -31,7 +47,8 @@ Analyze the call transcript and extract structured lead information.
 
 Return ONLY a valid JSON object (no markdown, no backticks, no explanation) with these exact fields:
 {
-  "name": "caller's name in ENGLISH/Latin script, else null",
+  "name": "caller's name in ENGLISH/Latin script — ONLY if they actually gave one, else null",
+  "name_source": "the caller's or agent's exact words in which that name was GIVEN, copied verbatim from the transcript (e.g. \"నా పేరు మధుసూదన్\", \"this is Priya\"). null if nobody gave a name",
   "intent": "short snake_case category (e.g. order_complaint, product_inquiry, booking_request, support, billing, general_inquiry)",
   "summary": "one-sentence summary of what the caller wanted",
   "sentiment": "positive | neutral | frustrated | angry",
@@ -91,13 +108,90 @@ Rules:
 - For "language": ${languageRule}
 - The "name" is the CALLER's name ONLY — NEVER the agent's name from the greeting
   (e.g. the agent says "Sameera here from..."; that is NOT the caller). If the
-  caller never states their own name, use null.
+  caller never states their own name, use null.${agentNameRule}
+- "name_source" IS HOW YOU CHECK YOURSELF, so fill it in before "name". Find the turn
+  where the caller GAVE the name — their own words, not the agent repeating it — and
+  copy it verbatim. If you cannot point at one, there is
+  no name: set both to null. A turn is not a naming act just because a name-like word
+  appears in it — "నేను టామ్ ఇన్సూరెన్స్ గురించి చూస్తున్నాను" is somebody asking about
+  term insurance, not somebody called Tom.
+- A NAME ONLY COUNTS IF SOMEBODY ACTUALLY GAVE ONE. "My name is X", "X speaking",
+  "this is X", or the agent addressing the caller as X after being told it. A word that
+  merely sounds like a name inside an ordinary phrase is NOT a name. On a real call an
+  8kHz line turned "term insurance" into "టామ్ ఇన్సూరెన్స్" and the caller was filed as
+  "Tom" — they had never said a name at all. Product names, company names, places and
+  plain mishearings all throw off words like this. If no turn contains an act of
+  naming, "name" is null.
+- THE AGENT IS THE TELL. It addresses the caller by name whenever it has one. If it
+  went the whole call on "garu" / "ji" / "andi" / "sir" and never used a name, it did
+  not have one — and neither do you. Return null.
 - The "name" field MUST be in English/Latin script. If a name appears in another
   script (e.g. "మధుసూదన్"/"मधुसूदन"), transliterate it as ONE word: "Madhusudhan".
   Do NOT split an Indian given name into two words, and do NOT anglicise it into a
   similar-sounding English word or a more common name.
 - Write "summary" and "key_details" in English regardless of the call language.
 - Keep summary under 20 words; key_details should be 2-5 short factual points`
+}
+
+// ─── The agent's own name is not the caller's ─────────────────────────────────
+// The caller says the agent's name to address it, and an agent that loses track of its
+// own name starts using it for the caller — so the transcript can agree with itself on
+// the wrong answer and the model has no contradiction to catch. The prompt rule above
+// handles most of it; this catches the rest, because a confidently wrong name in the CRM
+// is worse than an empty one. A team can ask a caller for a missing name. They have no
+// way to know a filled-in one is somebody else's.
+//
+// Honorifics ride along with the name on these calls — the agent is addressed as
+// "Arjun garu", and a model asked for a name sometimes hands back exactly that. They
+// are stripped so the comparison is of names, not of politeness.
+const HONORIFICS = /\s*\b(garu|gaaru|ji|sir|madam|ma'am|anna|akka|bhai|saab|sahab)\b\.?\s*$/i
+const nameKey = (s) => String(s || '').trim().replace(HONORIFICS, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+export function isAgentsOwnName(name, agentName) {
+  const a = nameKey(agentName)
+  return !!a && nameKey(name) === a
+}
+
+// ─── A name has to come from somebody giving one ──────────────────────────────
+// Telling the model this is not enough. Asked to extract a lead from a call where the
+// line turned "term insurance" into "టామ్ ఇన్సూరెన్స్", gpt-4o-mini returned the caller's
+// name as "Tom" three times out of three — and went on doing it after the prompt named
+// that exact sentence as an example of what is NOT a name.
+//
+// What DID change is that it now has to cite the turn it got the name from, and the
+// citation is honest even when the conclusion is not: for "Tom" it points at somebody
+// asking about insurance, for a real introduction it points at "నా పేరు మధుసూదన్ అండి".
+// One of those contains an act of naming and the other does not, and that is a question
+// a regex can answer even though the model could not.
+//
+// Deliberately strict. A naming act phrased oddly enough to miss this costs a null name,
+// which the follow-up team can ask for. The failure it replaces costs a WRONG name, which
+// nobody will think to doubt.
+// Words that only ever introduce somebody. Case does not matter.
+const NAMING_WORD = new RegExp([
+  'పేరు',                                  // Telugu: "నా పేరు X"
+  'नाम',                                   // Hindi: "मेरा नाम X"
+  '\\bper[au]|\\bnaam\\b',                  // the same, romanised
+  '\\bname\\b|\\bmyself\\b|\\bspeaking\\b',   // "my name is X", "myself X", "X speaking"
+].join('|'), 'i')
+
+// "This is Priya" and "I'm Priya" introduce somebody; "I am looking for term
+// insurance" does not, and the difference is entirely the capitalised name that
+// follows. Case-SENSITIVE on purpose — dropping that is what let the second one
+// through when these lived in one pattern.
+const NAMING_PHRASE = /\b(?:[Tt]his is|[Ii]'?m|[Ii] am)\s+[A-Z][a-z]/
+
+const NAMING_ACT = (s) => NAMING_WORD.test(s) || NAMING_PHRASE.test(s)
+
+/**
+ * Did anybody actually give this name, or did the model find a name-shaped word?
+ * @param {object} lead   the parsed extraction, with its own `name_source` citation
+ * @returns {boolean} true when the name may stand
+ */
+export function nameIsEvidenced(lead) {
+  if (!String(lead?.name || '').trim()) return true          // no claim, nothing to check
+  const source = String(lead?.name_source || '').trim()
+  if (!source) return false                                  // a name it cannot point at
+  return NAMING_ACT(source)
 }
 
 // ─── Extract lead from conversation history ───────────────────────────────────
@@ -138,6 +232,16 @@ export async function extractLead(history, tenantConfig = {}, { knownLanguage = 
     const raw = completion.choices[0]?.message?.content || '{}'
     const lead = JSON.parse(raw)
 
+    if (!nameIsEvidenced(lead)) {
+      console.warn(`[LEAD] name "${lead.name}" has no act of naming behind it — dropped (cited "${String(lead.name_source || '').slice(0, 80)}")`)
+      lead.name = null
+    }
+
+    if (isAgentsOwnName(lead.name, tenantConfig.agent_name)) {
+      console.warn(`[LEAD] name "${lead.name}" is the agent's own name — dropped (the caller was addressing the agent, not naming themselves)`)
+      lead.name = null
+    }
+
     // The prompt already asks for the measured value, but asking is not the same
     // as getting: this same model was told to read the language off the agent's
     // turns and still returned "hi" for a call conducted entirely in English.
@@ -166,7 +270,7 @@ export async function extractLead(history, tenantConfig = {}, { knownLanguage = 
 // Caller: lines are almost always WRONG ... INFER each caller turn from the agent's
 // replies", i.e. it threw the caller's words away and reconstructed them.
 //
-// Soniox transcribes the caller directly and accurately, so that pass would now
+// The STT transcribes the caller directly and accurately, so that pass would now
 // paraphrase good data and quietly invent the difference. It had no callers when it
 // was deleted. If a translation layer is wanted later it is a NEW function that only
 // TRANSLATES — never one that reconstructs what the caller said.

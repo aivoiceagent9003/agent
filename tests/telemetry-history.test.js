@@ -162,3 +162,37 @@ describe('getTraceDetail', () => {
     await expect(t.getTraceDetail('anything')).resolves.toBeNull()
   })
 })
+
+describe('flushRollups', () => {
+  // The live database never had sql/observability.sql's min/max migration applied, so
+  // an insert naming those columns is refused as a whole — returned as { error }, not
+  // thrown. From 2026-08-27 that silently dropped every latency rollup.
+  const dbWithoutMinMax = (inserted) => ({
+    supabase: {
+      from: () => ({
+        insert: async (rows) => {
+          if (rows.some((r) => 'min' in r || 'max' in r)) {
+            return { error: { message: "Could not find the 'max' column of 'metric_rollups'" } }
+          }
+          inserted.push(...rows)
+          return { error: null }
+        },
+      }),
+    },
+  })
+
+  it('still persists latency percentiles when the table has no min/max columns', async () => {
+    vi.resetModules()
+    const inserted = []
+    vi.doMock('../src/api/db.js', () => dbWithoutMinMax(inserted))
+    const t = await import('../src/services/telemetry.js')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    t.recordLatency('stt_endpoint', 830)
+    t.recordLatency('stt_endpoint', 1200)
+    await t.flushRollups()
+    warn.mockRestore()
+    const row = inserted.find((r) => r.metric === 'latency' && r.op === 'stt_endpoint')
+    expect(row).toMatchObject({ count: 2, p50: 1200 })
+    expect(inserted.some((r) => r.metric === 'infra')).toBe(true)
+  })
+})

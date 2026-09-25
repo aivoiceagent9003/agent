@@ -15,7 +15,7 @@ import { TEMPLATES, getTemplate } from './templates.js'
 import { streamAIReply, clearHistory } from '../services/llm.js'
 import { buildContext, describeLayers } from '../config/conversation/index.js'
 import { retrieveKnowledge, invalidateKnowledge } from '../services/rag.js'
-import { listSonioxVoices } from '../services/soniox-voices.js'
+import { listTelnyxVoices } from '../services/telnyx-voices.js'
 import { ingestText } from '../ingest.js'
 import {
   createDocument,
@@ -182,13 +182,12 @@ router.get('/prompt-layers', async (req, res) => {
 })
 
 // ─── Available voices (for the "Choose what voice to speak" picker) ───────────
-// Calls are synthesised by Soniox, so these are Soniox voices — built-in ones plus any
-// this account has cloned. The chosen id belongs in `tts_voice`, NOT the older `voice`
-// field, which still holds Gemini Live names for tenants created before the switch and
-// would fail a call if handed to Soniox.
+// Calls are spoken by Telnyx Ultra, so these are its Indian-language voices (see
+// telnyx-voices.js). The chosen id belongs in `tts_voice`, NOT the older `voice`
+// field, which still holds Gemini Live names for tenants created before the switch.
 router.get('/voices', async (_req, res) => {
   try {
-    res.json(await listSonioxVoices())
+    res.json(await listTelnyxVoices())
   } catch {
     res.status(502).json({ error: 'voice list unavailable' })
   }

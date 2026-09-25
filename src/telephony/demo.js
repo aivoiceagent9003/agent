@@ -2,7 +2,7 @@
 //
 // Anonymous visitors talk to a REAL agent from the browser, using the SAME engine
 // a phone call uses — not a scripted chat. The browser is the audio
-// transport (mulaw 8kHz frames, exactly like Vobiz/Twilio), so the engines work
+// transport (mulaw 8kHz frames, exactly like Plivo), so the engines work
 // unchanged. No tenant, no DB writes, no telephony.
 //
 // The agent is configured from the SECTOR the visitor picks: we take that sector's
@@ -16,7 +16,7 @@
 //   • per-IP hourly cap (DEMO_MAX_PER_IP_PER_HOUR)
 //   • kill switch (DEMO_ENABLED=false)
 
-import { createSonioxCascadeConnection } from '../services/soniox-cascade.js'
+import { createCascadeConnection, PIPELINE } from '../services/cascade.js'
 import { clearHistory } from '../services/llm.js'
 import { getTemplate } from '../api/templates.js'
 import 'dotenv/config'
@@ -24,11 +24,10 @@ import 'dotenv/config'
 // The demo runs the SAME engine a real call runs. It used to run a different one, on
 // the theory that a marketing page should sound better than the product; that is
 // exactly backwards — a demo that flatters the stack is a demo that lies.
-const createVoiceConnection = createSonioxCascadeConnection
 
 // Browser clients still get proper audio (24kHz PCM out, 16kHz PCM in) rather than the
-// 8kHz µ-law telephony codec — Soniox speaks both, so there is no reason to degrade a
-// web page to phone quality. See AUDIO_PROFILES in soniox-cascade.js.
+// 8kHz µ-law telephony codec — the engine speaks both, so there is no reason to degrade
+// a web page to phone quality. See AUDIO_PROFILES in cascade.js.
 const DEMO_AUDIO = { format: 'pcm16', outputSampleRate: 24000, inputSampleRate: 16000 }
 
 const ENABLED = process.env.DEMO_ENABLED !== 'false'
@@ -198,8 +197,8 @@ function buildDemoConfig(sector) {
     greeting_message: sector.greeting_message || base.greeting_message,
     template_id: templateId,
     language_code: sector.language_code || base.language_code,   // e.g. 'en-IN' accent
-    // tts_voice, not voice: `voice` held a Gemini Live voice name and Soniox
-    // rejects one. See services/soniox-voices.js.
+    // tts_voice, not voice: `voice` held a Gemini Live voice name. A tts_voice that
+    // is not a Telnyx voice falls back to the default — see services/telnyx-voices.js.
     tts_voice: sector.tts_voice || base.tts_voice,
     system_prompt: systemPrompt,
     tenant_id: null,
@@ -255,7 +254,7 @@ export function handleDemoConnection(ws, req) {
 
       activeSessions++
       counted = true
-      console.log(`[DEMO] ${sid} started sector=${sector.id} engine=soniox hi-fi cap=${maxSeconds}s (active=${activeSessions})`)
+      console.log(`[DEMO] ${sid} started sector=${sector.id} engine=${PIPELINE.label} hi-fi cap=${maxSeconds}s (active=${activeSessions})`)
 
       // Hard stop so a forgotten tab can't burn minutes forever.
       timer = setTimeout(() => {
@@ -264,7 +263,7 @@ export function handleDemoConnection(ws, req) {
         cleanup()
       }, maxSeconds * 1000)
 
-      engine = createVoiceConnection(
+      engine = createCascadeConnection(
         sid,
         config,
         ws,                                  // browser receives media frames

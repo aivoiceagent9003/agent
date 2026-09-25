@@ -619,7 +619,8 @@ async function db() {
   return _supabase || null
 }
 
-async function flushRollups() {
+let rollupWarned = false
+export async function flushRollups() {
   try {
     const sb = await db()
     if (!sb) return
@@ -636,7 +637,20 @@ async function flushRollups() {
       p50: last.cpuPct || 0, p90: last.heapUsedMb || 0, p95: last.eventLoopDelayMs || 0,
       p99: last.eventLoopDelayP99Ms || 0, count: activeTraces.size, avg: gauges.websockets || 0,
     })
-    if (rows.length) await sb.from('metric_rollups').insert(rows)
+    if (!rows.length) return
+    const { error } = await sb.from('metric_rollups').insert(rows)
+    // min/max need sql/observability.sql re-run. A database without them rejects the
+    // WHOLE batch, and supabase-js returns that as { error } rather than throwing — so
+    // from 2026-08-27 every flush that held a latency row vanished without a trace and
+    // only the idle-time infra rows got through. Retry without the two columns rather
+    // than lose the percentiles; min/max start arriving once the migration is applied.
+    if (error) {
+      const retry = await sb.from('metric_rollups').insert(rows.map(({ min, max, ...r }) => r))
+      if (!rollupWarned) {
+        rollupWarned = true
+        console.warn(`[TELEMETRY] metric_rollups rejected min/max (${error.message}) — run sql/observability.sql${retry.error ? `; retry also failed: ${retry.error.message}` : ''}`)
+      }
+    }
   } catch { /* swallow — history is best-effort, never affects calls */ }
 }
 

@@ -1,37 +1,24 @@
-// telephony/vobiz.js — INBOUND adapter for Plivo / Vobiz (Indian numbers, TRAI-compliant).
+// telephony/plivo.js — INBOUND calls from Plivo (Indian numbers, TRAI-compliant).
 //
-// Both providers stream G.711 mu-law 8kHz over a bidirectional WebSocket and speak the
-// same <Stream> XML and playAudio/clearAudio frames, so ONE adapter serves both and the
-// voice engine runs UNCHANGED. This module only adapts the TRANSPORT:
+// Plivo streams G.711 mu-law 8kHz over a bidirectional WebSocket. This module only
+// adapts the TRANSPORT; the voice engine (services/cascade.js) runs unchanged:
 //   • /answer  webhook → returns <Stream> XML
-//   • /media-stream-vobiz WS → feeds provider frames into the voice engine
+//   • /media-stream-vobiz WS → feeds Plivo's frames into the voice engine
 //   • outbound audio → 'playAudio' frames (re-chunked to 20ms/160 bytes)
 //
-// The filename and the /media-stream-vobiz route keep their original names on purpose:
-// the route is baked into provider consoles, and renaming it would break every
-// configured webhook. TELEPHONY_PROVIDER selects the actual provider (provider.js).
+// The /media-stream-vobiz and /vobiz/transfer routes keep the name of the carrier this
+// platform started on. They are URLs a live call is handed mid-flight, and renaming a
+// URL is how a deploy drops the calls that were in progress when it went out.
 //
-// ⚠️ CONFIRM-ON-FIRST-CALL: the 'start' event field names aren't fully documented on
-// either provider. We log the raw 'start' frame and resolve the tenant defensively
-// (extraHeaders key → number fields). Confirmed on Plivo: extra_headers arrives as
-// "{X-PH-callkey: <uuid>, ...}" and streamId/callId sit under start.
+// Plivo's extra_headers arrive as "{X-PH-callkey: <uuid>, ...}" and streamId/callId
+// sit under start. The raw 'start' frame is logged, and the tenant is resolved
+// defensively (extraHeaders key → number fields).
 
-import { createSonioxCascadeConnection } from '../services/soniox-cascade.js'
+import { createCascadeConnection, PIPELINE } from '../services/cascade.js'
 import { clearHistory } from '../services/llm.js'
 import { TAG, PROVIDER } from './provider.js'
 import { createPlayoutTracker } from './playout.js'
 import { hangUpCall } from './hangup.js'
-
-// One engine: Soniox STT → LLM → Soniox TTS (see services/soniox-cascade.js).
-//
-// There used to be a per-tenant selector here, because the platform ran Gemini Live
-// speech-to-speech as well. That engine is gone: it re-billed the whole conversation on
-// every turn, and the cascade answers faster, costs a fraction, and is the only path
-// that gets the latency and prompt-cache work. Keeping a second engine alive meant
-// every fix had to be made twice.
-function voiceEngineFor() {
-  return { name: 'soniox', create: createSonioxCascadeConnection }
-}
 import { extractLead, saveLead } from '../services/leads.js'
 import { CallRecorder, uploadRecording } from '../services/recording.js'
 import { recordingNotice } from '../services/greeting.js'
@@ -54,7 +41,7 @@ function normalize(n) {
   return match ? match[1].replace(/\s/g, '') : String(n).trim()
 }
 
-// Resolve a tenant by the called number, tolerant of formatting. Vobiz sends the
+// Resolve a tenant by the called number, tolerant of formatting. Plivo can send the
 // Indian national format ("08071583556"); a tenant may be stored as "+918071583556",
 // "918071583556", etc. Match on the last 10 digits (the significant part) so all
 // formats resolve to the same tenant.
@@ -72,7 +59,7 @@ async function findTenantByNumber(raw) {
 }
 
 // ─── Pending call tickets ─────────────────────────────────────────────────────
-// /answer mints a ticket and hands the key to Vobiz via extraHeaders; the WS
+// /answer mints a ticket and hands the key to Plivo via extraHeaders; the WS
 // 'start' frame presents it back and consumes it. The key IS the authentication
 // for the media stream, so it has three properties that all matter:
 //
@@ -95,9 +82,9 @@ setInterval(() => {
 }, 30_000).unref?.()
 
 // ─── /answer webhook ─────────────────────────────────────────────────────────
-// Vobiz POSTs here when a call hits one of our numbers. We resolve the tenant by
+// Plivo POSTs here when a call hits one of our numbers. We resolve the tenant by
 // the called number, open a call row, and return <Stream> pointing at our WS.
-export async function vobizAnswer(req, res) {
+export async function plivoAnswer(req, res) {
   // Telemetry: the webhook is the FIRST event of a call's lifecycle. We capture
   // the timings here (callSid isn't known until the WS 'start' frame) and replay
   // them as spans once the trace exists, so the waterfall opens with webhook →
@@ -105,7 +92,7 @@ export async function vobizAnswer(req, res) {
   const webhookAt = Date.now()
   const calledNumber = normalize(req.body.To || req.body.to || req.body.called_number || req.body.destination)
   const callerNumber = normalize(req.body.From || req.body.from || req.body.caller_number || req.body.source)
-  // Vobiz's per-call REST control handle (Plivo-style CallUUID). Needed later to
+  // Plivo's per-call REST control handle (CallUUID). Needed later to
   // transfer this LIVE call to a human (see handoff.js). Captured defensively —
   // confirm the exact field from the /answer body log after the first real call.
   const providerCallId =
@@ -164,16 +151,16 @@ export async function vobizAnswer(req, res) {
 </Response>`)
 }
 
-// Optional global hangup webhook (configured in the Vobiz console).
-export function vobizHangup(_req, res) {
+// Optional global hangup webhook (configured in the Plivo console).
+export function plivoHangup(_req, res) {
   res.sendStatus(200)
 }
 
-// ─── /vobiz/transfer — the XML Vobiz fetches when we transfer a live call ───────
+// ─── /vobiz/transfer — the XML Plivo fetches when we transfer a live call ───────
 // handoff.js redirects the caller leg here (aleg_url) with ?to=<human number> and
 // ?callerId=<business DID>. We return <Dial> XML so the caller is connected to the
 // human agent. The media stream ends automatically when the leg is redirected.
-export function vobizTransferXml(req, res) {
+export function plivoTransferXml(req, res) {
   const to = String(req.query.to || req.body?.to || '').trim()
   const callerId = String(req.query.callerId || req.body?.callerId || '').trim()
   const sig = String(req.query.sig || req.body?.sig || '').trim()
@@ -186,7 +173,7 @@ export function vobizTransferXml(req, res) {
     return empty()
   }
 
-  // The destination made a round trip through Vobiz and came back as a query
+  // The destination made a round trip through Plivo and came back as a query
   // string, so it is attacker-controllable by anyone who can reach this endpoint.
   // Only a destination we ourselves signed in handoff.js is dialled. Without this
   // the endpoint is an open relay: ?to=<any premium-rate number> and we pay.
@@ -219,11 +206,10 @@ export function vobizTransferXml(req, res) {
 }
 
 // ─── Outbound sink ───────────────────────────────────────────────────────────
-// Mimics the Twilio ws interface that streamTTSToTwilio expects, so deepgram.js
-// stays Twilio-shaped. It translates the outbound frames:
-//   {event:'media', media:{payload}}  → Vobiz 'playAudio' (re-chunked to 160B/20ms)
-//   {event:'clear'}                    → Vobiz 'clearAudio' (barge-in)
-function makeVobizSink(ws, getStreamId, recorder, trace, getProviderCallId) {
+// The engine speaks one shape (see the contract in cascade.js); this translates it:
+//   {event:'media', media:{payload}}  → Plivo 'playAudio' (re-chunked to 160B/20ms)
+//   {event:'clear'}                    → Plivo 'clearAudio' (barge-in)
+function makePlivoSink(ws, getStreamId, recorder, trace, getProviderCallId) {
   let sentFirstAudio = false
   let ending = false
   const playout = createPlayoutTracker()
@@ -236,7 +222,7 @@ function makeVobizSink(ws, getStreamId, recorder, trace, getProviderCallId) {
       try { m = JSON.parse(str) } catch { ws.send(str); return }
 
       if (m.event === 'media' && m.media?.payload) {
-        // Re-frame to 20ms / 160-byte mulaw chunks — Vobiz ingress expects 20ms
+        // Re-frame to 20ms / 160-byte mulaw chunks — Plivo ingress expects 20ms
         // framing; larger chunks cause jitter/robotic audio.
         const buf = Buffer.from(m.media.payload, 'base64')
         recorder?.addOutbound(buf)   // capture the agent's audio for the recording
@@ -295,24 +281,21 @@ function makeVobizSink(ws, getStreamId, recorder, trace, getProviderCallId) {
   }
 }
 
-// Providers deliver extra headers as a STRING like "{X-PH-callkey: <value>, X-PH-x: y}"
-// (not JSON) and prefix our keys with their own tag — Plivo uses "X-PH-", Vobiz
-// "X-VH-". Strip EITHER prefix rather than keying this off TELEPHONY_PROVIDER: the
-// prefix is whatever the provider that placed this call used, and during a provider
-// switch both shapes can legitimately arrive at the same process. Getting this wrong
-// loses the callkey, which drops the call.
+// Plivo delivers extra headers as a STRING like "{X-PH-callkey: <value>, X-PH-x: y}"
+// (not JSON) and prefixes our keys with "X-PH-". Getting this wrong loses the
+// callkey, which drops the call.
 function parseExtraHeaders(raw) {
   const out = {}
   if (!raw) return out
   if (typeof raw === 'object') {
-    for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-(VH|PH)-/i, '')] = v
+    for (const [k, v] of Object.entries(raw)) out[String(k).replace(/^X-PH-/i, '')] = v
     return out
   }
   const inner = String(raw).trim().replace(/^\{/, '').replace(/\}$/, '')
   for (const part of inner.split(',')) {
     const idx = part.indexOf(':')
     if (idx === -1) continue
-    const key = part.slice(0, idx).trim().replace(/^X-(VH|PH)-/i, '')
+    const key = part.slice(0, idx).trim().replace(/^X-PH-/i, '')
     const val = part.slice(idx + 1).trim()
     if (key) out[key] = val
   }
@@ -347,7 +330,7 @@ function resolveTenantFromStart(msg) {
 }
 
 // ─── WS connection handler ───────────────────────────────────────────────────
-export function handleVobizConnection(ws) {
+export function handlePlivoConnection(ws) {
   console.log(`[${TAG}] WebSocket connected`)
 
   let dg = null
@@ -397,7 +380,7 @@ export function handleVobizConnection(ws) {
       tenant = resolved.tenant
       callId = resolved.callId
       callerNumber = resolved.callerNumber || callerNumber
-      callSid = streamId || callId || `vobiz-${Date.now()}`
+      callSid = streamId || callId || `plivo-${Date.now()}`
       callStart = Date.now()
 
       // ── Telemetry: open the trace for this call. The engine looks it
@@ -411,7 +394,7 @@ export function handleVobizConnection(ws) {
         tenantName: tenant.name,
         callerNumber,
         businessNumber: tm.calledNumber || null,
-        engine: voiceEngineFor(tenant.config || {}).name,
+        engine: PIPELINE.label,
         startedAt: tm.webhookAt || callStart,
       })
       if (tm.webhookAt) {
@@ -427,8 +410,8 @@ export function handleVobizConnection(ws) {
         terminate: () => { try { ws.close() } catch {} ; finalize() },
       })
 
-      // Per-call transport info so the engine's human-handoff transfers over Vobiz
-      // (not Twilio): provider + the Vobiz CallUUID (REST control handle) + the DID
+      // Per-call transport info for the human handoff (handoff.js): provider + the
+      // Plivo CallUUID (REST control handle) + the DID
       // to use as caller ID when dialing the human. provider_call_id falls back to
       // fields on the 'start' frame if the /answer webhook didn't carry it.
       const tenantConfig = {
@@ -447,14 +430,13 @@ export function handleVobizConnection(ws) {
       const recordingOn = tenantConfig.recording_enabled === true
       noticePlayed = recordingNotice(tenantConfig) !== ''
       recorder = recordingOn ? new CallRecorder() : null
-      const sink = makeVobizSink(ws, getStreamId, recorder, trace, () => tenantConfig.provider_call_id)
+      const sink = makePlivoSink(ws, getStreamId, recorder, trace, () => tenantConfig.provider_call_id)
 
-      const voiceEngine = voiceEngineFor(tenantConfig)
-      dg = voiceEngine.create(
+      dg = createCascadeConnection(
         callSid,
         tenantConfig,
         sink,                       // outbound audio → playAudio frames
-        streamId || 'vobiz',
+        streamId || 'plivo',
         (text, role = 'user') => { transcriptBuffer.push({ role, text }) },
         () => {                     // onReady — flush audio buffered before STT was ready
           dgReady = true
@@ -463,7 +445,7 @@ export function handleVobizConnection(ws) {
         },
         callerNumber,
       )
-      console.log(`[${TAG}] Pipeline started for tenant: ${tenant.name} (engine: ${voiceEngine.name})`)
+      console.log(`[${TAG}] Pipeline started for tenant: ${tenant.name} (listens: ${PIPELINE.stt} · thinks: ${PIPELINE.llm} · speaks: ${PIPELINE.tts})`)
       return
     }
 
@@ -492,8 +474,7 @@ export function handleVobizConnection(ws) {
 
   ws.on('close', () => { finalize() })
 
-  // Save transcript + extract/save lead, then clear memory. Mirrors the Twilio
-  // path's stop handling. Idempotent.
+  // Save transcript + extract/save lead, then clear memory. Idempotent.
   async function finalize() {
     if (finalized) return
     finalized = true

@@ -3,7 +3,7 @@
 // Two problems this solves, both of which have already cost time:
 //
 //   1. A bare `ngrok http 3000` allocates a RANDOM url. PUBLIC_HOST and the URLs
-//      configured in the Vobiz console both name a reserved domain, so a random
+//      configured in the Plivo console both name a reserved domain, so a random
 //      tunnel means inbound calls hit a hostname that no longer exists — and the
 //      symptom is "calls stopped working", which points nowhere near the tunnel.
 //      The domain is read from .env so there is one source of truth rather than a

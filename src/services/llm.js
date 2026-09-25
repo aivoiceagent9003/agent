@@ -76,6 +76,7 @@ function buildSystemPrompt(tenantConfig = {}, opts = {}) {
     language: opts.language,
     conversationState: opts.conversationState,
     whatsapp: opts.whatsapp,
+    now: opts.now,
   }))
 }
 

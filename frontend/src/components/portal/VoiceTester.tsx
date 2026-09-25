@@ -107,7 +107,7 @@ export function VoiceTester({ config }: { config: any }) {
           }),
         );
 
-        // Capture mic → 16kHz PCM16 frames (what Soniox STT takes). ScriptProcessor
+        // Capture mic → 16kHz PCM16 frames (what Sarvam STT takes). ScriptProcessor
         // must be connected to the graph to run, so route it through a muted gain
         // node (no mic loopback).
         const source = ctx.createMediaStreamSource(stream);

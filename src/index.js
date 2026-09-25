@@ -1,7 +1,7 @@
 import express from 'express'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { createSonioxCascadeConnection } from './services/soniox-cascade.js'
+import { createCascadeConnection } from './services/cascade.js'
 import { clearHistory } from './services/llm.js'
 import { supabase } from './api/db.js'
 import publicRoutes from './api/public.js'
@@ -12,7 +12,7 @@ import authRoutes from './api/auth-routes.js'
 import signupRoutes from './api/signup.js'
 import opsRoutes from './api/ops.js'
 import dsrRoutes from './api/dsr.js'
-import { vobizAnswer, vobizHangup, handleVobizConnection, vobizTransferXml } from './telephony/vobiz.js'
+import { plivoAnswer, plivoHangup, handlePlivoConnection, plivoTransferXml } from './telephony/plivo.js'
 import { handleDemoConnection } from './telephony/demo.js'
 import { answerCampaign, handleCampaignConnection } from './telephony/campaign.js'
 import campaignRoutes from './api/campaigns.js'
@@ -123,22 +123,22 @@ app.use('/api/admin/ops', opsRoutes)
 app.use('/api/admin/dsr', dsrRoutes)   // data-subject erasure (DPDP)
 app.use('/api/admin', adminRoutes)
 
-// ─── Vobiz telephony (Indian numbers) ─────────────────────────────────────────
+// ─── Plivo telephony (Indian numbers) ─────────────────────────────────────────
 // Every provider webhook is gated by the shared secret carried in the URL we
-// configure in the Vobiz console (?k=…). Vobiz does not sign its requests, so this
+// configure in the Plivo console (?k=…). Plivo's signature is not verified, so this
 // is the only thing standing between these endpoints and the open internet:
 // unauthenticated, they let anyone mint call rows, start billable media sessions,
 // and dial arbitrary numbers on our account.
 const webhookGate = requireWebhookSecret()
 
-app.post('/answer', webhookGate, vobizAnswer)
-app.post('/hangup', webhookGate, vobizHangup)
-// Human-handoff transfer XML: Vobiz fetches this for the caller leg when the agent
-// hands off to a human (see transferViaVobiz in handoff.js). GET + POST since the
+app.post('/answer', webhookGate, plivoAnswer)
+app.post('/hangup', webhookGate, plivoHangup)
+// Human-handoff transfer XML: Plivo fetches this for the caller leg when the agent
+// hands off to a human (see transferViaPlivo in handoff.js). GET + POST since the
 // leg redirect method may be either. The destination is additionally HMAC-signed —
 // the secret alone is not enough to choose who gets dialled.
-app.post('/vobiz/transfer', webhookGate, vobizTransferXml)
-app.get('/vobiz/transfer', webhookGate, vobizTransferXml)
+app.post('/vobiz/transfer', webhookGate, plivoTransferXml)
+app.get('/vobiz/transfer', webhookGate, plivoTransferXml)
 
 // ─── Outbound campaign answer webhook (provider fetches on answer) ────────────
 app.post('/answer-campaign', webhookGate, answerCampaign)
@@ -146,9 +146,9 @@ app.post('/answer-campaign', webhookGate, answerCampaign)
 const server = createServer(app)
 
 // WebSocket endpoints sharing one HTTP server: the browser agent tester, inbound
-// Vobiz calls, outbound campaign calls, the Ops live feed, and the public demo.
+// Plivo calls, outbound campaign calls, the Ops live feed, and the public demo.
 const testWss = new WebSocketServer({ noServer: true })
-const vobizWss = new WebSocketServer({ noServer: true })
+const plivoWss = new WebSocketServer({ noServer: true })
 const campaignWss = new WebSocketServer({ noServer: true })   // outbound campaign calls
 const opsWss = new WebSocketServer({ noServer: true })   // Operations Center live feed
 const demoWss = new WebSocketServer({ noServer: true })   // public "try it live" demo
@@ -183,7 +183,7 @@ server.on('upgrade', (req, socket, head) => {
     testWss.handleUpgrade(req, socket, head, ws => testWss.emit('connection', ws, req))
   } else if (pathname === '/media-stream-vobiz') {
     if (!mediaAuthed()) return rejectUpgrade('bad or missing webhook secret')
-    vobizWss.handleUpgrade(req, socket, head, ws => vobizWss.emit('connection', ws, req))
+    plivoWss.handleUpgrade(req, socket, head, ws => plivoWss.emit('connection', ws, req))
   } else if (pathname === '/media-stream-campaign') {
     if (!mediaAuthed()) return rejectUpgrade('bad or missing webhook secret')
     campaignWss.handleUpgrade(req, socket, head, ws => campaignWss.emit('connection', ws, req))
@@ -198,11 +198,11 @@ server.on('upgrade', (req, socket, head) => {
   }
 })
 
-// Wrap the Vobiz handler to track active media websockets as a live gauge.
-vobizWss.on('connection', (ws, req) => {
+// Wrap the Plivo handler to track active media websockets as a live gauge.
+plivoWss.on('connection', (ws, req) => {
   telemetry.gaugeInc('websockets')
   ws.on('close', () => telemetry.gaugeDec('websockets'))
-  handleVobizConnection(ws, req)
+  handlePlivoConnection(ws, req)
 })
 
 // Outbound campaign media stream (tracked on the same websocket gauge).
@@ -360,7 +360,7 @@ testWss.on('connection', (ws) => {
       }
       const streamSid = msg.start?.streamSid || sid
 
-      engine = createSonioxCascadeConnection(
+      engine = createCascadeConnection(
         sid,                 // callSid → key for LLM history
         tenantConfig,
         ws,                  // browser ws receives telephony-format media frames
@@ -405,7 +405,7 @@ testWss.on('connection', (ws) => {
 // to it while it finishes the ones it already has.
 const { isDraining } = installShutdown({
   server,
-  socketServers: [vobizWss, campaignWss, demoWss, testWss, opsWss, msgWss],
+  socketServers: [plivoWss, campaignWss, demoWss, testWss, opsWss, msgWss],
   graceMs: Number(process.env.SHUTDOWN_GRACE_MS || 15000),
 })
 
@@ -422,6 +422,10 @@ server.listen(PORT, async () => {
   // detects every problem correctly and can report none of them looks identical
   // to a healthy one until the night it matters.
   logNotifyConfig()
+  // Heavy one-off loads belong here, before any caller is on the line. See
+  // preloadSearchModel — the local search model froze the loop for ~1s mid-greeting.
+  import('./services/rag.js').then(m => m.preloadSearchModel()).catch(() => {})
+  import('./services/telnyx-tts.js').then(m => m.preloadMp3Decoder()).catch(() => {})
   // Calls stranded by a previous hard kill are cleaned up here rather than left
   // to inflate the live-call count forever.
   await reconcileOrphanedCalls({ olderThanHours: Number(process.env.ORPHAN_CALL_HOURS || 2) })

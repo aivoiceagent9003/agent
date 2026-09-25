@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { voiceTurnMessages } from '../src/services/voice-turn-context.js'
+import { voiceTurnMessages, compactHistory, TOOL_RESULT_STUB } from '../src/services/voice-turn-context.js'
 
 describe('voice turn context', () => {
   it('remembers recent questions without modifying stored conversation', () => {
@@ -42,5 +42,53 @@ describe('voice-turn-context — language', () => {
     const tail = guidance.slice(guidance.indexOf('THIS TURN'))
     expect(tail).not.toMatch(/Telugu\/Hindi grammar/)
     expect(tail).toMatch(/caller's own language/)
+  })
+})
+
+describe('compactHistory', () => {
+  const longResult = 'premium table '.repeat(100)
+  const toolTurn = (q, id) => [
+    { role: 'user', content: q },
+    { role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name: 'search_knowledge', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: id, content: longResult },
+    { role: 'assistant', content: `Answer to ${q}.` },
+  ]
+
+  it('shrinks old lookup results but keeps the recent ones and what the agent said', () => {
+    const h = [{ role: 'system', content: 'S' }, ...toolTurn('q1', 'a'), ...toolTurn('q2', 'b'), ...toolTurn('q3', 'c')]
+    compactHistory(h)
+    const tools = h.filter(m => m.role === 'tool')
+    expect(tools.map(m => m.content === TOOL_RESULT_STUB)).toEqual([true, false, false])
+    expect(h).toContainEqual({ role: 'assistant', content: 'Answer to q1.' })
+    expect(tools[0].tool_call_id).toBe('a')
+  })
+
+  it('leaves short tool results alone', () => {
+    const h = [
+      { role: 'user', content: 'send it' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'w', type: 'function', function: { name: 'send_whatsapp', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'w', content: 'WhatsApp sent.' },
+      { role: 'user', content: 'ok' }, { role: 'user', content: 'thanks' }, { role: 'user', content: 'bye' },
+    ]
+    compactHistory(h)
+    expect(h[2].content).toBe('WhatsApp sent.')
+  })
+
+  it('drops the oldest whole turns past the cap, never orphaning a tool result', () => {
+    const h = [{ role: 'system', content: 'S' }, { role: 'assistant', content: 'Namaste' }]
+    for (let i = 0; i < 5; i++) h.push(...toolTurn(`q${i}`, `id${i}`))
+    compactHistory(h, { maxTurns: 3 })
+    expect(h[0]).toEqual({ role: 'system', content: 'S' })
+    expect(h[1]).toEqual({ role: 'user', content: 'q2' })
+    expect(h.filter(m => m.role === 'user')).toHaveLength(3)
+    const callIds = new Set(h.flatMap(m => m.tool_calls?.map(c => c.id) || []))
+    for (const m of h.filter(m => m.role === 'tool')) expect(callIds.has(m.tool_call_id)).toBe(true)
+  })
+
+  it('does nothing to a short call', () => {
+    const h = [{ role: 'system', content: 'S' }, ...toolTurn('q1', 'a')]
+    const before = structuredClone(h)
+    compactHistory(h)
+    expect(h).toEqual(before)
   })
 })

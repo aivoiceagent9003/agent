@@ -24,6 +24,7 @@ import {
   UsersRound,
   LineChart,
   LifeBuoy,
+  Wallet,
 } from "lucide-react";
 import { clearToken } from "@/lib/api";
 import { closeRealtime } from "@/lib/realtime";
@@ -33,6 +34,7 @@ import type { Me } from "@/lib/team";
 import { useAwaitingReplyCount } from "@/lib/support";
 import { useConversations } from "@/lib/messages";
 import { NotificationsButton, NotificationsPanel } from "./Notifications";
+import { ThemeToggleRow } from "@/components/ThemeToggle";
 
 // `perm` is the permission a user must hold for the item to appear. Items without
 // one are visible to every signed-in member. Hiding nav is cosmetic — the backend
@@ -116,7 +118,10 @@ export function PortalShell({
           </div>
         )}
 
-        <div className="p-3 shrink-0 border-t border-sidebar-border">
+        {/* Dark mode was reachable only from the marketing site, which is the one place
+            nobody spends any time. It belongs where the work happens. */}
+        <div className="p-3 shrink-0 border-t border-sidebar-border space-y-1">
+          <ThemeToggleRow />
           <button
             onClick={logout}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition"
@@ -153,6 +158,9 @@ export const clientNav: NavItem[] = [
   { to: "/app/data", label: "Live data", icon: Database, perm: "knowledge:read" },
   { to: "/app/whatsapp", label: "WhatsApp", icon: MessageCircle, perm: "whatsapp:read" },
   { to: "/app/team", label: "Team", icon: UsersRound, perm: "team:manage" },
+  // Owners and managers only: an agent working a queue has no business seeing what
+  // the business is charged.
+  { to: "/app/billing", label: "Billing", icon: Wallet, perm: "agent:read" },
   { to: "/onboarding", label: "Agent settings", icon: Settings, perm: "agent:write" },
 ];
 

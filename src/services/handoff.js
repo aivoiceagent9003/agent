@@ -1,6 +1,6 @@
 
-// When the AI can't help, transfer the live call to a human agent's phone. Plivo and
-// Vobiz share the same mechanism: the Call API redirects the caller leg to <Dial> XML.
+// When the AI can't help, transfer the live call to a human agent's phone: Plivo's
+// Call API redirects the caller leg to <Dial> XML.
 
 import { signDestination, isE164, webhookQuery } from '../api/webhook-auth.js'
 import { credentials, authHeaders, transferUrl, TAG } from '../telephony/provider.js'
@@ -38,13 +38,13 @@ export function stripHandoffSignal(text) {
 }
 
 // ─── Perform the warm transfer ────────────────────────────────────────────────
-// Redirects the LIVE call over Vobiz so the caller reaches a human, ending the
+// Redirects the LIVE call over Plivo so the caller reaches a human, ending the
 // media stream.
 //
 //   callSid       — the engine's call id (kept for logging)
 //   handoffNumber — the human agent's phone number to dial
 //   callerNumber  — the caller (unused today; kept for logging/future use)
-//   callControl   — per-call transport info set by vobiz.js:
+//   callControl   — per-call transport info set by plivo.js:
 //                   { provider_call_id, business_number }.
 export async function transferToHuman(callSid, handoffNumber, callerNumber, callControl = {}) {
   if (!handoffNumber) {
@@ -52,14 +52,14 @@ export async function transferToHuman(callSid, handoffNumber, callerNumber, call
     return false
   }
   try {
-    return await transferViaVobiz(callControl.provider_call_id, handoffNumber, callControl.business_number)
+    return await transferViaPlivo(callControl.provider_call_id, handoffNumber, callControl.business_number)
   } catch (err) {
     console.error('[HANDOFF] ❌ Transfer failed:', err.message)
     return false
   }
 }
 
-// Normalize an Indian phone number to E.164 (+91XXXXXXXXXX). Vobiz outbound
+// Normalize an Indian phone number to E.164 (+91XXXXXXXXXX). Outbound
 // dialing (the <Dial> and its callerId) needs E.164 — a national-format number
 // like "08071583556" (leading zero, no country code) can make the dial fail →
 // the caller hears a busy tone. Handles "0XXXXXXXXXX", "XXXXXXXXXX", "91XXXXXXXXXX"
@@ -75,16 +75,15 @@ function toE164India(raw) {
   return `+${d}`                                              // best effort
 }
 
-// ─── Transfer the live call via the provider's Call API (Plivo / Vobiz) ───────
-// Both providers redirect a call LEG to a URL that returns fresh XML. We redirect
-// the caller leg ('aleg') to our /vobiz/transfer endpoint, which returns <Dial> XML
-// that connects the caller to the human agent (see vobizTransferXml in vobiz.js).
+// ─── Transfer the live call via Plivo's Call API ──────────────────────────────
+// Plivo redirects a call LEG to a URL that returns fresh XML. We redirect the caller
+// leg ('aleg') to our /vobiz/transfer endpoint, which returns <Dial> XML that
+// connects the caller to the human agent (see plivoTransferXml in plivo.js).
 //   callUuid       — the CallUUID captured at /answer (REST control handle)
 //   businessNumber — the tenant's DID, used as the caller ID when dialing
-// ⚠️ CONFIRM-ON-FIRST-CALL: the transfer endpoint/params follow the documented
-// Plivo-compatible shape; override with PLIVO_TRANSFER_URL / VOBIZ_TRANSFER_URL if
-// the console differs.
-async function transferViaVobiz(callUuid, handoffNumber, businessNumber) {
+// The transfer endpoint follows Plivo's documented shape; PLIVO_TRANSFER_URL
+// overrides it if the console differs.
+async function transferViaPlivo(callUuid, handoffNumber, businessNumber) {
   const { authId, authToken, idVar, tokenVar } = credentials()
   if (!authId || !authToken) {
     console.error(`[HANDOFF] ❌ ${idVar} / ${tokenVar} not set — cannot transfer`)
@@ -112,7 +111,7 @@ async function transferViaVobiz(callUuid, handoffNumber, businessNumber) {
     return false
   }
 
-  // The URL Vobiz fetches for the caller leg: returns <Dial> to the human.
+  // The URL Plivo fetches for the caller leg: returns <Dial> to the human.
   //
   // Two credentials ride along, and they do different jobs. `k` is the shared
   // webhook secret that gates the endpoint at all. `sig` is an HMAC over this

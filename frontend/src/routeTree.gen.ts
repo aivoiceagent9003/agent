@@ -37,6 +37,7 @@ import { Route as AppInstantRouteImport } from './routes/app.instant'
 import { Route as AppDataRouteImport } from './routes/app.data'
 import { Route as AppCampaignsRouteImport } from './routes/app.campaigns'
 import { Route as AppCallsRouteImport } from './routes/app.calls'
+import { Route as AppBillingRouteImport } from './routes/app.billing'
 import { Route as AppAnalyticsRouteImport } from './routes/app.analytics'
 import { Route as AdminSupportRouteImport } from './routes/admin.support'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
@@ -44,6 +45,7 @@ import { Route as AdminOpsRouteImport } from './routes/admin.ops'
 import { Route as AdminClientsRouteImport } from './routes/admin.clients'
 import { Route as WorkLeadsIndexRouteImport } from './routes/work.leads.index'
 import { Route as WorkLeadsIdRouteImport } from './routes/work.leads.$id'
+import { Route as AppLeadsIdRouteImport } from './routes/app.leads.$id'
 import { Route as AppCampaignsNewRouteImport } from './routes/app.campaigns.new'
 import { Route as AppCampaignsMonitorRouteImport } from './routes/app.campaigns.monitor'
 import { Route as AppCampaignsIdRouteImport } from './routes/app.campaigns.$id'
@@ -199,6 +201,11 @@ const AppCallsRoute = AppCallsRouteImport.update({
   path: '/calls',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBillingRoute = AppBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -233,6 +240,11 @@ const WorkLeadsIdRoute = WorkLeadsIdRouteImport.update({
   id: '/leads/$id',
   path: '/leads/$id',
   getParentRoute: () => WorkRoute,
+} as any)
+const AppLeadsIdRoute = AppLeadsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppLeadsRoute,
 } as any)
 const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
   id: '/new',
@@ -325,12 +337,13 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
+  '/app/billing': typeof AppBillingRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
   '/app/data': typeof AppDataRoute
   '/app/instant': typeof AppInstantRoute
   '/app/knowledge': typeof AppKnowledgeRoute
-  '/app/leads': typeof AppLeadsRoute
+  '/app/leads': typeof AppLeadsRouteWithChildren
   '/app/messages': typeof AppMessagesRoute
   '/app/team': typeof AppTeamRoute
   '/app/whatsapp': typeof AppWhatsappRoute
@@ -352,6 +365,7 @@ export interface FileRoutesByFullPath {
   '/app/campaigns/$id': typeof AppCampaignsIdRoute
   '/app/campaigns/monitor': typeof AppCampaignsMonitorRoute
   '/app/campaigns/new': typeof AppCampaignsNewRoute
+  '/app/leads/$id': typeof AppLeadsIdRoute
   '/work/leads/$id': typeof WorkLeadsIdRoute
   '/work/leads/': typeof WorkLeadsIndexRoute
   '/admin/ops/trace/$callSid': typeof AdminOpsTraceCallSidRoute
@@ -374,12 +388,13 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
+  '/app/billing': typeof AppBillingRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
   '/app/data': typeof AppDataRoute
   '/app/instant': typeof AppInstantRoute
   '/app/knowledge': typeof AppKnowledgeRoute
-  '/app/leads': typeof AppLeadsRoute
+  '/app/leads': typeof AppLeadsRouteWithChildren
   '/app/messages': typeof AppMessagesRoute
   '/app/team': typeof AppTeamRoute
   '/app/whatsapp': typeof AppWhatsappRoute
@@ -401,6 +416,7 @@ export interface FileRoutesByTo {
   '/app/campaigns/$id': typeof AppCampaignsIdRoute
   '/app/campaigns/monitor': typeof AppCampaignsMonitorRoute
   '/app/campaigns/new': typeof AppCampaignsNewRoute
+  '/app/leads/$id': typeof AppLeadsIdRoute
   '/work/leads/$id': typeof WorkLeadsIdRoute
   '/work/leads': typeof WorkLeadsIndexRoute
   '/admin/ops/trace/$callSid': typeof AdminOpsTraceCallSidRoute
@@ -426,12 +442,13 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/support': typeof AdminSupportRoute
   '/app/analytics': typeof AppAnalyticsRoute
+  '/app/billing': typeof AppBillingRoute
   '/app/calls': typeof AppCallsRouteWithChildren
   '/app/campaigns': typeof AppCampaignsRouteWithChildren
   '/app/data': typeof AppDataRoute
   '/app/instant': typeof AppInstantRoute
   '/app/knowledge': typeof AppKnowledgeRoute
-  '/app/leads': typeof AppLeadsRoute
+  '/app/leads': typeof AppLeadsRouteWithChildren
   '/app/messages': typeof AppMessagesRoute
   '/app/team': typeof AppTeamRoute
   '/app/whatsapp': typeof AppWhatsappRoute
@@ -453,6 +470,7 @@ export interface FileRoutesById {
   '/app/campaigns/$id': typeof AppCampaignsIdRoute
   '/app/campaigns/monitor': typeof AppCampaignsMonitorRoute
   '/app/campaigns/new': typeof AppCampaignsNewRoute
+  '/app/leads/$id': typeof AppLeadsIdRoute
   '/work/leads/$id': typeof WorkLeadsIdRoute
   '/work/leads/': typeof WorkLeadsIndexRoute
   '/admin/ops/trace/$callSid': typeof AdminOpsTraceCallSidRoute
@@ -479,6 +497,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/support'
     | '/app/analytics'
+    | '/app/billing'
     | '/app/calls'
     | '/app/campaigns'
     | '/app/data'
@@ -506,6 +525,7 @@ export interface FileRouteTypes {
     | '/app/campaigns/$id'
     | '/app/campaigns/monitor'
     | '/app/campaigns/new'
+    | '/app/leads/$id'
     | '/work/leads/$id'
     | '/work/leads/'
     | '/admin/ops/trace/$callSid'
@@ -528,6 +548,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/support'
     | '/app/analytics'
+    | '/app/billing'
     | '/app/calls'
     | '/app/campaigns'
     | '/app/data'
@@ -555,6 +576,7 @@ export interface FileRouteTypes {
     | '/app/campaigns/$id'
     | '/app/campaigns/monitor'
     | '/app/campaigns/new'
+    | '/app/leads/$id'
     | '/work/leads/$id'
     | '/work/leads'
     | '/admin/ops/trace/$callSid'
@@ -579,6 +601,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/support'
     | '/app/analytics'
+    | '/app/billing'
     | '/app/calls'
     | '/app/campaigns'
     | '/app/data'
@@ -606,6 +629,7 @@ export interface FileRouteTypes {
     | '/app/campaigns/$id'
     | '/app/campaigns/monitor'
     | '/app/campaigns/new'
+    | '/app/leads/$id'
     | '/work/leads/$id'
     | '/work/leads/'
     | '/admin/ops/trace/$callSid'
@@ -826,6 +850,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCallsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/billing': {
+      id: '/app/billing'
+      path: '/billing'
+      fullPath: '/app/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/analytics': {
       id: '/app/analytics'
       path: '/analytics'
@@ -874,6 +905,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/work/leads/$id'
       preLoaderRoute: typeof WorkLeadsIdRouteImport
       parentRoute: typeof WorkRoute
+    }
+    '/app/leads/$id': {
+      id: '/app/leads/$id'
+      path: '/$id'
+      fullPath: '/app/leads/$id'
+      preLoaderRoute: typeof AppLeadsIdRouteImport
+      parentRoute: typeof AppLeadsRoute
     }
     '/app/campaigns/new': {
       id: '/app/campaigns/new'
@@ -1062,14 +1100,27 @@ const AppCampaignsRouteWithChildren = AppCampaignsRoute._addFileChildren(
   AppCampaignsRouteChildren,
 )
 
+interface AppLeadsRouteChildren {
+  AppLeadsIdRoute: typeof AppLeadsIdRoute
+}
+
+const AppLeadsRouteChildren: AppLeadsRouteChildren = {
+  AppLeadsIdRoute: AppLeadsIdRoute,
+}
+
+const AppLeadsRouteWithChildren = AppLeadsRoute._addFileChildren(
+  AppLeadsRouteChildren,
+)
+
 interface AppRouteChildren {
   AppAnalyticsRoute: typeof AppAnalyticsRoute
+  AppBillingRoute: typeof AppBillingRoute
   AppCallsRoute: typeof AppCallsRouteWithChildren
   AppCampaignsRoute: typeof AppCampaignsRouteWithChildren
   AppDataRoute: typeof AppDataRoute
   AppInstantRoute: typeof AppInstantRoute
   AppKnowledgeRoute: typeof AppKnowledgeRoute
-  AppLeadsRoute: typeof AppLeadsRoute
+  AppLeadsRoute: typeof AppLeadsRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRoute
   AppTeamRoute: typeof AppTeamRoute
   AppWhatsappRoute: typeof AppWhatsappRoute
@@ -1078,12 +1129,13 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAnalyticsRoute: AppAnalyticsRoute,
+  AppBillingRoute: AppBillingRoute,
   AppCallsRoute: AppCallsRouteWithChildren,
   AppCampaignsRoute: AppCampaignsRouteWithChildren,
   AppDataRoute: AppDataRoute,
   AppInstantRoute: AppInstantRoute,
   AppKnowledgeRoute: AppKnowledgeRoute,
-  AppLeadsRoute: AppLeadsRoute,
+  AppLeadsRoute: AppLeadsRouteWithChildren,
   AppMessagesRoute: AppMessagesRoute,
   AppTeamRoute: AppTeamRoute,
   AppWhatsappRoute: AppWhatsappRoute,

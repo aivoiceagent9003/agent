@@ -4,7 +4,7 @@
 // showing the same conversation two different ways.
 //
 // This is a verbatim record, not a summary: the caller's own words in the language
-// they spoke them. It became worth showing when the stack moved to Soniox STT —
+// they spoke them. It became worth showing when the stack moved to a dedicated STT —
 // before that, transcription of code-mixed Indian phone audio was unreliable enough
 // that the recording was the only honest record of a call.
 

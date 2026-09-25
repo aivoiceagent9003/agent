@@ -32,6 +32,8 @@ vi.mock('../src/api/db.js', () => ({ supabase: {
 let retrieveKnowledge
 beforeEach(async () => {
   vi.resetModules()
+  // These cover the OpenAI path, whatever the developer's .env has switched search to.
+  vi.stubEnv('RAG_EMBEDDER', 'openai')
   state.rows = Array.from({ length: 20 }, (_, i) => ({
     id: String(i), tenant_id: 't1', embedding: [1, 0], similarity: .8,
     content: `Introduction "Firm${Math.floor(i / 2)} LifeShield ${i % 2 ? 'Supreme' : 'Secure'}" is a term insurance plan.`,
@@ -44,6 +46,18 @@ beforeEach(async () => {
 })
 
 describe('RAG catalogue integration', () => {
+  it('lists the words of the product names for the speech-to-text to listen for', async () => {
+    // A caller said "Secure"; the STT wrote "Tech Care". The vocabulary comes from the
+    // tenant's own catalogue, so it exists without anyone typing a list.
+    const rag = await import('../src/services/rag.js')
+    expect(rag.knowledgeVocabulary('t1')).toBeNull()                  // nothing loaded yet
+    rag.warmupRAG('t1')
+    await rag.whenKnowledgeLoaded('t1')
+    const words = rag.knowledgeVocabulary('t1')
+    expect(words).toEqual(expect.arrayContaining(['LifeShield', 'Secure', 'Supreme']))
+    expect(words.some(w => /\d/.test(w))).toBe(false)               // "Firm3" is not a word to listen for
+  })
+
   it('returns all indexed names and a bounded detail sample on a cold overview', async () => {
     const result = await retrieveKnowledge('t1', 'term insurance options best plan')
     expect(result).toContain('CATALOGUE DISCOVERY')

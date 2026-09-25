@@ -7,16 +7,42 @@ import { supabase } from '../api/db.js'
 import telemetry from './telemetry.js'
 import 'dotenv/config'
 import { isOverviewQuery, extractCatalogue, catalogueContext, catalogueMatches, selectDiverseChunks, comparisonAnchors } from './knowledge-selection.js'
+import { loadLocalEmbedder, embedLocal, buildLocalVectors } from './local-embed.js'
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+// Who turns a search into a vector during a call: 'openai' (the default) or 'local'
+// (a small model on this server — see local-embed.js). One line in .env switches it.
+// Local vectors are derived from the same Supabase text and are used only once a
+// tenant's are ready; until then, and if the local model fails, OpenAI answers.
+const EMBEDDER = String(process.env.RAG_EMBEDDER || 'openai').trim().toLowerCase() === 'local' ? 'local' : 'openai'
+// Matches weaker than this are dropped, so an off-topic question gets "no knowledge"
+// rather than six unrelated chunks to improvise from. The two models score on
+// different scales: OpenAI's unanswerable questions sat at 0.14–0.39 and the cut is
+// 0.3; e5 squeezes everything high — answerable 0.84–0.95, unanswerable 0.76–0.85 on
+// GSK's catalogue — and 0.83 kept every answerable question while dropping 10 of 12
+// unanswerable ones (0.3 drops 9 of 12 for OpenAI).
+const OPENAI_MIN_SIMILARITY = 0.3
+const LOCAL_MIN_SIMILARITY = Number(process.env.RAG_LOCAL_MIN_SIMILARITY || 0.83)
 
 // ─── Warmup ───────────────────────────────────────────────────────────────
 // Fire a tiny embedding request when the call starts so the first REAL query
 // isn't a cold start (which was taking ~3 seconds), and load the tenant's chunks
 // into memory so no lookup during the call has to go to the database. Call once
 // per call.
+/**
+ * Load the local search model when the SERVER starts, not when a call does. Loading it
+ * freezes the event loop for ~1s (measured 985ms) — on the first call after a restart
+ * that landed on the greeting: an "event loop lag, p99 502ms" alert and a greeting that
+ * took 2.2s to reach the caller. At boot nobody is listening.
+ */
+export function preloadSearchModel() {
+  return EMBEDDER === 'local' ? loadLocalEmbedder() : Promise.resolve(null)
+}
+
 export async function warmupRAG(tenantId) {
   if (tenantId) getReadyIndex(tenantId)   // starts the load in the background
+  if (EMBEDDER === 'local') loadLocalEmbedder()   // ~1s from disk; never on a caller's turn
   try {
     await ai.embeddings.create({
       model: 'text-embedding-3-small',
@@ -43,6 +69,23 @@ function toUnitVector(values) {
   norm = Math.sqrt(norm) || 1
   for (let i = 0; i < v.length; i++) v[i] /= norm
   return v
+}
+
+/** The same, on this server. Null if the local model cannot run — the caller falls back. */
+async function embedQueryLocal(question, tenantId) {
+  const key = `local|${normalizeQ(question)}`
+  const hit = EMBED_CACHE.get(key)
+  if (hit) {
+    EMBED_CACHE.delete(key); EMBED_CACHE.set(key, hit)
+    return hit
+  }
+  const t = Date.now()
+  const vec = await embedLocal(question, 'query')
+  if (!vec) return null
+  telemetry.recordLatency('embedding', Date.now() - t, { tenantId, local: true })
+  EMBED_CACHE.set(key, vec)
+  if (EMBED_CACHE.size > EMBED_CACHE_MAX) EMBED_CACHE.delete(EMBED_CACHE.keys().next().value)
+  return vec
 }
 
 async function embedQuery(question, tenantId) {
@@ -136,13 +179,28 @@ async function loadTenantIndex(tenantId) {
     if (i % SLICE === SLICE - 1) await new Promise(setImmediate)
   }
 
-  TENANT_INDEX.set(tenantId, {
+  const idx = {
     contents: rows.map(r => r.content),
     vecs, dim, sig,
     checkedAt: Date.now(),
     usedAt: TENANT_INDEX.get(tenantId)?.usedAt || Date.now(),
-  })
+  }
+  TENANT_INDEX.set(tenantId, idx)
   console.log(`[RAG] 🧠 loaded ${rows.length} chunks into memory in ${Date.now() - t0}ms`)
+  if (EMBEDDER === 'local') attachLocalVectors(tenantId, idx)
+}
+
+// Adds local vectors to an index in the background. Lookups keep using OpenAI until
+// they land; a reload builds a fresh index and attaches its own (mostly from disk).
+function attachLocalVectors(tenantId, idx) {
+  const t0 = Date.now()
+  buildLocalVectors(tenantId, idx.contents)
+    .then((local) => {
+      if (!local) return
+      idx.local = local
+      console.log(`[RAG] 🧮 local search ready: ${idx.contents.length} chunks in ${Date.now() - t0}ms (${local.embedded} embedded now, ${local.reused} from disk)`)
+    })
+    .catch(e => console.warn(`[RAG] local vectors failed — search stays on OpenAI: ${e.message}`))
 }
 
 function startLoad(tenantId, { onlyIfChanged = false } = {}) {
@@ -191,6 +249,31 @@ function searchIndex(idx, qvec, k) {
     }
   }
   return top.map(({ i, similarity }) => ({ content: contents[i], similarity }))
+}
+
+/**
+ * The words of this tenant's product names — "Vaayu", "LifeShield", "Supreme" — for the
+ * speech-to-text to listen for. On a real call a caller asked about the "Secure" variant,
+ * the STT wrote "Tech Care", and the model searched twice for a plan that does not exist
+ * before telling the caller so. Built from the tenant's own catalogue, so no tenant has
+ * to type a list. Null until the knowledge index is in memory; see whenKnowledgeLoaded.
+ */
+export function knowledgeVocabulary(tenantId) {
+  const idx = TENANT_INDEX.get(tenantId)
+  if (!idx?.contents) return null
+  if (!idx.vocabulary) {
+    const words = new Set()
+    for (const { name } of extractCatalogue(idx.contents)) {
+      for (const w of name.split(/\s+/)) if (/^[A-Za-z][A-Za-z-]{2,}$/.test(w)) words.add(w)
+    }
+    idx.vocabulary = [...words].slice(0, 60)
+  }
+  return idx.vocabulary
+}
+
+/** Resolves once a load of this tenant's knowledge that is in flight has finished. */
+export function whenKnowledgeLoaded(tenantId) {
+  return INDEX_LOADING.get(tenantId) || Promise.resolve()
 }
 
 // Call after any write to a tenant's knowledge_base so the next lookup sees it.
@@ -242,14 +325,19 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mo
   try {
     const t0 = Date.now()
 
-    // 1. Embed the caller's question (cached per text)
-    const queryEmbedding = await embedQuery(question, tenantId)
+    // 1. Embed the question (cached per text) — locally once this tenant's local
+    //    vectors are ready, otherwise with OpenAI. A query vector is only ever compared
+    //    with document vectors from the SAME model.
+    const idx = getReadyIndex(tenantId)
+    let local = EMBEDDER === 'local' && idx?.local ? idx.local : null
+    let queryEmbedding = local ? await embedQueryLocal(question, tenantId) : null
+    if (!queryEmbedding) { local = null; queryEmbedding = await embedQuery(question, tenantId) }
+    const minSimilarity = local ? LOCAL_MIN_SIMILARITY : OPENAI_MIN_SIMILARITY
 
     // 2. Search this tenant's knowledge — in memory when the index is loaded,
     //    otherwise via the pgvector RPC function
     const tSearch = Date.now()
-    const idx = getReadyIndex(tenantId)
-    let data = idx ? searchIndex(idx, queryEmbedding, candidateCount) : null
+    let data = idx ? searchIndex(local ? { ...idx, vecs: local.vecs, dim: local.dim } : idx, queryEmbedding, candidateCount) : null
     const where = data ? 'memory' : 'db'
     if (!data) {
       const res = await supabase.rpc('match_knowledge', {
@@ -275,7 +363,7 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mo
 
     // 3. Filter by similarity threshold — ignore weak matches
     // (cosine similarity: 1 = identical, 0 = unrelated)
-    let relevant = (data || []).filter(d => d.similarity > 0.3)
+    let relevant = (data || []).filter(d => d.similarity > minSimilarity)
 
     if (relevant.length === 0 && !overview) {
       console.log(`[RAG] Matches too weak (best: ${data[0].similarity.toFixed(2)})`)
@@ -313,7 +401,7 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mo
       ? 'DETAIL EXCERPTS — a selected sample, not the whole catalogue. If benefits are missing, search the exact named products.\n'
       : '') + relevant.map(d => d.content).join('\n\n')
     const bestSimilarity = Math.max(0, ...relevant.map(row => row.similarity || 0))
-    console.log(`[RAG] Found ${relevant.length} chunks${overview ? ' + catalogue discovery' : ''} in ${Date.now() - t0}ms (embed ${tSearch - t0}ms, search ${Date.now() - tSearch}ms ${where}, best similarity: ${bestSimilarity.toFixed(2)})`)
+    console.log(`[RAG] Found ${relevant.length} chunks${overview ? ' + catalogue discovery' : ''} in ${Date.now() - t0}ms (embed ${tSearch - t0}ms ${local ? 'local' : 'openai'}, search ${Date.now() - tSearch}ms ${where}, best similarity: ${bestSimilarity.toFixed(2)})`)
     telemetry.recordLatency('rag_retrieval', Date.now() - t0, { tenantId })
     // Similarity distribution (0-100) and chunk count, for the RAG dashboard.
     telemetry.recordLatency('rag_similarity', Math.round(bestSimilarity * 100), { tenantId })

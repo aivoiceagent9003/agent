@@ -1,26 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { Phone, Sun, Moon } from "lucide-react";
-import { useEffect, useState } from "react";
-import { currentTheme, toggleTheme } from "@/lib/theme";
-
-export function ThemeToggle() {
-  const [dark, setDark] = useState(false);
-  // Read the class the no-flash script already applied (avoids a hydration mismatch).
-  useEffect(() => {
-    setDark(currentTheme() === "dark");
-  }, []);
-  return (
-    <button
-      type="button"
-      aria-label="Toggle dark mode"
-      title={dark ? "Switch to light" : "Switch to dark"}
-      onClick={() => setDark(toggleTheme() === "dark")}
-      className="grid place-items-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition"
-    >
-      {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-    </button>
-  );
-}
+import { Phone } from "lucide-react";
+// ThemeToggle moved to components/ThemeToggle.tsx so the portals can use it too; it is
+// re-exported here because the public pages import it from this module.
+import { ThemeToggle } from "@/components/ThemeToggle";
+export { ThemeToggle };
 
 export function SiteNav() {
   return (

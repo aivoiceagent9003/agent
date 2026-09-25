@@ -5,9 +5,12 @@
 import { Router } from 'express'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
-import { requirePermission, permissionsFor } from './permissions.js'
+import { requirePermission, permissionsFor, requireOwner } from './permissions.js'
 import { notify } from '../services/notifications.js'
 import { getRecordingUrl } from '../services/recording.js'
+import { summariseBilling, billingCycle, planChange, applyPendingPlan } from '../services/billing.js'
+import { buildInvoice, invoiceNumber, financialYear, paiseToRupees, invoicingReady, prorateUpgrade, isUpgrade } from '../services/invoices.js'
+import { PLANS, PLAN_ORDER } from '../config/plans.js'
 const router = Router()
 
 router.use(requireClient())
@@ -770,6 +773,295 @@ router.get('/calls/:id', requirePermission('calls:read'), async (req, res) => {
   } catch (e) {
     console.error('[CLIENT] call detail error:', e.message)
     res.status(500).json({ error: 'Could not load call' })
+  }
+})
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+// sql/billing.sql has to be run in Supabase before invoices, payments, profiles or the
+// plan-change log exist. Until it is, those tables are absent — and the USAGE half of
+// this page does not need them, because it derives everything from `calls`.
+//
+// So a missing table degrades to "nothing here yet" rather than a 500. Without this the
+// whole billing page breaks on a query for a table nobody has created, and the failure
+// reads as "billing is broken" instead of "a migration has not been run".
+//
+// PGRST205 is PostgREST for "no such table". Any OTHER error still throws: a permission
+// problem or a broken query must not be silently swallowed as an empty list.
+const MISSING_TABLE = 'PGRST205'
+async function optionalTable(query, fallback) {
+  const { data, error } = await query
+  if (error) {
+    if (error.code === MISSING_TABLE) return { data: fallback, absent: true }
+    throw error
+  }
+  return { data, absent: false }
+}
+
+// Derived from calls.duration_seconds, never from a stored counter. A counter drifts
+// the first time a call is deleted, a webhook is retried or a backfill runs, and then
+// the invoice and the call list disagree with nobody able to say which is right.
+//
+// Gated on calls:read rather than a billing permission of its own: an agent who can see
+// the calls can already add up their length, so a separate gate would protect nothing.
+// If billing ever needs to be owner-only, add the permission — do not fake it here.
+router.get('/billing', requirePermission('calls:read'), async (req, res) => {
+  const t = req.auth.tenantId
+  try {
+    const { data: tenant, error: tErr } = await supabase
+      .from('tenants').select('config, created_at').eq('id', t).maybeSingle()
+    if (tErr) throw tErr
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' })
+
+    const signupAt = tenant.created_at
+    const cycle = billingCycle(signupAt)
+
+    // Only this cycle's calls. Ordered so the daily series below is already in sequence.
+    const { data: calls, error } = await supabase
+      .from('calls')
+      .select('duration_seconds, created_at')
+      .eq('tenant_id', t)
+      .gte('created_at', cycle.start.toISOString())
+      .lt('created_at', cycle.end.toISOString())
+      .order('created_at', { ascending: true })
+    if (error) throw error
+
+    const summary = summariseBilling({
+      tenantConfig: tenant.config || {},
+      signupAt,
+      calls: calls || [],
+    })
+
+    // Minutes per day, so the page can show WHERE the month went rather than only how
+    // much of it is left. Zero-filled: a gap in the series reads as missing data.
+    const byDay = new Map()
+    for (let d = new Date(cycle.start); d < cycle.end; d = new Date(d.getTime() + 86400000)) {
+      byDay.set(d.toISOString().slice(0, 10), 0)
+    }
+    for (const c of calls || []) {
+      const key = String(c.created_at).slice(0, 10)
+      if (byDay.has(key)) byDay.set(key, byDay.get(key) + (Number(c.duration_seconds) || 0) / 60)
+    }
+
+    const { data: profile, absent: noBillingTables } = await optionalTable(
+      supabase.from('billing_profiles').select('*').eq('tenant_id', t).maybeSingle(), null)
+
+    // A downgrade queued last cycle lands here, on read, rather than in a scheduled
+    // job — a job that does not run leaves the customer on a plan they cancelled.
+    const landed = applyPendingPlan(tenant.config || {}, signupAt)
+    if (landed) {
+      await supabase.from('tenants').update({ config: { ...tenant.config, ...landed } }).eq('id', t)
+      // The audit row is best-effort: the plan HAS changed either way, and losing the
+      // log entry is better than refusing to apply a downgrade the customer asked for.
+      await optionalTable(supabase.from('plan_changes').insert({
+        tenant_id: t, from_plan: tenant.config?.plan || null, to_plan: landed.plan,
+        kind: 'downgrade', effective_at: landed.plan_since,
+      }), null).catch(() => {})
+    }
+
+    res.json({
+      ...summary,
+      subscription: {
+        planSince: tenant.config?.plan_since || null,
+        pendingPlan: landed ? null : (tenant.config?.pending_plan || null),
+        extraNumbers: Math.max(0, Number(tenant.config?.extra_numbers) || 0),
+      },
+      invoicing: noBillingTables
+        ? { ready: false, missing: ['sql/billing.sql has not been run'], migrationPending: true }
+        : invoicingReady(profile || {}),
+      daily: [...byDay.entries()].map(([date, minutes]) => ({ date, minutes: +minutes.toFixed(1) })),
+    })
+  } catch (e) {
+    console.error('[CLIENT] billing error:', e.message)
+    res.status(500).json({ error: 'Could not load billing' })
+  }
+})
+
+// The catalogue, for the upgrade panel. Static, so it needs no tenant scope.
+router.get('/billing/plans', requirePermission('calls:read'), (_req, res) => {
+  res.json({ plans: PLAN_ORDER.map(id => PLANS[id]) })
+})
+
+// ─── Billing profile ──────────────────────────────────────────────────────────
+// Who the invoice is made out to. Owner-only to WRITE: the GSTIN on an invoice is a
+// legal statement about the business, not a display preference.
+router.get('/billing/profile', requirePermission('calls:read'), async (req, res) => {
+  try {
+    const { data, absent } = await optionalTable(
+      supabase.from('billing_profiles').select('*').eq('tenant_id', req.auth.tenantId).maybeSingle(), null)
+    res.json({
+      profile: data || null,
+      ready: absent ? { ready: false, missing: ['sql/billing.sql has not been run'] } : invoicingReady(data || {}),
+      migrationPending: absent,
+    })
+  } catch (e) {
+    console.error('[CLIENT] billing profile error:', e.message)
+    res.status(500).json({ error: 'Could not load billing profile' })
+  }
+})
+
+const PROFILE_FIELDS = [
+  'legal_name', 'gstin', 'pan', 'address_line1', 'address_line2',
+  'city', 'state', 'state_code', 'pincode', 'billing_email', 'phone',
+]
+
+router.put('/billing/profile', requireOwner(), async (req, res) => {
+  try {
+    // Whitelisted rather than spread: a client that posts { tenant_id: '<someone else>' }
+    // must not be able to move the row.
+    const patch = { tenant_id: req.auth.tenantId, updated_at: new Date().toISOString() }
+    for (const f of PROFILE_FIELDS) {
+      if (f in (req.body || {})) patch[f] = String(req.body[f] ?? '').trim() || null
+    }
+    const { data, error } = await supabase
+      .from('billing_profiles').upsert(patch, { onConflict: 'tenant_id' }).select().maybeSingle()
+    if (error) throw error
+    res.json({ profile: data, ready: invoicingReady(data || {}) })
+  } catch (e) {
+    console.error('[CLIENT] billing profile save error:', e.message)
+    res.status(500).json({ error: 'Could not save billing profile' })
+  }
+})
+
+// ─── Changing plan ────────────────────────────────────────────────────────────
+// Owner-only, and it says what WILL happen before it happens — an upgrade takes money
+// today, so the page has to be able to show the amount before the button is pressed.
+router.post('/billing/plan/preview', requireOwner(), async (req, res) => {
+  try {
+    const { data: tenant } = await supabase
+      .from('tenants').select('config, created_at').eq('id', req.auth.tenantId).maybeSingle()
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' })
+    const change = planChange({
+      tenantConfig: tenant.config || {}, toPlanId: req.body?.plan, signupAt: tenant.created_at,
+    })
+    if (!change.ok) return res.status(400).json({ error: change.reason })
+    res.json({ ...change, proratedInr: paiseToRupees(change.proratedPaise) })
+  } catch (e) {
+    console.error('[CLIENT] plan preview error:', e.message)
+    res.status(500).json({ error: 'Could not preview the change' })
+  }
+})
+
+router.post('/billing/plan', requireOwner(), async (req, res) => {
+  const t = req.auth.tenantId
+  try {
+    const { data: tenant } = await supabase
+      .from('tenants').select('config, created_at').eq('id', t).maybeSingle()
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' })
+
+    const change = planChange({
+      tenantConfig: tenant.config || {}, toPlanId: req.body?.plan, signupAt: tenant.created_at,
+    })
+    if (!change.ok) return res.status(400).json({ error: change.reason })
+
+    const config = { ...(tenant.config || {}), ...change.config }
+    const { error } = await supabase.from('tenants').update({ config }).eq('id', t)
+    if (error) throw error
+
+    // Append-only. "Why is this customer on Scale?" has to be answerable next year, and
+    // a config field that was overwritten cannot answer it.
+    await supabase.from('plan_changes').insert({
+      tenant_id: t,
+      from_plan: change.from.id,
+      to_plan: change.to.id,
+      kind: change.kind,
+      effective_at: change.effectiveAt,
+      prorated_paise: change.proratedPaise,
+      changed_by: req.auth.userId || null,
+    })
+
+    res.json({ ...change, proratedInr: paiseToRupees(change.proratedPaise) })
+  } catch (e) {
+    console.error('[CLIENT] plan change error:', e.message)
+    res.status(500).json({ error: 'Could not change the plan' })
+  }
+})
+
+// ─── Invoices ─────────────────────────────────────────────────────────────────
+router.get('/billing/invoices', requirePermission('calls:read'), async (req, res) => {
+  try {
+    const { data, absent } = await optionalTable(supabase
+      .from('invoices')
+      .select('id, number, status, period_start, period_end, total_paise, issued_at, due_at, paid_at, plan_name')
+      .eq('tenant_id', req.auth.tenantId)
+      .order('period_start', { ascending: false })
+      .limit(24), [])
+    res.json({
+      invoices: (data || []).map(i => ({ ...i, totalInr: paiseToRupees(i.total_paise) })),
+      migrationPending: absent,
+    })
+  } catch (e) {
+    console.error('[CLIENT] invoices error:', e.message)
+    res.status(500).json({ error: 'Could not load invoices' })
+  }
+})
+
+router.get('/billing/invoices/:id', requirePermission('calls:read'), async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('invoices').select('*')
+      .eq('id', req.params.id)
+      .eq('tenant_id', req.auth.tenantId)   // scope guard: never another business's invoice
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Invoice not found' })
+
+    const { data: payments } = await supabase
+      .from('payments').select('id, amount_paise, status, method, created_at, completed_at')
+      .eq('invoice_id', data.id).order('created_at', { ascending: false })
+
+    res.json({
+      invoice: {
+        ...data,
+        subtotalInr: paiseToRupees(data.subtotal_paise),
+        cgstInr: paiseToRupees(data.cgst_paise),
+        sgstInr: paiseToRupees(data.sgst_paise),
+        igstInr: paiseToRupees(data.igst_paise),
+        totalInr: paiseToRupees(data.total_paise),
+      },
+      payments: (payments || []).map(p => ({ ...p, amountInr: paiseToRupees(p.amount_paise) })),
+    })
+  } catch (e) {
+    console.error('[CLIENT] invoice detail error:', e.message)
+    res.status(500).json({ error: 'Could not load the invoice' })
+  }
+})
+
+// ─── Pay now ──────────────────────────────────────────────────────────────────
+// NO GATEWAY IS WIRED. This records the INTENT to pay and returns 202 with a status of
+// 'pending' — it never claims money moved. When a provider is chosen, it fills in
+// provider/provider_ref and moves the row to 'succeeded' from its webhook; nothing
+// above this line has to change.
+//
+// It deliberately does NOT mark the invoice paid. An invoice that says "paid" because
+// somebody pressed a button is the one billing bug you can never explain away.
+router.post('/billing/invoices/:id/pay', requireOwner(), async (req, res) => {
+  const t = req.auth.tenantId
+  try {
+    const { data: invoice } = await supabase
+      .from('invoices').select('id, status, total_paise')
+      .eq('id', req.params.id).eq('tenant_id', t).maybeSingle()
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' })
+    if (invoice.status === 'paid') return res.status(409).json({ error: 'That invoice is already paid' })
+    if (invoice.status === 'void') return res.status(409).json({ error: 'That invoice was cancelled' })
+
+    const { data, error } = await supabase.from('payments').insert({
+      tenant_id: t,
+      invoice_id: invoice.id,
+      amount_paise: invoice.total_paise,
+      status: 'pending',
+      method: String(req.body?.method || '').trim() || null,
+      requested_by: req.auth.userId || null,
+    }).select().maybeSingle()
+    if (error) throw error
+
+    res.status(202).json({
+      payment: { ...data, amountInr: paiseToRupees(data.amount_paise) },
+      gatewayReady: false,
+      message: 'Payment recorded as pending. Online payment is not switched on yet — our team will confirm.',
+    })
+  } catch (e) {
+    console.error('[CLIENT] pay error:', e.message)
+    res.status(500).json({ error: 'Could not start the payment' })
   }
 })
 

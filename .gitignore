@@ -35,3 +35,6 @@ service-account*.json
 .DS_Store
 Thumbs.db
 voice-bench-out/
+
+# Local models and derived embedding vectors (rebuilt on demand)
+.cache/

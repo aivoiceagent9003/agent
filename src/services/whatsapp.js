@@ -108,7 +108,7 @@ function authHeaders(cfg) {
     : { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' }
 }
 // WhatsApp requires the recipient in international format — country code + national
-// number, digits only, NO leading '+'. Vobiz delivers the caller as a bare 10-digit
+// number, digits only, NO leading '+'. Plivo can deliver the caller as a bare 10-digit
 // national number (e.g. '9003503664'); sent as-is the Cloud API ACCEPTS the request
 // (returns a message id) but silently never delivers. Add the country code for bare
 // national numbers so the brochure/confirmation actually reaches the caller.

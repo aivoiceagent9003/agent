@@ -8,7 +8,7 @@
 // That matters for exactly one thing: hanging up. Closing the media stream the instant
 // the model stops generating cuts the caller off mid-sentence — they lose the goodbye,
 // and on a payment or renewal call they may lose the last thing they were told. Neither
-// Plivo nor Vobiz sends a playback-complete event (Twilio's `mark` has no equivalent
+// Plivo sends no playback-complete event (Twilio's `mark` has no equivalent
 // here), so the only way to know when it is safe to close is to account for it.
 //
 // The arithmetic is exact: G.711 μ-law at 8kHz mono is one byte per sample, 8000 bytes

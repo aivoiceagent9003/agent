@@ -17,7 +17,7 @@ import { supabase } from '../src/api/db.js'
 import { buildSystemPrompt } from '../src/services/llm.js'
 import { whatsappReady } from '../src/services/whatsapp.js'
 import { buildAgentTools } from '../src/services/agent-tools.js'
-import { VOICE_OUTPUT_RULES } from '../src/services/soniox-cascade.js'
+import { VOICE_OUTPUT_RULES } from '../src/services/cascade.js'
 
 const tenantName = process.argv.slice(2).find(a => !a.startsWith('--')) || 'GSK insurance'
 const { data: tenant, error } = await supabase.from('tenants').select('*').ilike('name', tenantName).single()

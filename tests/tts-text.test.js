@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeForTts, createSentenceChunker, createStreamChunker, scriptLanguage, dominantScript, applyPronunciations } from '../src/services/tts-text.js'
+import { normalizeForTts, createSentenceChunker, scriptLanguage, dominantScript, applyPronunciations } from '../src/services/tts-text.js'
 
 describe('speech-only name pronunciation', () => {
   it('matches whole names longest first without changing other names', () => {
@@ -308,54 +308,39 @@ describe('Telugu number words with grammar glued on', () => {
   })
 })
 
-describe('the opening clause is cut shorter than the rest', () => {
-  // Soniox answers a 12-character clause and a whole sentence in the same ~400ms
-  // (scripts/ttfa-bench.mjs), so every character the chunker waits for before the
-  // FIRST piece is time the caller spends in silence for nothing.
+describe('the voice is handed whole sentences', () => {
   const feed = (chunker, text) => {
     const out = []
     for (const ch of text) out.push(...chunker.push(ch))
     return out
   }
 
-  it('releases the first clause early, then goes back to full-length clauses', () => {
-    const c = createStreamChunker({ firstClauseMinChars: 25, clauseMinChars: 60 })
-    const out = feed(c, 'అవును అండి, మన దగ్గర term insurance options ఉన్నాయి, ')
-    // "అవును అండి," is 11 characters — under 25, so it is NOT released on its own.
-    // The cut lands at the first comma at or past 25 characters.
-    expect(out.length).toBe(1)
-    expect(out[0].final).toBe(false)
-    expect(out[0].text.length).toBeGreaterThanOrEqual(25)
-    expect(out[0].text.startsWith('అవును అండి')).toBe(true)
-
-    // The second clause has to clear the higher bar, so this short one is held.
-    const next = feed(c, 'చాలా మంచివి, ')
-    expect(next).toEqual([])
-  })
-
-  it('never splits a sentence that ends before the threshold', () => {
-    const c = createStreamChunker({ firstClauseMinChars: 25, clauseMinChars: 60 })
-    const out = feed(c, 'అవును అండి. ')
-    expect(out).toEqual([{ text: 'అవును అండి.', final: true }])
+  it('never cuts at a comma inside a sentence', () => {
+    const c = createSentenceChunker()
+    expect(feed(c, 'అవును అండి, మన దగ్గర చాలా options ఉన్నాయి, నిజంగా చాలా మంచివి, ')).toEqual([])
   })
 
   it('leaves a figure intact rather than cutting inside it', () => {
     // "39,900" holds a comma that is not a clause boundary, and a Telugu number
     // phrase read in halves is read wrong.
-    const c = createStreamChunker({ firstClauseMinChars: 5, clauseMinChars: 60 })
-    const out = feed(c, 'ప్రీమియం 39,900 రూపాయలు అవుతుంది అండి. ')
-    expect(out).toEqual([{ text: 'ప్రీమియం 39,900 రూపాయలు అవుతుంది అండి.', final: true }])
-  })
-
-  it('defaults the first clause to the same bar as the rest, so existing callers are unchanged', () => {
-    const plain = createStreamChunker({ clauseMinChars: 60 })
-    const explicit = createStreamChunker({ clauseMinChars: 60, firstClauseMinChars: 60 })
-    const text = 'అవును అండి, మన దగ్గర term insurance options ఉన్నాయి, '
-    expect(feed(plain, text)).toEqual(feed(explicit, text))
-  })
-
-  it('still lets createSentenceChunker hold whole sentences only', () => {
     const c = createSentenceChunker()
-    expect(feed(c, 'అవును అండి, మన దగ్గర చాలా options ఉన్నాయి, నిజంగా చాలా మంచివి, ')).toEqual([])
+    expect(feed(c, 'ప్రీమియం 39,900 రూపాయలు అవుతుంది అండి. ')).toEqual(['ప్రీమియం 39,900 రూపాయలు అవుతుంది అండి.'])
+  })
+})
+
+describe('normalizeForTts — ordinals', () => {
+  // A real call said "two nine th August": the digits touching "th" were taken for an
+  // identifier and read one at a time.
+  it('says a date the way a person does', () => {
+    expect(normalizeForTts('29th August, 2001 అంటే').join(' ')).toBe('twenty ninth August, two thousand one అంటే')
+  })
+  it('handles every ordinal ending', () => {
+    const say = (t) => normalizeForTts(t).join(' ')
+    expect(['1st', '2nd', '3rd', '4th', '11th', '12th', '21st', '30th', '100th'].map(say)).toEqual([
+      'first', 'second', 'third', 'fourth', 'eleventh', 'twelfth', 'twenty first', 'thirtieth', 'one hundredth',
+    ])
+  })
+  it('still reads an identifier a digit at a time', () => {
+    expect(normalizeForTts('LN12th').join(' ')).toBe('LN one two th')
   })
 })

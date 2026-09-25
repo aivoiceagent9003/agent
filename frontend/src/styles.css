@@ -50,48 +50,69 @@
 }
 
 /* Forest & Ivory. Shared semantic tokens keep all existing product states intact. */
+/* LIGHT THEME — emerald.
+ *
+ * The light twin of the dark palette below, deliberately: same hue family as its mint
+ * primary, pushed darker and more saturated so it survives a white background. Switching
+ * modes should look like the same product in two lighting conditions.
+ *
+ * Two earlier attempts and why they failed, so a third does not repeat them:
+ *
+ *   forest #294d3c    Too dark to read AS a colour. Buttons came out charcoal, the page
+ *                     looked grey and flat, and the brand never actually appeared.
+ *   burgundy #7a1f3d  Read as a colour, but shared nothing with the dark theme, so
+ *                     switching modes changed the brand. And a wine red dark enough to
+ *                     pass contrast on white turns brown in large fills.
+ *
+ * The lesson in both: at the lightness contrast forces on it, the primary has to be
+ * saturated enough to still read as a colour — and it has to belong to the same family
+ * as the dark one.
+ *
+ * Every value here is checked by scripts/check-contrast.cjs against the pairs the UI
+ * actually renders. Run it after any change; nothing in it is chosen by eye.
+ */
 :root {
   color-scheme: light;
   --radius: 0.45rem;
-  --background: #f7f8fa;
-  --foreground: #17211d;
+  --background: #f7faf8;
+  --foreground: #141c19;
   --card: #ffffff;
-  --card-foreground: #17211d;
+  --card-foreground: #141c19;
   --popover: #ffffff;
-  --popover-foreground: #17211d;
-  --primary: #294d3c;
-  --primary-foreground: #fffdf3;
-  --primary-glow: #527557;
-  --secondary: #edf2ef;
-  --secondary-foreground: #304637;
-  --muted: #eef1f0;
-  --muted-foreground: #56615c;
-  --accent: #e0e7d8;
-  --accent-foreground: #294d3c;
+  --popover-foreground: #141c19;
+  --primary: #07724f;
+  --primary-foreground: #ffffff;
+  --primary-glow: #0e9a6a;
+  --secondary: #e9f3ee;
+  --secondary-foreground: #174130;
+  --muted: #eef2f0;
+  --muted-foreground: #52605a;
+  --accent: #d7f0e3;
+  --accent-foreground: #07543b;
   --destructive: #b42318;
   --destructive-foreground: #fffaf4;
   --success: #15703c;
   --warning: #955000;
-  --border: #d2d9d5;
+  --border: #ccdcd4;
   --input: #ffffff;
-  --ring: #527557;
-  --chart-1: #37634a;
-  --chart-2: #a17c43;
-  --chart-3: #7c8760;
-  --chart-4: #a3674e;
-  --chart-5: #6e656d;
+  --ring: #0e9a6a;
+  --chart-1: #07724f;
+  --chart-2: #b07a2e;
+  --chart-3: #3f6f8a;
+  --chart-4: #a2554a;
+  --chart-5: #64607a;
   --sidebar: #ffffff;
-  --sidebar-foreground: #17211d;
-  --sidebar-primary: #294d3c;
-  --sidebar-primary-foreground: #fffdf3;
-  --sidebar-accent: #dce4d4;
-  --sidebar-accent-foreground: #243f2e;
-  --sidebar-border: #d2d9d5;
-  --sidebar-ring: #527557;
-  --gradient-primary: linear-gradient(#294d3c, #294d3c);
-  --gradient-hero: radial-gradient(ellipse at 30% 40%, #e2e7d4, transparent 70%);
-  --shadow-glow: 0 2px 4px #2033250c;
-  --shadow-card: 0 3px 16px -8px #20332518;
+  --sidebar-foreground: #141c19;
+  --sidebar-primary: #07724f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ddf0e6;
+  --sidebar-accent-foreground: #07543b;
+  --sidebar-border: #ccdcd4;
+  --sidebar-ring: #0e9a6a;
+  --gradient-primary: linear-gradient(#07724f, #07724f);
+  --gradient-hero: radial-gradient(ellipse at 30% 40%, #d8f0e4, transparent 70%);
+  --shadow-glow: 0 2px 4px #12241c0c;
+  --shadow-card: 0 3px 16px -8px #12241c1f;
   --cine-surface: #ffffff;
 }
 .dark {
