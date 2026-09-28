@@ -19,9 +19,9 @@ function AppMessages() {
   const { c } = Route.useSearch();
 
   // The dashboard shell scrolls its main area; the panel manages its own internal
-  // scrolling, so pin it to the viewport height.
+  // scrolling, so pin it to the viewport height, less the 3.5rem top bar.
   return (
-    <div className="h-screen">
+    <div className="h-[calc(100vh-3.5rem)]">
       <MessagesPanel initialConversationId={c} />
     </div>
   );

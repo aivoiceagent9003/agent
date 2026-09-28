@@ -13,7 +13,8 @@ import { useRef, useState } from "react";
 import { setSession } from "@/lib/api";
 import { login, loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
-import { Phone, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+import { Logo } from "@/components/Brand";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { VoiceWave } from "@/components/site/VoiceWave";
 
@@ -90,11 +91,8 @@ function LoginPage() {
     <div className="forest-login min-h-screen grid lg:grid-cols-2">
       <div className="forest-login-art enter-fade hidden lg:flex flex-col justify-between p-12 relative overflow-hidden">
         <VoiceWave anchorRef={orbRef} tone="dark" />
-        <Link to="/" className="flex items-center gap-2 font-display font-bold text-lg z-10">
-          <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
-            <Phone className="w-4 h-4 text-primary-foreground" />
-          </div>
-          AnswerLabs
+        <Link to="/" aria-label="AnswerLabs home" className="z-10 self-start">
+          <Logo size="lg" tagline />
         </Link>
         <div ref={orbRef} className="forest-login-orb" aria-hidden="true" />
         <div className="relative z-10 forest-login-quote">

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { setSession } from "@/lib/api";
 import { loginWithGoogle } from "@/lib/data";
 import { toast } from "sonner";
-import { Phone } from "lucide-react";
+import { Logo } from "@/components/Brand";
 import { Link } from "@tanstack/react-router";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
@@ -35,11 +35,8 @@ function SignupPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-hero relative overflow-hidden">
-        <Link to="/" className="flex items-center gap-2 font-display font-bold text-lg z-10">
-          <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
-            <Phone className="w-4 h-4 text-primary-foreground" />
-          </div>
-          AnswerLabs
+        <Link to="/" aria-label="AnswerLabs home" className="z-10 self-start">
+          <Logo size="lg" tagline />
         </Link>
         <div className="z-10">
           <p className="text-2xl font-display max-w-md leading-snug">

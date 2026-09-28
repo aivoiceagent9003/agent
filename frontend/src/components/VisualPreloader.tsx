@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { LogoMark } from "./Brand";
 
 export function VisualPreloader({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -29,22 +30,14 @@ export function VisualPreloader({ children }: { children: React.ReactNode }) {
             exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeInOut" } }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-background"
           >
-            <div className="relative flex items-center justify-center gap-2">
+            <div className="relative flex items-center justify-center">
+              {/* The brand mark, breathing — the first thing anyone sees. */}
               <motion.div
-                animate={{ height: ["16px", "48px", "16px"] }}
-                transition={{ duration: 1, repeat: Infinity, ease: "easeInOut", delay: 0 }}
-                className="w-3 rounded-full bg-primary/80 shadow-glow"
-              />
-              <motion.div
-                animate={{ height: ["24px", "64px", "24px"] }}
-                transition={{ duration: 1, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
-                className="w-3 rounded-full bg-primary shadow-glow"
-              />
-              <motion.div
-                animate={{ height: ["16px", "48px", "16px"] }}
-                transition={{ duration: 1, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
-                className="w-3 rounded-full bg-primary/80 shadow-glow"
-              />
+                animate={{ scale: [1, 1.06, 1] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <LogoMark className="w-16 h-16" title="AnswerLabs" />
+              </motion.div>
               <motion.div
                 initial={{ scale: 0.5, opacity: 0 }}
                 animate={{ scale: 2.5, opacity: [0, 0.5, 0] }}

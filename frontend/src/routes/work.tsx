@@ -49,7 +49,7 @@ function WorkLayout() {
   if (me && !me.tenant.phone_number) {
     return (
       <EmployeeShell me={me}>
-        <div className="min-h-screen grid place-items-center px-4">
+        <div className="min-h-[calc(100vh-3.5rem)] grid place-items-center px-4">
           <div className="max-w-md text-center">
             <div className="w-12 h-12 rounded-xl bg-muted grid place-items-center mx-auto">
               <Clock className="w-5 h-5 text-muted-foreground" />

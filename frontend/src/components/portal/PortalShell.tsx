@@ -1,11 +1,8 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import {
-  Phone,
   LayoutDashboard,
   PhoneCall,
   Users,
-  LogOut,
-  Shield,
   Settings,
   BookOpen,
   Database,
@@ -33,8 +30,9 @@ import type { ReactNode } from "react";
 import type { Me } from "@/lib/team";
 import { useAwaitingReplyCount } from "@/lib/support";
 import { useConversations } from "@/lib/messages";
-import { NotificationsButton, NotificationsPanel } from "./Notifications";
-import { ThemeToggleRow } from "@/components/ThemeToggle";
+import { NotificationsPanel } from "./Notifications";
+import { TopBar } from "./TopBar";
+import { Logo } from "@/components/Brand";
 
 // `perm` is the permission a user must hold for the item to appear. Items without
 // one are visible to every signed-in member. Hiding nav is cosmetic — the backend
@@ -51,10 +49,13 @@ type NavItem = {
 
 export function PortalShell({
   kind,
+  me,
   navItems,
   children,
 }: {
   kind: "client" | "admin";
+  /** The signed-in member, for the account menu. Admins have none. */
+  me?: Me;
   navItems: NavItem[];
   children: ReactNode;
 }) {
@@ -65,6 +66,9 @@ export function PortalShell({
   // Admins have no tenant profile, so /api/client/notifications is not theirs to
   // call. Not rendering the bell is what keeps its hooks from running at all.
   const showBell = kind === "client";
+
+  // The agent's configuration is an owner/manager job; the API refuses the rest.
+  const canConfigureAgent = kind === "client" && !!me?.permissions.includes("agent:write");
 
   function logout() {
     // Matches EmployeeShell: don't leave a live socket open for whoever signs in
@@ -81,58 +85,38 @@ export function PortalShell({
   // `sticky top-0 h-screen` pins it to exactly one viewport instead. Deliberately
   // not a fixed-height shell with an internally-scrolling <main>: that would move
   // scrolling off the window and silently break the router's scroll restoration.
+  // The top bar is sticky for the same reason.
   return (
     <div className="forest-portal min-h-screen flex">
-      <aside className="sticky top-0 h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col">
-        <div className="p-6 shrink-0 flex items-center gap-2 font-display font-bold">
-          <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
-            {kind === "admin" ? (
-              <Shield className="w-4 h-4 text-primary-foreground" />
-            ) : (
-              <Phone className="w-4 h-4 text-primary-foreground" />
-            )}
-          </div>
-          AnswerLabs{" "}
-          {kind === "admin" && (
-            <span className="text-xs font-normal text-muted-foreground">Admin</span>
-          )}
+      {/* No border: the rail and the top bar are one surface, and the only edge is
+          the canvas's — see .forest-portal in styles.css. The brand row is the top
+          bar's height so the logo sits level with the controls across from it. */}
+      <aside className="sticky top-0 h-screen w-64 shrink-0 bg-sidebar flex flex-col">
+        <div className="h-14 px-6 shrink-0 flex items-center">
+          <Link to={kind === "admin" ? "/admin" : "/app"} aria-label="AnswerLabs home">
+            <Logo suffix={kind === "admin" ? "Admin" : undefined} />
+          </Link>
         </div>
         {/* min-h-0 is what lets this shrink instead of pushing the footer off the
             bottom — a flex child won't go below its content size without it. */}
-        <nav className="px-3 flex-1 min-h-0 overflow-y-auto space-y-1">
+        <nav className="px-3 pt-4 flex-1 min-h-0 overflow-y-auto space-y-1">
           {navItems.map((item) => (
             <NavLink key={item.to} item={item} pathname={pathname} />
           ))}
         </nav>
-        {showBell && (
-          <div className="px-3 pb-3 shrink-0">
-            <NotificationsButton
-              open={bellOpen}
-              onToggle={() => setBellOpen((v) => !v)}
-              className={
-                bellOpen
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              }
-            />
-          </div>
-        )}
-
-        {/* Dark mode was reachable only from the marketing site, which is the one place
-            nobody spends any time. It belongs where the work happens. */}
-        <div className="p-3 shrink-0 border-t border-sidebar-border space-y-1">
-          <ThemeToggleRow />
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition"
-          >
-            <LogOut className="w-4 h-4" /> Sign out
-          </button>
-        </div>
       </aside>
-      <main className="flex-1 min-w-0">{children}</main>
+      <div className="flex-1 min-w-0 flex flex-col">
+        <TopBar
+          me={me}
+          admin={kind === "admin"}
+          bell={showBell ? { open: bellOpen, onToggle: () => setBellOpen((v) => !v) } : undefined}
+          settingsTo={canConfigureAgent ? "/onboarding" : undefined}
+          onSignOut={logout}
+        />
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
 
-      {/* Sibling of <main>, not of the nav — see the stacking-context note in
+      {/* Outside the top bar, not inside it — see the stacking-context note in
           Notifications.tsx. */}
       {showBell && bellOpen && (
         <NotificationsPanel base="/app" onClose={() => setBellOpen(false)} />
@@ -161,7 +145,7 @@ export const clientNav: NavItem[] = [
   // Owners and managers only: an agent working a queue has no business seeing what
   // the business is charged.
   { to: "/app/billing", label: "Billing", icon: Wallet, perm: "agent:read" },
-  { to: "/onboarding", label: "Agent settings", icon: Settings, perm: "agent:write" },
+  // Agent settings (/onboarding) is the gear in the top bar, not a nav row.
 ];
 
 // Unread direct + group messages, for the nav badge. Mirrors the employee shell,

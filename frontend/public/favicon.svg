@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- AnswerLabs mark. Same paths and colours as src/components/Brand.tsx (the
+       site's emerald; mint and a white star on a dark tab strip) — keep them in step. -->
+  <style>
+    .a{stop-color:#0e9a6a}.b{stop-color:#07724f}.c{stop-color:#05543a}.star{fill:url(#g)}
+    @media (prefers-color-scheme:dark){.a{stop-color:#9ce6c5}.b{stop-color:#79d6ac}.c{stop-color:#3fae82}.star{fill:#fff}}
+  </style>
+  <defs>
+    <linearGradient id="g" x1="28" y1="0" x2="98" y2="94" gradientUnits="userSpaceOnUse">
+      <stop class="a" offset="0"/><stop class="b" offset=".55"/><stop class="c" offset="1"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#g)" d="M7 94Q2 94 3.87 89.4L35.3 11.6Q37.5 6 43.5 6L56.5 6Q62.5 6 64.7 11.6L96.13 89.4Q98 94 93 94L60 94Q75.4 88.5 70.26 77.7L51.93 39.07Q50 35 48.07 39.07L23.29 91.29Q22 94 19 94Z"/>
+  <path class="star" d="M50 56.7C50.7 67.5 53.5 71.3 63.2 72C53.5 72.7 50.7 76.5 50 87.3C49.3 76.5 46.5 72.7 36.8 72C46.5 71.3 49.3 67.5 50 56.7Z"/>
+</svg>

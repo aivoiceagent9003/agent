@@ -66,7 +66,7 @@ function AppLayout() {
   if (setupIncomplete && !isOwner) return <SetupPending business={me?.tenant.business_name} />;
 
   return (
-    <PortalShell kind="client" navItems={navFor(clientNav, me)}>
+    <PortalShell kind="client" me={me} navItems={navFor(clientNav, me)}>
       <Outlet />
     </PortalShell>
   );

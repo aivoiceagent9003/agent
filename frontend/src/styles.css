@@ -47,6 +47,8 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --font-display: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  /* The wordmark face from the brand sheet. Logo only — body copy stays DM Sans. */
+  --font-brand: "Outfit", "DM Sans", ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Forest & Ivory. Shared semantic tokens keep all existing product states intact. */
@@ -225,6 +227,7 @@
 @keyframes page-out { to { opacity: 0; transform: translateY(-8px); } }
 @keyframes page-in { from { opacity: 0; transform: translateY(12px); } }
 .forest-portal > aside { view-transition-name: portal-nav; }
+.forest-portal .portal-topbar { view-transition-name: portal-topbar; }
 .forest-site > header { view-transition-name: site-nav; }
 
 /* ── Entrance — content rises in, one piece after another, when a page mounts ─ */
@@ -283,6 +286,30 @@
 @utility shadow-glow { box-shadow: var(--shadow-glow); }
 @utility shadow-card { box-shadow: var(--shadow-card); }
 @utility text-gradient { color: var(--primary); }
+
+/* ── Brand — the logo's colours (components/Brand.tsx) ─────────────────────
+   The logo takes the SITE's greens, not the brand sheet's blue→violet, which
+   clashed with every button and active tab around it. from/mid are the theme's own
+   --primary-glow and --primary, so the mark is exactly the green of the UI in each
+   theme (and follows it if the theme changes); "to" is one step deeper for the
+   gradient's far corner. Declared on :root, the same element .dark sits on, so
+   var(--primary) already resolves to the dark value under .dark. Dark mode also
+   turns the star white, as the brand sheet's dark variant does. */
+:root {
+  --logo-from: var(--primary-glow);
+  --logo-mid: var(--primary);
+  --logo-to: #05543a;
+  --logo-fold: #03382a;
+  --brand-labs-from: var(--primary-glow);
+  --brand-labs-to: var(--primary);
+}
+.dark { --logo-to: #3fae82; --logo-fold: #1d6b4d; --brand-star: #fff; }
+@utility text-brand-gradient {
+  background-image: linear-gradient(90deg, var(--brand-labs-from), var(--brand-labs-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 /* ── Motion — communicates state, never decorates ─────────────────────────── */
 @keyframes pulse-ring {
@@ -394,11 +421,11 @@
   .forest-hero-art { width: min(100%, 420px); margin: 0 auto; padding: 22px 0; }
   .forest-hero-footer { font-size: 10px; gap: 12px; margin-top: 0; }
   .forest-portal { flex-direction: column; }
-  .forest-portal > aside { position: relative; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .forest-portal > aside { position: relative; width: 100%; height: auto; }
   .forest-portal > aside nav { display: flex; overflow-x: auto; gap: 4px; padding-bottom: 10px; }
   .forest-portal > aside nav a { flex-shrink: 0; margin: 0; }
-  .forest-portal > aside > div:first-child { padding: 16px 20px; }
-  .forest-portal > main > .p-8 { padding: 24px 18px; }
+  .forest-portal > aside > div:first-child { height: auto; padding: 16px 20px; }
+  .forest-portal main > .p-8 { padding: 24px 18px; }
   .forest-portal input:not([type="checkbox"]):not([type="radio"]) { min-width: 0; }
 }
 @media (max-width: 380px) {
@@ -412,9 +439,46 @@
   .hover-lift:hover { transform: none; }
 }
 
-/* Solid work surfaces and a distinct selected navigation item. */
-.forest-portal { background: var(--background); }
-.forest-portal > aside { color: var(--sidebar-foreground); box-shadow: 1px 0 0 var(--sidebar-border); }
+/* Solid work surfaces and a distinct selected navigation item.
+
+   The sidebar and top bar are ONE surface, with no line between them. The page
+   sits in a canvas inset into that frame, edged by a single soft hairline that
+   turns a rounded corner where the two meet. The rail used to carry a border AND
+   a box-shadow — a doubled 2px line that stepped sideways where it met the top
+   bar's own line, which is what read as sharp.
+
+   The corner is drawn by the sticky bar, not by <main>: main's own corner
+   scrolls away with the page, the bar's stays put while content moves under it.
+   The ring's centre sits on the same half-pixel as the straight lines so the
+   curve joins them without a step. */
+.forest-portal {
+  --shell-line: color-mix(in srgb, var(--sidebar-border) 70%, var(--sidebar));
+  background: var(--sidebar);
+}
+.forest-portal > aside { color: var(--sidebar-foreground); }
+.forest-portal .portal-topbar { box-shadow: 0 1px 0 var(--shell-line); }
+.forest-portal .portal-topbar::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent 14.8px,
+    var(--shell-line) 15.2px,
+    var(--shell-line) 15.8px,
+    var(--sidebar) 16.2px
+  );
+}
+.forest-portal main { background: var(--background); border-left: 1px solid var(--shell-line); }
+@media (max-width: 700px) {
+  /* Stacked layout: the rail sits above the page, so there is no corner to turn. */
+  .forest-portal .portal-topbar::after { display: none; }
+  .forest-portal main { border-left: 0; }
+}
 .forest-portal > aside nav a[aria-current="page"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); box-shadow: 0 2px 5px #00000012; }
 .forest-portal > aside nav a:not([aria-current="page"]):hover { background: var(--secondary); color: var(--foreground); }
 /* Preserve existing semantic states while making their text readable. */
@@ -429,5 +493,11 @@
 .forest-hero-art { padding: 0; aspect-ratio: 1; }
 .forest-login-art, .dark .forest-login-art { background: #0b1312; color: #edf5f0; }
 .forest-login-art .text-muted-foreground { color: #b4c5bc; }
+/* Dark in both themes, so the logo takes the dark theme's mint here even when the
+   page itself is light — the light theme's emerald would sink into this panel. */
+.forest-login-art {
+  --logo-from: #9ce6c5; --logo-mid: #79d6ac; --logo-to: #3fae82; --logo-fold: #1d6b4d;
+  --brand-star: #fff; --brand-labs-from: #9ce6c5; --brand-labs-to: #79d6ac;
+}
 .forest-login-quote { border-color: #33473e; }
 @media (max-width: 700px) { .forest-hero-art { padding: 0; margin-block: 8px; } }

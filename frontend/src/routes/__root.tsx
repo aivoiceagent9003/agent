@@ -14,11 +14,15 @@ import appCss from "../styles.css?url";
 import { registerCacheReset } from "../lib/api";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { VisualPreloader } from "../components/VisualPreloader";
+import { Logo, LogoMark } from "../components/Brand";
 
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
+        <Link to="/" aria-label="AnswerLabs home" className="inline-block mb-8">
+          <Logo />
+        </Link>
         <h1 className="text-7xl font-bold text-gradient">404</h1>
         <h2 className="mt-4 text-xl font-semibold">Page not found</h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -47,6 +51,8 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
+        {/* The mark alone, not a link: the router may be what just failed. */}
+        <LogoMark className="w-12 h-12 mx-auto mb-6" />
         <h1 className="text-xl font-semibold">This page didn't load</h1>
         <p className="mt-2 text-sm text-muted-foreground">Something went wrong.</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
@@ -82,11 +88,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      // PNG first, SVG last: browsers that understand the SVG take it (sharp at any
+      // density, star turns white on a dark tab strip); the rest keep the PNG.
+      { rel: "icon", href: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,500;1,400;1,500&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@500;700&family=Source+Serif+4:ital,wght@0,400;0,500;1,400;1,500&display=swap",
       },
     ],
   }),

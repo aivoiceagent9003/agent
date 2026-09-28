@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { BASE_URL } from "@/lib/api";
 import { toast } from "sonner";
 import { KeyRound, AlertCircle } from "lucide-react";
+import { Logo } from "@/components/Brand";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => ({ meta: [{ title: "Set a new password — AnswerLabs" }] }),
@@ -66,7 +67,10 @@ function ResetPassword() {
   if (!ready) return null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-hero">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 py-10 bg-gradient-hero">
+      <Link to="/" aria-label="AnswerLabs home">
+        <Logo />
+      </Link>
       <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-8 shadow-card">
         {!accessToken ? (
           <>

@@ -4,6 +4,7 @@ import { setSession, clearToken } from "@/lib/api";
 import { login } from "@/lib/data";
 import { toast } from "sonner";
 import { Shield } from "lucide-react";
+import { Logo } from "@/components/Brand";
 import { Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/admin-login")({
@@ -39,7 +40,10 @@ function AdminLogin() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-hero">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 py-10 bg-gradient-hero">
+      <Link to="/" aria-label="AnswerLabs home">
+        <Logo />
+      </Link>
       <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-8 shadow-card">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Shield className="w-4 h-4 text-primary" /> Admin portal

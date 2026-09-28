@@ -2,15 +2,17 @@
 //
 // This used to live inside EmployeeShell, which meant owners and managers had no
 // bell at all: their notifications were written to the database and then had
-// nowhere to appear. Both shells use the same 16rem sticky rail, so the geometry
-// carries over unchanged.
+// nowhere to appear.
 //
-// Split into a button and a panel ON PURPOSE. `position: sticky` on <aside>
-// creates a stacking context, so a z-50 popover rendered inside the rail can never
-// rise above <main>. The button goes in the sidebar; the panel must be mounted as
-// a sibling of <main>, where z-50 means what it says.
+// Split into a button and a panel ON PURPOSE. The top bar is `position: sticky`,
+// which makes it a stacking context: a z-50 panel rendered inside it is only z-50
+// within the bar's own z-30, and (should the bar ever gain a transform or filter)
+// `fixed` would start positioning against the bar instead of the window. The
+// button goes in the top bar; the panel is mounted as a sibling of the page, where
+// `fixed` and z-50 mean what they say.
 
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Bell, X } from "lucide-react";
 import { useNotifications, useMarkNotificationsRead } from "@/lib/messages";
@@ -34,45 +36,38 @@ function resolveLink(base: ShellBase, link: string | null): string | null {
   return `${base}${link}`;
 }
 
-/** The sidebar row. `className` carries the shell's own hover/active treatment. */
-export function NotificationsButton({
-  open,
-  onToggle,
-  className = "",
-}: {
-  open: boolean;
-  onToggle: () => void;
-  className?: string;
-}) {
+/**
+ * The bell in the top bar. `className` carries the bar's icon-button styling. It
+ * forwards its ref and spreads the rest of its props so a tooltip can wrap it.
+ */
+export const NotificationsButton = forwardRef<
+  HTMLButtonElement,
+  { open: boolean; onToggle: () => void } & ComponentPropsWithoutRef<"button">
+>(function NotificationsButton({ open, onToggle, className = "", ...props }, ref) {
   const { data } = useNotifications();
   const unread = data?.unread ?? 0;
 
   return (
     <button
+      ref={ref}
+      type="button"
+      {...props}
       aria-expanded={open}
+      aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
       onClick={onToggle}
-      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${className}`}
+      className={className}
     >
-      <span className="relative">
-        <Bell className="w-4 h-4" />
-        {unread > 0 && (
-          <span className="absolute -top-2 -right-2 min-w-4 h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold grid place-items-center">
-            {unread > 9 ? "9+" : unread}
-          </span>
-        )}
-      </span>
-      Notifications
+      <Bell className="w-4 h-4" />
+      {unread > 0 && (
+        <span className="absolute top-0.5 right-0.5 min-w-4 h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold grid place-items-center ring-2 ring-background">
+          {unread > 9 ? "9+" : unread}
+        </span>
+      )}
     </button>
   );
-}
+});
 
-/**
- * Popover anchored to the right of the sidebar, level with the bell.
- *
- * It used to render inline in the sidebar column, which meant a 16rem-wide panel
- * and — on a short window — pushing Sign out off the bottom. Floating it clear of
- * the rail gives it room and leaves the sidebar's own layout alone.
- */
+/** Popover dropping down from the top right, under the bell that opened it. */
 export function NotificationsPanel({ base, onClose }: { base: ShellBase; onClose: () => void }) {
   const router = useRouter();
   const { data } = useNotifications();
@@ -102,11 +97,12 @@ export function NotificationsPanel({ base, onClose }: { base: ShellBase; onClose
     <>
       {/* A real backdrop, not a document click listener. Listening for outside
           clicks closed the panel but let the SAME click land on whatever was
-          underneath — so dismissing it opened a lead. This swallows the click. */}
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} aria-hidden />
+          underneath — so dismissing it opened a lead. This swallows the click.
+          Clear rather than dimmed, like every other menu in the top bar. */}
+      <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden />
 
-      {/* Sits just clear of the 16rem rail, bottom-aligned with the bell that
-          opened it. Fixed, so page scroll cannot drag it away.
+      {/* Just below the 3.5rem top bar, right-aligned with the bell. Fixed, so
+          page scroll cannot drag it away.
 
           bg-background (a solid token) rather than bg-popover, which carries alpha
           in the dark theme — floating over page content that read as frosted glass
@@ -115,7 +111,7 @@ export function NotificationsPanel({ base, onClose }: { base: ShellBase; onClose
       <div
         role="dialog"
         aria-label="Notifications"
-        className="fixed z-50 bottom-4 left-[16.75rem] w-80 max-w-[calc(100vw-18rem)] rounded-xl border border-border bg-background text-popover-foreground shadow-glow overflow-hidden animate-fade-up"
+        className="fixed z-50 top-16 right-4 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-background text-popover-foreground shadow-glow overflow-hidden animate-fade-up"
       >
         <div className="bg-popover">
           <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border">

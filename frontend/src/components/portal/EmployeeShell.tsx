@@ -8,12 +8,14 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Users, Phone, MessageSquare, Settings, Building2, LogOut, Activity } from "lucide-react";
+import { Users, Phone, MessageSquare, Settings } from "lucide-react";
 import { clearToken } from "@/lib/api";
 import { closeRealtime } from "@/lib/realtime";
 import { useConversations } from "@/lib/messages";
-import { ROLE_LABEL, type Me } from "@/lib/team";
-import { NotificationsButton, NotificationsPanel } from "./Notifications";
+import type { Me } from "@/lib/team";
+import { NotificationsPanel } from "./Notifications";
+import { TopBar } from "./TopBar";
+import { Logo } from "@/components/Brand";
 
 const NAV = [
   { to: "/work/leads", label: "Leads", icon: Users },
@@ -44,20 +46,20 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
     // `sticky top-0 h-screen` pins it to exactly one viewport instead.
     // Deliberately not a fixed-height shell with an internally-scrolling <main>:
     // that would move scrolling off the window and silently break the router's
-    // scroll restoration.
-    <div className="forest-portal min-h-screen flex bg-background">
-      <aside className="sticky top-0 h-screen w-64 shrink-0 border-r border-border flex flex-col">
-        <div className="p-5 shrink-0">
-          <Link to="/work/leads" className="flex items-center gap-2 font-display font-bold text-lg">
-            <div className="w-8 h-8 rounded-lg bg-gradient-primary grid place-items-center shadow-glow">
-              <Activity className="w-4 h-4 text-primary-foreground" />
-            </div>
-            AnswerLabs
+    // scroll restoration. The top bar is sticky for the same reason.
+    <div className="forest-portal min-h-screen flex">
+      {/* No border: the rail and the top bar are one surface, and the only edge is
+          the canvas's — see .forest-portal in styles.css. The brand row is the top
+          bar's height so the logo sits level with the controls across from it. */}
+      <aside className="sticky top-0 h-screen w-64 shrink-0 flex flex-col">
+        <div className="h-14 px-5 shrink-0 flex items-center">
+          <Link to="/work/leads" aria-label="AnswerLabs home">
+            <Logo />
           </Link>
-          <p className="mt-2 text-[11px] font-semibold tracking-wider text-muted-foreground">
-            EMPLOYEE VIEW
-          </p>
         </div>
+        <p className="px-5 pt-3 pb-2 shrink-0 text-[11px] font-semibold tracking-wider text-muted-foreground">
+          EMPLOYEE VIEW
+        </p>
 
         {/* min-h-0 is what lets this shrink instead of pushing the footer off the
             bottom — a flex child won't go below its content size without it. */}
@@ -86,60 +88,21 @@ export function EmployeeShell({ me, children }: { me?: Me; children: ReactNode }
             );
           })}
         </nav>
-
-        <div className="px-3 pb-3 shrink-0">
-          <NotificationsButton
-            open={bellOpen}
-            onToggle={() => setBellOpen((v) => !v)}
-            className={
-              bellOpen
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }
-          />
-        </div>
-
-        <div className="p-3 shrink-0 border-t border-border space-y-3">
-          <div className="rounded-lg bg-muted/60 px-3 py-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="truncate">{me?.tenant.business_name || "Your business"}</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Viewing as {me ? ROLE_LABEL[me.tenant_role] : "—"}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 px-1">
-            <div className="w-8 h-8 rounded-full bg-primary grid place-items-center text-primary-foreground text-xs font-semibold shrink-0">
-              {(me?.full_name || me?.email || "?")
-                .split(/\s+/)
-                .slice(0, 2)
-                .map((w) => w[0]?.toUpperCase())
-                .join("")}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{me?.full_name || "You"}</p>
-              <p className="text-xs text-muted-foreground truncate">{me?.email}</p>
-            </div>
-          </div>
-
-          <button
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 border border-border rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Sign out
-          </button>
-        </div>
       </aside>
 
-      <main className="flex-1 min-w-0">{children}</main>
+      {/* The identity card that used to fill the foot of this rail (business,
+          role, name, email) is in the top bar's account menu now, beside Sign out. */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <TopBar
+          me={me}
+          bell={{ open: bellOpen, onToggle: () => setBellOpen((v) => !v) }}
+          onSignOut={logout}
+        />
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
 
-      {/* Rendered OUTSIDE the sidebar on purpose. `position: sticky` creates a
-          stacking context, so while this lived inside <aside> its z-50 was scoped
-          to the rail and could never rise above <main> — the panel came out
-          underneath the page content. As a sibling of <main> it sits in the root
-          stacking context and z-50 means what it says. */}
+      {/* Rendered OUTSIDE the top bar on purpose — see the stacking-context note
+          in Notifications.tsx. */}
       {bellOpen && <NotificationsPanel base="/work" onClose={() => setBellOpen(false)} />}
     </div>
   );

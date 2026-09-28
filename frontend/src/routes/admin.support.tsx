@@ -77,7 +77,7 @@ function ThreadList({
       <div className="px-4 py-3 border-b border-border text-xs uppercase tracking-wide text-muted-foreground font-medium">
         Conversations
       </div>
-      <ul className="divide-y divide-border max-h-[calc(100vh-16rem)] overflow-y-auto">
+      <ul className="divide-y divide-border max-h-[calc(100vh-19.5rem)] overflow-y-auto">
         {threads.length === 0 && (
           <li className="px-4 py-6 text-sm text-muted-foreground">Nothing here yet.</li>
         )}
@@ -149,7 +149,7 @@ function ThreadView({ conversationId }: { conversationId: string | null }) {
   }
 
   return (
-    <section className="bg-card border border-border rounded-xl shadow-card flex flex-col h-[calc(100vh-16rem)]">
+    <section className="bg-card border border-border rounded-xl shadow-card flex flex-col h-[calc(100vh-19.5rem)]">
       <div className="px-5 py-3 border-b border-border">
         <h2 className="font-semibold text-sm">
           {data?.person_name ?? "…"}

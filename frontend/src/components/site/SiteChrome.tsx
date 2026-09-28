@@ -1,19 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { Phone } from "lucide-react";
 // ThemeToggle moved to components/ThemeToggle.tsx so the portals can use it too; it is
 // re-exported here because the public pages import it from this module.
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Logo, LogoMark } from "@/components/Brand";
 export { ThemeToggle };
 
 export function SiteNav() {
   return (
     <header className="sticky top-0 z-50 backdrop-blur-lg bg-background/70 border-b border-border">
       <div className="forest-nav-inner mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 font-display font-bold text-lg">
-          <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
-            <Phone className="w-4 h-4 text-primary-foreground" />
-          </div>
-          AnswerLabs
+        <Link to="/" aria-label="AnswerLabs home">
+          <Logo />
         </Link>
         <nav className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
           <a href="#features" className="hover:text-foreground transition">
@@ -63,7 +60,7 @@ export function SiteFooter() {
     <footer className="border-t border-border mt-24">
       <div className="mx-auto max-w-7xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-gradient-primary" />
+          <LogoMark className="w-6 h-6" />
           <span>© {new Date().getFullYear()} AnswerLabs. All rights reserved.</span>
         </div>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">

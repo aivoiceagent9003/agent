@@ -21,6 +21,13 @@ import 'dotenv/config'
 
 const APP_URL = (process.env.APP_URL || 'http://localhost:8080').replace(/\/$/, '')
 
+// The brand wordmark as live text. The logo mark is SVG, which Gmail and Outlook
+// refuse to render, and there is no public URL yet to host a PNG — text survives
+// every client and image blocking. "Labs" and the button take the site's emerald
+// (--primary in frontend/src/styles.css) so the email looks like the product.
+const BRAND_GREEN = '#07724F'
+const WORDMARK = `<p style="margin:0 0 24px;font-size:20px;font-weight:700;letter-spacing:-0.3px;color:#141C19;">Answer<span style="color:${BRAND_GREEN};">Labs</span></p>`
+
 export function emailReady() {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
 }
@@ -109,6 +116,7 @@ function welcomeHtml(firstName) {
       <tr><td align="center">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;">
           <tr><td>
+            ${WORDMARK}
             <h1 style="margin:0 0 16px;font-size:22px;color:#111827;">Welcome to AnswerLabs 👋</h1>
             <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">${hi}</p>
             <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
@@ -123,7 +131,7 @@ function welcomeHtml(firstName) {
             </ol>
             <p style="margin:0 0 28px;">
               <a href="${APP_URL}/onboarding"
-                 style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:8px;">
+                 style="display:inline-block;background:${BRAND_GREEN};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:8px;">
                 Set up your agent
               </a>
             </p>
@@ -196,6 +204,7 @@ function inviteHtml({ businessName, inviterName, role, url }) {
       <tr><td align="center">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;">
           <tr><td>
+            ${WORDMARK}
             <h1 style="margin:0 0 16px;font-size:22px;color:#111827;">You've been invited to ${biz}</h1>
             <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
               ${who} has invited you to join <strong>${biz}</strong> on AnswerLabs — the AI voice agent
@@ -206,7 +215,7 @@ function inviteHtml({ businessName, inviterName, role, url }) {
             </p>
             <p style="margin:0 0 28px;">
               <a href="${url}"
-                 style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:8px;">
+                 style="display:inline-block;background:${BRAND_GREEN};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:8px;">
                 Accept your invite
               </a>
             </p>

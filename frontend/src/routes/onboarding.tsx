@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -10,7 +10,6 @@ import {
   Bell,
   Package,
   Sparkles,
-  Phone,
   Check,
   ArrowRight,
   ArrowLeft,
@@ -20,6 +19,7 @@ import {
   Download,
 } from "lucide-react";
 import { useRequireAuth } from "@/lib/use-auth";
+import { Logo } from "@/components/Brand";
 import { useMe } from "@/lib/team";
 import { VoiceTester } from "@/components/portal/VoiceTester";
 import { VoicePicker } from "@/components/portal/VoicePicker";
@@ -289,11 +289,12 @@ function Onboarding() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border">
-        <div className="mx-auto max-w-4xl px-6 h-16 flex items-center gap-2 font-display font-bold">
-          <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
-            <Phone className="w-4 h-4 text-primary-foreground" />
-          </div>
-          AnswerLabs
+        <div className="mx-auto max-w-4xl px-6 h-16 flex items-center">
+          {/* The logo is the way back to the dashboard: this page is also where
+              "Agent settings" in the top bar lands, and it has no nav of its own. */}
+          <Link to="/app" aria-label="Back to dashboard">
+            <Logo />
+          </Link>
         </div>
       </header>
 

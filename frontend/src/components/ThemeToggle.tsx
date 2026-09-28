@@ -14,44 +14,32 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { currentTheme, toggleTheme } from "@/lib/theme";
 
-export function ThemeToggle({ className = "" }: { className?: string }) {
+/**
+ * The theme state behind every toggle, so the site's button and the dashboard top
+ * bar can dress it differently without each re-deriving it.
+ */
+export function useDarkMode(): [dark: boolean, toggle: () => void] {
   const [dark, setDark] = useState(false);
   useEffect(() => {
     setDark(currentTheme() === "dark");
   }, []);
+  return [dark, () => setDark(toggleTheme() === "dark")];
+}
+
+export function ThemeToggle({ className = "" }: { className?: string }) {
+  const [dark, toggle] = useDarkMode();
   return (
     <button
       type="button"
       aria-label="Toggle dark mode"
       title={dark ? "Switch to light" : "Switch to dark"}
-      onClick={() => setDark(toggleTheme() === "dark")}
+      onClick={toggle}
       className={
         className ||
         "grid place-items-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition"
       }
     >
       {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-    </button>
-  );
-}
-
-/**
- * The same control wearing a sidebar row's clothes, so it sits beside "Sign out"
- * rather than looking like a button somebody dropped into the nav.
- */
-export function ThemeToggleRow() {
-  const [dark, setDark] = useState(false);
-  useEffect(() => {
-    setDark(currentTheme() === "dark");
-  }, []);
-  return (
-    <button
-      type="button"
-      onClick={() => setDark(toggleTheme() === "dark")}
-      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition"
-    >
-      {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-      {dark ? "Light mode" : "Dark mode"}
     </button>
   );
 }
