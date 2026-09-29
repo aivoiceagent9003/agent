@@ -26,6 +26,14 @@ import { VoicePicker } from "@/components/portal/VoicePicker";
 import { LiveDataSetup } from "@/components/portal/LiveDataSetup";
 import { CompanyRules } from "@/components/portal/CompanyRules";
 import {
+  LanguageSetting,
+  readLanguageSetting,
+  languageSummary,
+  CHOOSABLE_LANGUAGES,
+  DEFAULT_CALLER_LANGUAGES,
+  type LanguageMode,
+} from "@/components/portal/LanguageSetting";
+import {
   useAgentTemplates,
   useClientDocuments,
   useDeleteDocument,
@@ -83,6 +91,8 @@ function Onboarding() {
   const deleteDocument = useDeleteDocument();
   const { data: agent } = useAgent();
   const { data: voices = [] } = useVoices();
+  // What a call speaks in when no voice has been picked (Ramya).
+  const defaultVoiceId = voices.find((v) => v.isDefault)?.id || "";
   const saveAgent = useSaveAgent();
   const publishAgent = usePublishAgent();
 
@@ -102,7 +112,9 @@ function Onboarding() {
   const [businessName, setBusinessName] = useState("");
   const [phone, setPhone] = useState("");
   const [handoff, setHandoff] = useState("");
-  const [multilingual, setMultilingual] = useState(true);
+  // English, or the caller picks from these at the start of every call.
+  const [languageMode, setLanguageMode] = useState<LanguageMode>("caller_choice");
+  const [callerLanguages, setCallerLanguages] = useState<string[]>(DEFAULT_CALLER_LANGUAGES);
   const [voice, setVoice] = useState("");
   const [recordingEnabled, setRecordingEnabled] = useState(false);
   const [recordingNotice, setRecordingNotice] = useState("");
@@ -139,11 +151,16 @@ function Onboarding() {
 
     setBuiltConfig(cfg);
     setAgentName(cfg.agent_name || "Priya");
-    if (typeof cfg.allow_multilingual === "boolean") setMultilingual(cfg.allow_multilingual);
+    const lang = readLanguageSetting(cfg);
+    setLanguageMode(lang.mode);
+    setCallerLanguages(lang.languages);
     if (typeof cfg.recording_enabled === "boolean") setRecordingEnabled(cfg.recording_enabled);
     if (cfg.recording_notice) setRecordingNotice(cfg.recording_notice);
     if (cfg.handoff_number) setHandoff(cfg.handoff_number);
-    if (cfg.voice) setVoice(cfg.voice);
+    // Calls read `tts_voice`. This page used to load and save `voice`, which nothing on a
+    // call reads — so every pick here was silently ignored and every call spoke as Ramya.
+    // Only a Telnyx id counts; with none, the picker shows the default the calls use.
+    if (String(cfg.tts_voice || "").startsWith("Telnyx.")) setVoice(cfg.tts_voice);
     if (Array.isArray(cfg.lookups)) setLookups(cfg.lookups);
     if (Array.isArray(cfg.company_rules)) setCompanyRules(cfg.company_rules);
     if (agent.phone_number) setPhone(agent.phone_number);
@@ -169,7 +186,10 @@ function Onboarding() {
       ...(builtConfig || {}),
       agent_name: agentName,
       business_name: businessName,
-      allow_multilingual: multilingual,
+      language_mode: languageMode,
+      caller_languages: callerLanguages,
+      // The old toggle's key, kept true/false in step so nothing reading it disagrees.
+      allow_multilingual: languageMode === "caller_choice",
       recording_enabled: recordingEnabled,
     };
     if (handoff.trim()) {
@@ -180,7 +200,7 @@ function Onboarding() {
       cfg.lookups = lookups;
       cfg.enable_lookups = true;
     }
-    if (voice.trim()) cfg.voice = voice.trim();
+    if (voice.trim()) cfg.tts_voice = voice.trim(); // the key calls read — see resolveVoice
     // Always sent, even when empty — same merge trap as recording_notice below.
     // Omitting the key on the last deletion would leave the old rules in the
     // database and the agent would keep following a rule the client just removed.
@@ -204,17 +224,18 @@ function Onboarding() {
         config = tpl.config || {};
       } else {
         if (!goal.trim()) throw new Error("Please describe what your agent should do");
-        const langs = multilingual ? ["English", "Hindi"] : ["English"];
+        const langs =
+          languageMode === "english"
+            ? ["English"]
+            : callerLanguages.map((c) => CHOOSABLE_LANGUAGES.find((l) => l.code === c)?.name || c);
         const res = await generatePrompt({ goal, languages: langs });
         config = res.config || {};
       }
       setBuiltConfig(config);
       setAgentName(config.agent_name || "Priya");
-      if (typeof config.allow_multilingual === "boolean")
-        setMultilingual(config.allow_multilingual);
       if (config.handoff_number) setHandoff(config.handoff_number);
       if (Array.isArray(config.lookups)) setLookups(config.lookups);
-      if (config.voice) setVoice(config.voice);
+      if (String(config.tts_voice || "").startsWith("Telnyx.")) setVoice(config.tts_voice);
       setStep(1);
     } catch (e: any) {
       toast.error(e.message || "Could not prepare your agent");
@@ -443,7 +464,7 @@ function Onboarding() {
                   Pick how your agent should sound. Every voice speaks Indian languages (Telugu,
                   Hindi, Tamil…) natively — they differ in tone.
                 </p>
-                <VoicePicker voices={voices} value={voice} onChange={setVoice} />
+                <VoicePicker voices={voices} value={voice || defaultVoiceId} onChange={setVoice} />
                 {voices.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     No voices available — check your TTS provider config.
@@ -495,18 +516,12 @@ function Onboarding() {
                 </p>
               </div>
 
-              <label className="flex items-center justify-between gap-3 bg-input border border-border rounded-lg px-3 py-2.5 cursor-pointer">
-                <span className="text-sm">Multilingual (answer in the caller's language)</span>
-                <button
-                  type="button"
-                  onClick={() => setMultilingual((v) => !v)}
-                  className={`relative w-10 h-6 rounded-full transition ${multilingual ? "bg-gradient-primary" : "bg-muted"}`}
-                >
-                  <span
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-card shadow transition ${multilingual ? "left-[18px]" : "left-0.5"}`}
-                  />
-                </button>
-              </label>
+              <LanguageSetting
+                mode={languageMode}
+                languages={callerLanguages}
+                onModeChange={setLanguageMode}
+                onLanguagesChange={setCallerLanguages}
+              />
 
               {/* Recording is opt-in, and the disclosure is the whole reason it
                   is allowed — so the wording lives directly under the toggle, as
@@ -752,10 +767,16 @@ function Onboarding() {
               />
               <Row label="Business" value={businessName} />
               <Row label="Agent name" value={agentName} />
-              <Row label="Voice" value={voices.find((v) => v.id === voice)?.label || "Default"} />
+              <Row
+                label="Voice"
+                value={(() => {
+                  const v = voices.find((x) => x.id === (voice || defaultVoiceId));
+                  return v ? `${v.label} (${v.accent})` : "Default";
+                })()}
+              />
               <Row label="Number to automate" value={phone} />
               <Row label="Human handoff" value={handoff.trim() || "Not set"} />
-              <Row label="Multilingual" value={multilingual ? "Yes" : "No"} />
+              <Row label="Language" value={languageSummary(languageMode, callerLanguages)} />
               <Row label="Call recording" value={recordingEnabled ? "On — callers are told" : "Off"} />
               <Row label="Knowledge files" value={String(docs.length)} />
               <Row

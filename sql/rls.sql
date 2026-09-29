@@ -93,6 +93,7 @@ with expected(tablename, defined_in) as (values
   ('contact_sources','campaigns.sql'),       ('suppression_list','campaigns.sql'),
   ('retry_queue','campaigns.sql'),           ('scheduled_jobs','campaigns.sql'),
   ('campaign_events','sources.sql'),
+  ('campaign_documents','campaign-knowledge.sql'), ('campaign_knowledge','campaign-knowledge.sql'),
   ('conversations','messaging.sql'),         ('conversation_members','messaging.sql'),
   ('messages','messaging.sql'),              ('notifications','messaging.sql'),
   ('invitations','team.sql'),                ('lead_activity','team.sql'),

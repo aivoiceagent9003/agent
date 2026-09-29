@@ -33,8 +33,10 @@
 import 'dotenv/config'
 import { buildSystemPrompt } from './llm.js'
 import { runLookup } from './lookups.js'
-import { retrieveKnowledge, warmupRAG, knowledgeVocabulary, whenKnowledgeLoaded } from './rag.js'
-import { resolveGreeting } from './greeting.js'
+import { retrieveKnowledge, warmupRAG, knowledgeVocabulary, whenKnowledgeLoaded, knowledgeKey } from './rag.js'
+import { greetingLanguage, openingForCall } from './greeting.js'
+import { languagePlan, choiceFromAnswer, switchRequest } from './call-language.js'
+import { toName, toCode } from './language-manager.js'
 import { addToDnd } from './dnd.js'
 import { whatsappReady } from './whatsapp.js'
 import { buildAgentTools, handleSendWhatsapp, noKnowledgeInstruction, NO_KNOWLEDGE } from './agent-tools.js'
@@ -393,13 +395,40 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
   let ttsRefusedLogged = false
   const canHandoff = tenantConfig.enable_handoff !== false && !!tenantConfig.handoff_number
   const ttsVoice = resolveVoice(tenantConfig)
+  // The business's knowledge base, or only a campaign's own files — see knowledgeKey.
+  const kbKey = knowledgeKey(tenantConfig)
+
+  // The call's language, from the business's setting (call-language.js). An English agent
+  // is fixed from the first word. A caller-chooses agent opens by asking, and the answer
+  // locks the call; until then callLanguage is null. The model is never asked to work the
+  // language out for itself — see language-rules.js for what happened when it was.
+  const langPlan = languagePlan(tenantConfig)
+  const langChoices = langPlan.choices.map(toName)
+  const opening = openingForCall(tenantConfig)
+  const openingLang = greetingLanguage(tenantConfig)
+  let callLanguage = langPlan.mode === 'english' ? 'en' : null
+  let languageJustChosen = false   // the reply to the choice carries on the held-back opening
+  let turnsWithoutChoice = 0
+  // Answers that name no language. The first earns the question again; after this many
+  // the call carries on in the greeting's language rather than asking a third time.
+  const MAX_TURNS_WITHOUT_CHOICE = 2
+
+  function lockLanguage(code, why) {
+    callLanguage = code
+    languageJustChosen = why !== 'asked to switch'
+    trace?.set('chosenLanguage', code)
+    console.log(`${tag} 🗣️ call language: ${toName(code)} (${why})`)
+    telemetry.incr(`call_language_${why.replace(/\s+/g, '_')}`)
+  }
 
   const systemPrompt = buildSystemPrompt(tenantConfig, {
     // NOT 'speech': the model writes, the voice reads. 'speech' told it to spell numbers
     // out as words at the same time as VOICE_OUTPUT_RULES told it to write digits.
     channel: 'voice',
     whatsapp: whatsappReady(tenantConfig),
-    language: { modelLed: true },
+    // The greeting's language is what the model speaks until a caller-chooses caller
+    // has picked — see greetingLanguage for the call that went wrong without it.
+    language: { modelLed: true, mode: langPlan.mode, choices: langChoices, opening: openingLang },
   }) + '\n\n' + VOICE_OUTPUT_RULES
   const messages = [{ role: 'system', content: systemPrompt }]
 
@@ -412,7 +441,7 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
   }))
   const cacheFor = (system) => (GEMINI_CACHE ? cachedContentFor({ apiKey: GOOGLE_KEY, model: LLM_MODEL, system, tools: toolDeclarations }) : null)
 
-  if (tenantConfig.tenant_id && tenantConfig.enable_kb !== false) warmupRAG(tenantConfig.tenant_id)
+  if (kbKey && tenantConfig.enable_kb !== false) warmupRAG(kbKey)
 
   // The network's share of every model request: a Google API call that runs no model.
   // Twice, keeping the faster, because the first also pays for the TLS handshake that
@@ -588,7 +617,7 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
   // ── Tools (declared in agent-tools.js) ──────────────────────────────────────
   async function runTool(name, args) {
     if (name === 'search_knowledge') {
-      const output = await retrieveKnowledge(tenantConfig.tenant_id, args?.query || '', KB_CHUNKS, { mode: args?.mode }) || noKnowledgeInstruction(tenantConfig)
+      const output = await retrieveKnowledge(kbKey, args?.query || '', KB_CHUNKS, { mode: args?.mode, tenantId: tenantConfig.tenant_id }) || noKnowledgeInstruction(tenantConfig)
       const miss = output.startsWith(NO_KNOWLEDGE)
       console.log(`${tag} 🔎 search_knowledge("${args?.query}") → ${miss ? 'MISS' : output.length + ' chars'}`)
       trace?.bump('knowledgeAsks')
@@ -677,10 +706,25 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
     // everything and printed the cost line — and a turn started here would generate and
     // synthesise a reply to nobody.
     if (finished) return
+    // A caller-chooses call: read the choice off their answer — a language they NAME, never
+    // one guessed from how they sounded. Once locked, only an explicit request for another
+    // offered language changes it.
+    if (langPlan.mode === 'caller_choice') {
+      if (!callLanguage) {
+        const picked = choiceFromAnswer(userText, langPlan.choices)
+        if (picked) lockLanguage(picked, 'chose')
+        else if (++turnsWithoutChoice >= MAX_TURNS_WITHOUT_CHOICE) lockLanguage(toCode(openingLang) || 'en', 'did not choose')
+      } else {
+        const wanted = switchRequest(userText, langPlan.choices, callLanguage)
+        if (wanted) lockLanguage(wanted, 'asked to switch')
+      }
+    }
     const turn = {
       id: ++turnSeq, controller: new AbortController(), done: false, ...timing,
       toolMs: 0, ragMs: 0, rounds: 0, toolNames: [],
     }
+    // "Let me check" in the call's language, not whatever the STT thought it heard.
+    if (callLanguage) turn.language = callLanguage
     current = turn
     // Old lookup results out, before this turn is sent. See compactHistory.
     compactHistory(messages, { keepToolTurns: HISTORY_TOOL_TURNS, maxTurns: HISTORY_MAX_TURNS })
@@ -707,7 +751,14 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
         const wantTools = tools.length && round < MAX_TOOL_ROUNDS - 1
         // The system prompt is held in the cache (or sent inline); the per-turn guidance
         // travels at the end of the conversation either way.
-        const built = voiceTurnMessages(turnMessages, { separateGuidance: true })
+        const built = voiceTurnMessages(turnMessages, {
+          separateGuidance: true,
+          language: {
+            mode: langPlan.mode, choices: langChoices, opening: openingLang,
+            chosen: callLanguage ? toName(callLanguage) : null,
+            justChosen: languageJustChosen, pending: opening.pending,
+          },
+        })
         // Only cache when the tools in this request match the tools in the cache — the
         // last tool round drops them, and a cache holding tool schemas would put them
         // back and undo the point of dropping them.
@@ -845,6 +896,8 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
     const text = stripHandoffSignal(spoken)
     if (text) {
       messages.push({ role: 'assistant', content: text })
+      // The held-back opening has now been said in the chosen language.
+      languageJustChosen = false
       onTranscript?.(text, 'assistant')
       console.log(`${tag} Agent: "${text}"`)
       // What the voice is actually given, which is not always what the model wrote.
@@ -1068,7 +1121,7 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
 
   // The tenant's product names, as a hint for Sarvam — see knowledgeVocabulary.
   function sttVocabularyPrompt() {
-    const words = tenantConfig.tenant_id ? knowledgeVocabulary(tenantConfig.tenant_id) : null
+    const words = kbKey ? knowledgeVocabulary(kbKey) : null
     return words?.length ? `Phone call to ${tenantConfig.business_name || 'a business'}. Product names you may hear: ${words.join(', ')}.` : ''
   }
 
@@ -1085,8 +1138,8 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
     stt = ws
     // The first call after a restart connects before the knowledge has loaded; the
     // vocabulary is sent the moment it has, rather than waiting for the next call.
-    if (!vocabularyPrompt && tenantConfig.tenant_id) {
-      whenKnowledgeLoaded(tenantConfig.tenant_id).then(() => {
+    if (!vocabularyPrompt && kbKey) {
+      whenKnowledgeLoaded(kbKey).then(() => {
         const late = sttVocabularyPrompt()
         if (late && stt === ws) { ws.configure({ prompt: late }); console.log(`${tag} 🗣️ STT now listening for this tenant's product names (sent mid-call)`) }
       }).catch(() => {})
@@ -1153,7 +1206,8 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
       // The call's language so far, for the post-call lead extractor. Recomputed each
       // turn rather than at hangup, because a call can end without a clean teardown.
       const dominant = [...callLangs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null
-      if (dominant) trace?.set('dominantLanguage', dominant)
+      // A language the caller chose describes the call better than what the STT heard.
+      if (callLanguage || dominant) trace?.set('dominantLanguage', callLanguage || dominant)
       if (!text) return
       const endpointAt = Date.now()
       const speechEndAt = lastFinalEndMs ? audioMsToWall(lastFinalEndMs) : null
@@ -1172,10 +1226,14 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
       onTranscript?.(text, 'user')
       trace?.set('lastTranscript', text.slice(0, 300))
 
-      // A lone "okay" while the agent is still talking is the caller listening.
+      // A lone "okay" while the agent is still talking is the caller listening — but a lone
+      // "Telugu" is the answer to the language question, usually said as its last words are
+      // still playing. Dropped, the caller waits for the agent and the agent for the caller.
       const words = (text.match(/[\p{L}\p{N}]+/gu) || []).length
+      const answersLanguageQuestion = langPlan.mode === 'caller_choice' && !callLanguage &&
+        !!choiceFromAnswer(text, langPlan.choices)
       if (busy()) {
-        if (words < BARGE_IN_MIN_WORDS) return
+        if (words < BARGE_IN_MIN_WORDS && !answersLanguageQuestion) return
         interrupt('caller finished a turn over the agent')
       }
       wordsWhileSpeaking = 0
@@ -1207,7 +1265,8 @@ export function createCascadeConnection(callSid, tenantConfig, sink, streamSid, 
   function greet() {
     if (greeted) return
     greeted = true
-    const greeting = resolveGreeting(tenantConfig)
+    // For a caller-chooses agent this ends with the language question; see openingForCall.
+    const greeting = opening.line
     messages.push({ role: 'assistant', content: greeting })
     const greetTurn = { id: ++turnSeq, controller: new AbortController(), done: false, endpointAt: Date.now() }
     current = greetTurn

@@ -101,6 +101,8 @@ export interface Voice {
   accent: string | null;
   note: string;
   kind: "built-in" | "cloned";
+  /** The voice calls use when the agent has not picked one (Ramya). */
+  isDefault?: boolean;
 }
 
 export interface Billing {

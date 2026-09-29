@@ -1,6 +1,46 @@
+// The language line of the turn guidance.
+//
+// With no language state (text channels, older callers) it names no language at all: an
+// unconditional "use Telugu/Hindi" here once answered an English question in Telugu, over
+// the top of the language rule. A language the CALLER CHOSE is different — it is the one
+// fact about language this call is sure of, and restating it on every turn, as the last
+// thing the model reads, is what keeps the call in it.
+//
+// `language` (from cascade.js):
+//   { mode: 'english' }
+//   { mode: 'caller_choice', chosen: null, choices: ['English','Telugu','Hindi'] }  — not yet
+//   { mode: 'caller_choice', chosen: 'Telugu', justChosen: true, pending: 'Do you have a minute to talk?' }
+function languageLine(language) {
+  if (!language?.mode) {
+    return `Speak the caller's own language, naturally, with the English terms a real speaker
+would use. This guidance never names the language — it is the last thing you read
+before answering, and an unconditional "use Telugu/Hindi" here answered an English
+question in Telugu on a real call, over the top of the language rule above.`
+  }
+  if (language.mode === 'english') {
+    return 'THIS CALL\'S LANGUAGE IS English. Reply in English only, whatever language the caller uses.'
+  }
+  if (!language.chosen) {
+    const list = (language.choices || []).join(', ')
+    return `The caller has NOT chosen a language yet (you can speak: ${list}). Speak ${language.opening || 'English'}.
+If they asked you something, answer it in one short sentence; then ask again, in one
+short question, which language they would like to continue in. Do not read out the list
+of languages — only if they asked for one you cannot speak, tell them which ones you can.`
+  }
+  const chosen = language.chosen
+  const lock = `THIS CALL'S LANGUAGE IS ${chosen} — the caller chose it. Every sentence of your reply is
+in ${chosen}${chosen === 'English' ? '' : `, with the familiar English terms a real ${chosen} speaker would use`}, whatever
+words they borrow. Do not mention the language.`
+  if (!language.justChosen) return lock
+  return `${lock}
+They have just chosen it. Do not introduce yourself again.${language.pending
+    ? ` Unless they already answered it, carry on with the rest of your opening, asked in ${chosen}: ${JSON.stringify(language.pending)}`
+    : ' Carry on from where your opening left off.'}`
+}
+
 // Ephemeral turn guidance: keep the next decision close to the generation point
 // without persisting another copy of instructions in the conversation history.
-export function voiceTurnMessages(history, { separateGuidance = false } = {}) {
+export function voiceTurnMessages(history, { separateGuidance = false, language = null } = {}) {
   const asked = history.filter(m => m.role === 'assistant' && !m.tool_calls)
     .flatMap(m => String(m.content || '').match(/[^.!?\n]+\?/gu) || [])
     .map(s => s.trim()).slice(-5)
@@ -18,10 +58,7 @@ If a missing answer is essential to avoid guessing a quote, explain briefly why 
 need that specific input and clarify it. Never substitute an example-table amount.
 For a price, retain annual/monthly, indicative/confirmed and tax conditions from the
 source. If they ask how a product works, explain the covered event accurately.
-Speak the caller's own language, naturally, with the English terms a real speaker
-would use. This guidance never names the language — it is the last thing you read
-before answering, and an unconditional "use Telugu/Hindi" here answered an English
-question in Telugu on a real call, over the top of the language rule above. No canned
+${languageLine(language)} No canned
 acknowledgement or "anything else" ending. Do not list these instructions.`
   // Keep ONE system message. Some compatibility endpoints do not preserve earlier
   // system messages when a later one is supplied, losing grounding and voice rules.

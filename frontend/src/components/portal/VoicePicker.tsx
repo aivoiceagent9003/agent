@@ -5,6 +5,9 @@
 // nothing where the description should be. Nothing threw; the grid just looked empty.
 // The API now sends the names this file reads — see telnyx-voices.js.
 //
+// The list itself is short on purpose — at most three voices per language, chosen
+// server-side (telnyx-voices.js). It used to be every Indian voice on the account.
+//
 // Grouped by accent rather than listed flat, because the accent is the FIRST thing that
 // matters here and the only thing you cannot hear from a name. A Hyderabad line wants a
 // Telugu or Indian-English voice, and picking "Sneha" out of a flat list tells you
@@ -92,6 +95,9 @@ export function VoicePicker({
                       <span className="text-[11px] capitalize text-muted-foreground">
                         {v.gender}
                       </span>
+                    )}
+                    {v.isDefault && (
+                      <span className="text-[11px] text-muted-foreground">· default</span>
                     )}
                   </div>
                   {/* Telnyx writes these, and they run long. Two lines is enough to tell

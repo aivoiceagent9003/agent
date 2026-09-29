@@ -1,6 +1,15 @@
 // config/conversation/language-rules.js — LAYER 4e: LANGUAGE.
 //
-// Two modes, one switch.
+// PHONE CALLS use the business's setting (services/call-language.js), passed as
+// language.mode:
+//   'english'        — every reply in English; none of the Telugu/Hindi coaching below.
+//   'caller_choice'  — the caller picks from the business's languages at the start and
+//                      the call is locked to it; the pick is restated on every turn
+//                      (voice-turn-context.js), so the model never has to guess.
+// Both replaced MODEL-LED on calls: told to mirror the caller, and surrounded by Telugu
+// and Hindi examples, the model answered English callers in Telugu and Hindi.
+//
+// Without a mode (text channels, older callers) the two original modes still apply:
 //
 // MODEL-LED (default): the model owns the language. It hears the caller's actual
 // audio, which is a strictly better signal than the transcription channel — on real
@@ -34,6 +43,13 @@ export function languageRules(ctx) {
     ? `YOU OWN THE CONVERSATION LANGUAGE. Speak the language the CALLER is speaking.
 ${inputEvidence} When they change
 language, change with them, immediately and silently, from your very next reply.
+
+ENGLISH IS ONE OF YOUR LANGUAGES, NOT A MIX OF THE OTHERS. A caller speaking English
+gets every reply entirely in English: the answer, your questions, the figures, and the
+goodbye. Almost every example phrase in your instructions is Telugu or Hindi, because
+that is where natural phrasing is hardest to get right. Those examples show HOW to
+speak Telugu and Hindi; they never decide WHICH language you speak. Never say one of
+them, or anything in Telugu or Hindi script, to a caller who is speaking English.
 
 THE CALLER'S LANGUAGE IS THE ONLY THING THAT DECIDES THIS. None of the following
 decides it, and you must ignore every one of them:
@@ -90,16 +106,9 @@ CURRENT CONVERSATION LANGUAGE: ${language.locked}. Reply primarily in ${language
 and do not greet again. Do not change it yourself.`
     : ''
 
-  return `#1 PRIORITY — LANGUAGE (this overrides every other language instruction below)
-
-${ownership}${locked || anchor}
-
-NEVER TALK ABOUT LANGUAGE
-- Never refuse a language. Never tell the caller which language to use.
-- Never say you were told, asked or instructed to use a language. Never explain,
-  apologise for, or comment on the language you are speaking. Just speak.
-
-CODE-MIXING IS NORMAL, NOT A SWITCH
+  // How Telugu and Hindi are actually spoken on a phone. Only for calls that can be in
+  // them — an English-only call gets none of it (see englishOnlyRules).
+  const register = `CODE-MIXING IS NORMAL, NOT A SWITCH
 - Callers speak Telugu or Hindi while borrowing English words. Keep their base language
   and mirror their mixing inside it. Do not flip your whole reply to English because
   they used one English noun.
@@ -152,7 +161,83 @@ This is the single biggest thing that decides whether you sound human.
   their day. Nothing after it.
 - Do not drift. If you opened in natural spoken Tinglish you must still be speaking it
   at the end. Sliding into formal Telugu or Hindi part-way through is a failure even if
-  every sentence is grammatically correct.
+  every sentence is grammatically correct.`
+
+  if (language.mode === 'english') return englishOnlyRules(channel)
+  if (language.mode === 'caller_choice') return callerChoiceRules(language, register)
+
+  return `#1 PRIORITY — LANGUAGE (this overrides every other language instruction below)
+
+${ownership}${locked || anchor}
+
+NEVER TALK ABOUT LANGUAGE
+- Never refuse a language. Never tell the caller which language to use.
+- Never say you were told, asked or instructed to use a language. Never explain,
+  apologise for, or comment on the language you are speaking. Just speak.
+
+${register}
 
 Your greeting language is only an opener. It does not lock the conversation.`
+}
+
+// The business takes every call in English. Short on purpose, and with no Telugu or
+// Hindi in it: every example phrase in another language is one more thing to copy.
+//
+// No style advice either. A "short, plain sentences, not brochure phrasing" line here
+// stopped the model looking things up: replayed on a real campaign call, "what does it
+// cover?" was searched 1/8 and 4/8 times with it — the rest invented a number of covered
+// illnesses (30, 40, 60; the brochure says 92) — and 12/12 without it. How to speak is
+// the speech layer's job; this layer only decides the language.
+function englishOnlyRules(channel) {
+  const figures = channel === 'voice'
+    ? 'Write exact amounts, dates, times, percentages and identifiers as digits.'
+    : 'Keep figures clear and exact.'
+  return `#1 PRIORITY — LANGUAGE (this overrides every other language instruction below)
+
+THIS BUSINESS TAKES EVERY CALL IN ENGLISH. Speak English in every reply — the answer,
+your questions, the figures and the goodbye — whatever language the caller uses. Never
+reply in Telugu, Hindi or any other language, and never mix words of one in. Examples in
+other languages anywhere in your instructions do not apply to this call.
+
+If the caller speaks another language or asks for one, say once, kindly, that you can
+only speak English on this call, then carry on in simple, clear English. Otherwise never
+talk about language.
+
+${figures}`
+}
+
+// The caller picked the language at the start of the call, and it is locked.
+function callerChoiceRules(language, register) {
+  const choices = (language.choices || []).filter(Boolean)
+  const list = choices.length > 1 ? `${choices.slice(0, -1).join(', ')} or ${choices.at(-1)}` : (choices[0] || 'English')
+  const others = choices.filter(c => c !== 'English')
+  // The detailed coaching is Telugu and Hindi, with examples in both. It is only worth
+  // its examples when one of those can be chosen; other languages get the principle.
+  const coached = others.filter(c => c === 'Telugu' || c === 'Hindi')
+  const uncoached = others.filter(c => !coached.includes(c))
+  const howToSpeak = [
+    coached.length ? register : '',
+    uncoached.length
+      ? `Speak ${uncoached.join(' or ')} the way people do on the phone: everyday spoken words with the familiar
+English business terms a real speaker uses, never textbook or formal wording.`
+      : '',
+  ].filter(Boolean).join('\n\n')
+  return `#1 PRIORITY — LANGUAGE (this overrides every other language instruction below)
+
+THE CALLER CHOOSES THIS CALL'S LANGUAGE, ONCE. Your opening line asked which language
+they would like to continue in. You can speak ${list}; if they ask for another, tell
+them which of those you can. Once they have chosen, every turn tells you which: "THIS
+CALL'S LANGUAGE IS …". From then on speak ONLY that language, in every reply including the goodbye.
+Borrowed words are not a change: a caller who chose Telugu and says "okay" or "premium"
+is still speaking Telugu, and one who chose English and says "haan" is still speaking
+English. The language changes only when the turn tells you the caller asked for another.
+Examples in other languages anywhere in your instructions never decide the language.
+
+Until they have chosen, speak ${language.opening || 'English'} and help them choose.
+Apart from that choice, never talk about language: never explain, apologise for or
+comment on the language you are speaking.${howToSpeak ? `
+
+HOW TO SPEAK ${others.join(' AND ').toUpperCase()} WHEN THAT IS THEIR CHOICE
+
+${howToSpeak}` : ''}`
 }

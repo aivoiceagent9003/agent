@@ -17,6 +17,7 @@ import { buildContext, describeLayers } from '../config/conversation/index.js'
 import { retrieveKnowledge, invalidateKnowledge } from '../services/rag.js'
 import { listTelnyxVoices } from '../services/telnyx-voices.js'
 import { ingestText } from '../ingest.js'
+import { extractTextFromFile } from '../services/extract-text.js'
 import {
   createDocument,
   listDocuments,
@@ -95,49 +96,6 @@ function permissionForRequest(req) {
 router.use(requireClient())
 router.use((req, res, next) => requirePermission(permissionForRequest(req))(req, res, next))
 
-// Extract plain text from an uploaded file based on its type:
-//   PDF   → pdf-parse        DOCX → mammoth
-//   image → OpenAI vision    everything else → treat as UTF-8 text
-async function extractTextFromFile(file) {
-  const name = (file.originalname || '').toLowerCase()
-  const mime = file.mimetype || ''
-  const buf = file.buffer
-
-  if (mime === 'application/pdf' || name.endsWith('.pdf')) {
-    const { PDFParse } = await import('pdf-parse')
-    const parser = new PDFParse({ data: buf })
-    const result = await parser.getText()
-    return result?.text || ''
-  }
-
-  if (name.endsWith('.docx') ||
-      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-    const mammoth = (await import('mammoth')).default
-    const { value } = await mammoth.extractRawText({ buffer: buf })
-    return value || ''
-  }
-
-  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/.test(name)) {
-    // OCR via a vision model — handles scanned docs, screenshots, photos.
-    const dataUrl = `data:${mime || 'image/png'};base64,${buf.toString('base64')}`
-    const completion = await ai.chat.completions.create({
-      model: process.env.OPENAI_VISION_MODEL || 'gpt-4o-mini',
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Extract ALL text and useful information from this image as plain text for a knowledge base — include prices, names, numbers, and details. Output only the extracted text, no commentary.' },
-          { type: 'image_url', image_url: { url: dataUrl } },
-        ],
-      }],
-      max_tokens: 1500,
-    })
-    return completion.choices[0]?.message?.content || ''
-  }
-
-  // .txt / .md / .csv / .json / unknown → best-effort UTF-8
-  return buf.toString('utf8')
-}
-
 // ─── Templates are public-ish (any logged-in client can browse them) ──────────
 router.get('/templates', (req, res) => {
   // Return lightweight list (no need to send full prompts for the picker)
@@ -182,9 +140,10 @@ router.get('/prompt-layers', async (req, res) => {
 })
 
 // ─── Available voices (for the "Choose what voice to speak" picker) ───────────
-// Calls are spoken by Telnyx Ultra, so these are its Indian-language voices (see
-// telnyx-voices.js). The chosen id belongs in `tts_voice`, NOT the older `voice`
-// field, which still holds Gemini Live names for tenants created before the switch.
+// Calls are spoken by Telnyx Ultra; this is a short chosen list of its voices, at most
+// three per language (see telnyx-voices.js). The chosen id belongs in `tts_voice`, NOT
+// the older `voice` field, which still holds Gemini Live names for tenants created
+// before the switch — and which nothing on a call reads.
 router.get('/voices', async (_req, res) => {
   try {
     res.json(await listTelnyxVoices())

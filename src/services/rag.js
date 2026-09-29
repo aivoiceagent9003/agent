@@ -25,6 +25,31 @@ const EMBEDDER = String(process.env.RAG_EMBEDDER || 'openai').trim().toLowerCase
 const OPENAI_MIN_SIMILARITY = 0.3
 const LOCAL_MIN_SIMILARITY = Number(process.env.RAG_LOCAL_MIN_SIMILARITY || 0.83)
 
+// ─── Knowledge scopes ───────────────────────────────────────────────────────
+// Knowledge is searched by KEY. A tenant id means the business's own knowledge base
+// (knowledge_base). `campaign:<id>` means only the files uploaded for that one
+// campaign (campaign_knowledge), for a campaign about something the knowledge base
+// does not cover yet. Every cache, in-memory index and local-vector file below is
+// keyed by that string, so neither can ever answer for the other — an inbound
+// caller must not hear about a project that was only meant for one campaign.
+const CAMPAIGN_PREFIX = 'campaign:'
+
+function sourceOf(key) {
+  const k = String(key)
+  return k.startsWith(CAMPAIGN_PREFIX)
+    ? { table: 'campaign_knowledge', column: 'campaign_id', id: k.slice(CAMPAIGN_PREFIX.length), campaign: true }
+    : { table: 'knowledge_base', column: 'tenant_id', id: k, campaign: false }
+}
+
+/**
+ * Which knowledge a call searches: the campaign's own files when the campaign was set
+ * to talk from them (kb_source 'campaign'), otherwise the business's knowledge base.
+ */
+export function knowledgeKey(config = {}) {
+  if (config.kb_source === 'campaign' && config.campaign_id) return `${CAMPAIGN_PREFIX}${config.campaign_id}`
+  return config.tenant_id || null
+}
+
 // ─── Warmup ───────────────────────────────────────────────────────────────
 // Fire a tiny embedding request when the call starts so the first REAL query
 // isn't a cold start (which was taking ~3 seconds), and load the tenant's chunks
@@ -123,10 +148,11 @@ const INDEX_MAX_CHUNKS = 5000           // ~30MB of vectors; bigger tenants stay
 const PAGE = 1000                       // PostgREST's default max rows per request
 
 async function knowledgeSignature(tenantId) {
+  const src = sourceOf(tenantId)
   const { data, count, error } = await supabase
-    .from('knowledge_base')
+    .from(src.table)
     .select('created_at', { count: 'exact' })
-    .eq('tenant_id', tenantId)
+    .eq(src.column, src.id)
     .order('created_at', { ascending: false })
     .limit(1)
   if (error) throw new Error(error.message)
@@ -135,6 +161,7 @@ async function knowledgeSignature(tenantId) {
 
 async function loadTenantIndex(tenantId) {
   const t0 = Date.now()
+  const src = sourceOf(tenantId)
   const { count, sig } = await knowledgeSignature(tenantId)
   if (count > INDEX_MAX_CHUNKS) {
     TENANT_INDEX.set(tenantId, { tooLarge: true, sig, checkedAt: Date.now(), usedAt: Date.now() })
@@ -145,9 +172,9 @@ async function loadTenantIndex(tenantId) {
   const rows = []
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
-      .from('knowledge_base')
+      .from(src.table)
       .select('id, content, embedding')
-      .eq('tenant_id', tenantId)
+      .eq(src.column, src.id)
       .not('embedding', 'is', null)
       .order('id')
       .range(from, from + PAGE - 1)
@@ -301,13 +328,17 @@ const RAG_CACHE_TTL = 5 * 60 * 1000     // 5 minutes
 const RAG_CACHE_MAX = 500
 const ragKey = (tenantId, q) => `${tenantId}|${normalizeQ(q)}`
 
-export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mode } = {}) {
-  if (!tenantId || !question) return ''
+// `scope` is a knowledge key (see knowledgeKey): a tenant id, or campaign:<id>.
+// opts.tenantId labels the metrics; a campaign key does not say whose campaign it is.
+export async function retrieveKnowledge(scope, question, matchCount = 3, { mode, tenantId } = {}) {
+  if (!scope || !question) return ''
+  const src = sourceOf(scope)
+  tenantId ||= src.campaign ? null : scope
   const overview = isOverviewQuery(question, mode)
   matchCount = Math.min(12, Math.max(1, Math.floor(Number(matchCount) || 3)))
   const candidateCount = overview ? 60 : matchCount
 
-  const key = `${ragKey(tenantId, question)}|${overview ? 'overview' : 'detail'}|${matchCount}`
+  const key = `${ragKey(scope, question)}|${overview ? 'overview' : 'detail'}|${matchCount}`
   const hit = RAG_CACHE.get(key)
   if (hit && Date.now() - hit.ts < RAG_CACHE_TTL) {
     console.log(`[RAG] ⚡ cache hit "${question.slice(0, 40)}"`)
@@ -328,7 +359,19 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mo
     // 1. Embed the question (cached per text) — locally once this tenant's local
     //    vectors are ready, otherwise with OpenAI. A query vector is only ever compared
     //    with document vectors from the SAME model.
-    const idx = getReadyIndex(tenantId)
+    let idx = getReadyIndex(scope)
+    // A campaign's files have no database search to fall back on — match_knowledge
+    // only knows the business's knowledge base, which is exactly what this campaign
+    // chose not to talk from. They are a few dozen chunks, so wait for them instead.
+    if (!idx && src.campaign) {
+      await whenKnowledgeLoaded(scope)
+      idx = getReadyIndex(scope)
+      if (!idx) {
+        console.warn(`[RAG] campaign files for ${scope} could not be loaded (or are too large to hold) — answering without them`)
+        telemetry.recordServiceEvent({ component: 'rag', severity: 'error', kind: 'campaign_knowledge', detail: { tenantId, scope } })
+        return ''
+      }
+    }
     let local = EMBEDDER === 'local' && idx?.local ? idx.local : null
     let queryEmbedding = local ? await embedQueryLocal(question, tenantId) : null
     if (!queryEmbedding) { local = null; queryEmbedding = await embedQuery(question, tenantId) }
@@ -339,10 +382,11 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mo
     const tSearch = Date.now()
     let data = idx ? searchIndex(local ? { ...idx, vecs: local.vecs, dim: local.dim } : idx, queryEmbedding, candidateCount) : null
     const where = data ? 'memory' : 'db'
+    if (!data && src.campaign) return cache('')
     if (!data) {
       const res = await supabase.rpc('match_knowledge', {
         query_embedding: Array.from(queryEmbedding),
-        match_tenant_id: tenantId,
+        match_tenant_id: src.id,
         match_count: candidateCount,
       })
       if (res.error) {
@@ -379,8 +423,8 @@ export async function retrieveKnowledge(tenantId, question, matchCount = 3, { mo
       let contents = idx?.contents
       let truncated = false
       if (!contents) {
-        const rows = await supabase.from('knowledge_base').select('content')
-          .eq('tenant_id', tenantId).order('id').limit(INDEX_MAX_CHUNKS + 1)
+        const rows = await supabase.from(src.table).select('content')
+          .eq(src.column, src.id).order('id').limit(INDEX_MAX_CHUNKS + 1)
         if (!rows.error) {
           truncated = rows.data.length > INDEX_MAX_CHUNKS
           contents = rows.data.slice(0, INDEX_MAX_CHUNKS).map(r => r.content)

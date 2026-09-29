@@ -13,6 +13,7 @@ import { supabase } from '../../api/db.js'
 import { originate } from './dialer.js'
 import { canDial } from './compliance.js'
 import { renderTemplate } from './broadcast.js'
+import { campaignKeyterms } from './knowledge.js'
 import { setPending } from '../../telephony/campaign-registry.js'
 import { enqueueRetry, enqueueAnalytics } from '../../queue/queues.js'
 
@@ -28,15 +29,29 @@ async function loadJobContext({ tenantId, campaignId, contactId }) {
 }
 
 // Merge tenant + campaign config into the tenantConfig the voice engine expects.
-export function buildAiConfig(tenant, campaign, contact) {
+// `campaignKeyterms` = names found in the campaign's own files (knowledge.js), used
+// only when the campaign talks from those files.
+export function buildAiConfig(tenant, campaign, contact, { campaignKeyterms = [] } = {}) {
   const cfg = campaign.config || {}
+  // A blank campaign field means "use the agent's own setting", not "erase it". The
+  // builder sends every field whether it was filled or not, and spreading an empty
+  // system_prompt over the tenant's removed the business's instructions from every
+  // campaign call that left that box empty.
+  const overrides = Object.fromEntries(Object.entries(cfg).filter(([, v]) => v !== '' && v != null))
+  const fromCampaignFiles = cfg.kb_source === 'campaign'
   return {
     ...(tenant.config || {}),
-    ...cfg,                                   // campaign overrides (prompt/voice/language/kb/temperature/goal/...)
+    ...overrides,                             // campaign overrides (prompt/voice/language/goal/greeting/...)
     tenant_id: tenant.id,
     is_outbound: true,                        // we dialed them → outbound opening line
-    // Pass campaign context so prompts/tools can personalize.
+    // Pass campaign context so prompts/tools can personalize. campaign_id is also
+    // what makes the greeting the campaign's own line (greeting.js).
     campaign_id: campaign.id,
+    kb_source: fromCampaignFiles ? 'campaign' : 'existing',
+    // Talking from the campaign's files needs the search tool even when the business
+    // has its own knowledge base switched off, and recognition hints for the names
+    // in THOSE files rather than the business's usual products.
+    ...(fromCampaignFiles ? { enable_kb: true, kb_keyterms: campaignKeyterms } : {}),
     contact_name: contact.name || null,
     contact_fields: contact.custom_fields || {},
   }
@@ -80,12 +95,15 @@ async function dialContact(job, type) {
     direction: 'outbound', campaign_id: campaign.id, campaign_contact_id: contact.id, campaign_run_id: job.runId,
   }).select().single()
 
+  const campaignFiles = type !== 'broadcast' && campaign.config?.kb_source === 'campaign'
+  const keyterms = campaignFiles ? await campaignKeyterms(campaign.id) : []
+
   // Stash context for the answer webhook + WS (cross-process via Redis).
   await setPending(correlationId, {
     type, tenantId: tenant.id, tenantName: tenant.name,
     campaignId: campaign.id, contactId: contact.id, runId: job.runId,
     callId: call?.id || null, phone: contact.phone, fromNumber,
-    config: type === 'broadcast' ? null : buildAiConfig(tenant, campaign, contact),
+    config: type === 'broadcast' ? null : buildAiConfig(tenant, campaign, contact, { campaignKeyterms: keyterms }),
     message: type === 'broadcast' ? renderTemplate(campaign.config?.message || campaign.config?.template, contact) : null,
   })
 

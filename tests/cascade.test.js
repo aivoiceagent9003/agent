@@ -76,12 +76,20 @@ vi.mock('../src/services/telnyx-tts.js', async (importOriginal) => {
   return { ...real, streamTelnyxSpeech: (o) => (tts.real ? real.streamTelnyxSpeech(o) : (tts.impl || fake)(o)) }
 })
 
-vi.mock('../src/services/llm.js', () => ({ buildSystemPrompt: () => 'SYSTEM PROMPT' }))
+vi.mock('../src/services/llm.js', () => ({ buildSystemPrompt: vi.fn(() => 'SYSTEM PROMPT') }))
 vi.mock('../src/services/rag.js', () => ({
   retrieveKnowledge: vi.fn(async () => 'kb text'), warmupRAG: vi.fn(),
   knowledgeVocabulary: vi.fn(() => null), whenKnowledgeLoaded: vi.fn(async () => {}),
+  // Same rule as rag.js (tested there): a campaign's own files, or the tenant's KB.
+  knowledgeKey: (c = {}) => (c.kb_source === 'campaign' && c.campaign_id ? `campaign:${c.campaign_id}` : c.tenant_id || null),
 }))
-vi.mock('../src/services/greeting.js', () => ({ resolveGreeting: () => 'Namaste. How can I help you?' }))
+vi.mock('../src/services/greeting.js', () => ({
+  resolveGreeting: () => 'Namaste. How can I help you?',
+  greetingLanguage: () => 'English',
+  // What a caller-chooses agent says is built by the real openingForCall (tested in
+  // greeting.test.js); here the opening only needs to be a known line.
+  openingForCall: () => ({ line: 'Namaste. How can I help you?', pending: null }),
+}))
 vi.mock('../src/services/dnd.js', () => ({ addToDnd: vi.fn(async () => ({ ok: true })) }))
 vi.mock('../src/services/whatsapp.js', () => ({ whatsappReady: () => false }))
 vi.mock('../src/services/lookups.js', () => ({ runLookup: vi.fn(async () => 'row') }))
@@ -236,6 +244,17 @@ describe('cascade — session setup', () => {
     expect(tts.requests.map(r => r.text)).toEqual(['Namaste', 'How can I help you?'])
     expect(heard(sink)).toEqual(['[Namaste]', '[How can I help you?]'])
     expect(tts.requests[0]).toMatchObject({ voice: RAMYA, format: 'pcm_mulaw', sampleRate: 8000 })
+  })
+
+  it("tells the model its greeting's language, as the default while the caller's is unclear", async () => {
+    // Dropped when this engine replaced speech-to-speech. Without it, a callee's bare
+    // "Yes, I do have." to an English greeting got a Telugu reply.
+    const { buildSystemPrompt } = await import('../src/services/llm.js')
+    await startCall()
+    expect(buildSystemPrompt).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ language: expect.objectContaining({ opening: 'English' }) }),
+    )
   })
 
   it('forwards the caller\'s audio to Sarvam as it arrives', async () => {
@@ -453,6 +472,20 @@ describe('cascade — lookups', () => {
     sttSays(ws, 'premium enta')
     await tick(40)
     expect(retrieveKnowledge).toHaveBeenCalledWith('t1', expect.any(String), 6, expect.any(Object))
+  })
+
+  it("searches only a campaign's own files when the campaign chose them", async () => {
+    // A campaign about something the knowledge base does not cover yet talks from the
+    // files uploaded for it — searched as their own scope, never the tenant's.
+    const { retrieveKnowledge, warmupRAG } = await import('../src/services/rag.js')
+    const { ws } = await startCall(undefined, undefined, { campaign_id: 'c1', kb_source: 'campaign' })
+    await tick()
+    expect(warmupRAG).toHaveBeenCalledWith('campaign:c1')
+    llmScript.push(toolCall('search_knowledge'))
+    llmScript.push([text('It starts at 1.2 crore.'), stop(), usage()])
+    sttSays(ws, 'new project price')
+    await tick(40)
+    expect(retrieveKnowledge).toHaveBeenLastCalledWith('campaign:c1', expect.any(String), 6, expect.objectContaining({ tenantId: 't1' }))
   })
 
   it('uses tenant pronunciations only in TTS, preserving the assistant transcript', async () => {
@@ -1242,5 +1275,91 @@ describe('cascade — the voice rules never hand the model a fact to repeat', ()
     const { VOICE_OUTPUT_RULES } = await import('../src/services/cascade.js')
     expect(VOICE_OUTPUT_RULES).not.toMatch(/\d+(?:\.\d+)?\s*(?:percent|%)/i)
     expect(VOICE_OUTPUT_RULES).toMatch(/format only/i)
+  })
+})
+
+// The business's language setting (call-language.js). The model no longer works the
+// language out: English agents are English from the first word, and a caller-chooses
+// call is locked to the language the caller NAMES. The lock rides on every turn's
+// guidance — the last thing the model reads.
+describe("cascade — the call's language", () => {
+  const guidance = (i) => llmCalls[i].at(-1).content
+
+  it('locks the call to the language the caller names', async () => {
+    const { ws } = await startCall()
+    await tick()
+    llmScript.push([text('సరే అండి.'), stop()])
+    sttSays(ws, 'Telugu')
+    await tick(40)
+    expect(guidance(0)).toMatch(/THIS CALL'S LANGUAGE IS Telugu/)
+    expect(guidance(0)).toMatch(/just chosen it/)
+    // An English question later is borrowing, not a new choice.
+    llmScript.push([text('Premium మీ age బట్టి మారుతుంది అండి.'), stop()])
+    sttSays(ws, 'okay so what is the price')
+    await tick(40)
+    expect(guidance(1)).toMatch(/THIS CALL'S LANGUAGE IS Telugu/)
+    expect(guidance(1)).not.toMatch(/just chosen it/)
+  })
+
+  it('asks again when the answer names no language, then carries on in the greeting\'s', async () => {
+    const { ws } = await startCall()
+    await tick()
+    llmScript.push([text('Which language would you like?'), stop()])
+    sttSays(ws, 'yes sure')
+    await tick(40)
+    expect(guidance(0)).toMatch(/has NOT chosen a language yet/)
+    llmScript.push([text('Sure.'), stop()])
+    sttSays(ws, 'hmm anything is fine')
+    await tick(40)
+    expect(guidance(1)).toMatch(/THIS CALL'S LANGUAGE IS English/)
+  })
+
+  it('changes language only when the caller asks for another one', async () => {
+    const { ws } = await startCall()
+    await tick()
+    llmScript.push([text('సరే అండి.'), stop()])
+    sttSays(ws, 'Telugu')
+    await tick(40)
+    llmScript.push([text('ठीक है जी।'), stop()])
+    sttSays(ws, 'can you speak in Hindi please')
+    await tick(40)
+    expect(guidance(1)).toMatch(/THIS CALL'S LANGUAGE IS Hindi/)
+  })
+
+  it('holds an English agent to English, whatever the caller speaks', async () => {
+    const { ws } = await startCall(undefined, undefined, { language_mode: 'english' })
+    await tick()
+    llmScript.push([text('Sorry, I can only speak English on this call.'), stop()])
+    sttSays(ws, 'తెలుగులో మాట్లాడండి')
+    await tick(40)
+    expect(guidance(0)).toMatch(/THIS CALL'S LANGUAGE IS English/)
+  })
+
+  it('hears a one-word answer said while the question is still playing', async () => {
+    // A lone word over the agent is normally the caller listening, and dropped. A lone
+    // "Telugu" is the answer — dropped, both sides would wait for the other in silence.
+    let audible = 0
+    const sink = { ...makeSink(), msRemaining: () => audible }
+    const { ws } = await startCall(sink)
+    await tick()
+    audible = 800
+    llmScript.push([text('సరే అండి.'), stop()])
+    sttSays(ws, 'Telugu')
+    audible = 0
+    await tick(40)
+    expect(llmCalls).toHaveLength(1)
+    expect(guidance(0)).toMatch(/THIS CALL'S LANGUAGE IS Telugu/)
+  })
+
+  it('still ignores a lone "okay" over the agent', async () => {
+    let audible = 0
+    const sink = { ...makeSink(), msRemaining: () => audible }
+    const { ws } = await startCall(sink)
+    await tick()
+    audible = 800
+    sttSays(ws, 'okay')
+    audible = 0
+    await tick(40)
+    expect(llmCalls).toHaveLength(0)
   })
 })

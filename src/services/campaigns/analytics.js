@@ -5,6 +5,7 @@
 // call events and on-demand by the API. Cheap and idempotent (recomputes from truth).
 
 import { supabase } from '../../api/db.js'
+import { offerCampaignKnowledge } from './knowledge.js'
 
 const COST_PER_MIN = Number(process.env.COST_PER_MIN_USD || 0.08)
 const PRICE_PER_MIN = Number(process.env.PRICE_PER_MIN_USD || 0.30)
@@ -56,9 +57,13 @@ export async function rollupCampaign(campaignId) {
   const activeLeft = c.filter(x => ACTIVE_STATUSES.includes(x.status)).length
   if (campaign.status === 'running' && campaign.type !== 'event' &&
       campaign.schedule?.mode !== 'recurring' && c.length > 0 && activeLeft === 0) {
-    await supabase.from('campaigns')
+    const { data: finished } = await supabase.from('campaigns')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
       .eq('id', campaignId).eq('status', 'running')
+      .select('id, tenant_id, name, config, created_by')
+    // Only the rollup that actually flipped it asks — two racing rollups must not
+    // send the owner the same question twice.
+    if (finished?.length) await offerCampaignKnowledge(finished[0])
     await supabase.from('campaign_runs')
       .update({ status: 'completed', ended_at: new Date().toISOString() })
       .eq('campaign_id', campaignId).eq('status', 'running')

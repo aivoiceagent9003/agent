@@ -95,6 +95,10 @@ export function buildContext(tenantConfig = {}, opts = {}) {
       modelLed: opts.language?.modelLed !== false,
       locked: opts.language?.locked || null,
       opening: opts.language?.opening || null,
+      // The business's language setting on phone calls — 'english' | 'caller_choice'
+      // (services/call-language.js) — and the language NAMES a caller may choose from.
+      mode: opts.language?.mode || null,
+      choices: Array.isArray(opts.language?.choices) ? opts.language.choices : [],
     },
     knowledge: String(opts.knowledge || '').trim(),
     conversationState: opts.conversationState || null,
@@ -270,6 +274,41 @@ balance, a due date, or an offer. Anything your instructions describe as the goa
 for calls WE place — here you may raise it at most once, near the end, after their
 reason for calling is fully handled, and not at all if they are mid-conversation
 about something else.`)
+  } else {
+    // Nothing said how a call WE placed goes on after the greeting, and the templates
+    // are written for someone who rang in ("find out what cover they are after"). On a
+    // real campaign call the callee said "Yes, I do have" to "do you have a minute?",
+    // and the agent introduced itself a second time, then pitched and asked "do you want
+    // any details?" — a question for someone who asked you for something.
+    parts.push(`THIS IS AN OUTBOUND CALL — WE RANG THEM
+Your opening line has already been said: it is the first message of this conversation,
+and in it you greeted them and said who you are and where you are calling from. Never
+introduce yourself or the company again, in any language. Carry on from their answer
+to that line.`)
+    if (tenantConfig.campaign_id) {
+      // Phrasing only in the examples: no product, figure or claim that could be
+      // repeated to a caller as fact (see prompt-examples-leak). And an example in a
+      // language only when this call can be in it — the model copies an example's
+      // language along with its wording, so a Telugu line on an English-only call is
+      // an invitation to answer in Telugu.
+      const offered = ctx.language.mode === 'english' ? ['English'] : ctx.language.choices
+      const canSpeak = (name) => !offered.length || offered.includes(name)
+      const examples = [
+        '  "Would you be interested in hearing more about it?"',
+        canSpeak('Telugu') && '  "దీని గురించి ఇంకా తెలుసుకోవాలని మీకు interest ఉందా అండి?"',
+        canSpeak('Hindi') && '  "क्या आप इसके बारे में और जानना चाहेंगे?"',
+      ].filter(Boolean).join('\n')
+      parts.push(`WHEN THEY SAY THEY CAN TALK, tell them in one or two short sentences why you are
+calling — what your instructions and knowledge for this call say it is about, nothing
+invented. If your opening line already said why, do not say it again. Then ask whether
+they would be INTERESTED in hearing more. That question is an invitation they are free
+to turn down, so it asks about their interest, in the language of this call and your own
+words — phrasing examples only:
+${examples}
+Never "do you want details?" or "do you need any information?" — nobody on this call
+has asked you for anything, and a question that assumes they did sounds like a script
+gone wrong. If they are busy or not interested, accept it the first time.`)
+    }
   }
 
   // The caller's own record. Without it the model knows a name from the greeting and
@@ -296,6 +335,12 @@ it, rather than guessing.`)
 
   if (tenantConfig.reason_for_call) {
     parts.push(`WHY WE ARE CALLING: ${tenantConfig.reason_for_call}`)
+  }
+  // The campaign builder's "Conversation goal". It was collected and stored for every
+  // AI campaign and read by nothing, so the agent never knew what the call was for.
+  const goal = String(tenantConfig.conversation_goal || '').trim()
+  if (goal && callContext.isOutbound) {
+    parts.push(`WHAT THIS CALL SHOULD ACHIEVE: ${goal}`)
   }
   if (tenantConfig.previous_interaction) {
     parts.push(`LAST TIME YOU SPOKE: ${tenantConfig.previous_interaction}`)

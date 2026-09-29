@@ -211,6 +211,23 @@ const SWITCH_FRAME = [
 // it once read a demand for Telugu as a demand for Hindi and locked it.
 const NEGATION = /\b(not|don'?t|do\s?nt|never|nahi+n?|mat|band|chh?od)\b|\bkaa?du\b|\bvodd?u\b|లేదు|కాదు|వద్దు|नहीं|मत|बंद/iu
 
+/** Every language a caller NAMES in this text ("Telugu", "తెలుగు", "hindi mein"), as codes. */
+export function mentionedLanguages(text) {
+  const t = String(text || '')
+  return LANGUAGE_MENTION.filter(([, re]) => re.test(t)).map(([code]) => code)
+}
+
+/** True when the text negates something — which makes a named language ambiguous. */
+export function hasNegation(text) {
+  return NEGATION.test(String(text || ''))
+}
+
+/** Shaped like a request to change language ("speak in Telugu", "Hindi mein boliye"). */
+export function isSwitchRequest(text) {
+  const t = String(text || '')
+  return mentionedLanguages(t).length > 0 && SWITCH_FRAME.some(re => re.test(t))
+}
+
 export class LanguageManager {
   /**
    * @param {object}   deps
@@ -386,9 +403,7 @@ export class LanguageManager {
 
   /** Cheap synchronous hint that the caller is asking to change language. */
   looksLikeSwitchRequest(text) {
-    const t = String(text || '')
-    if (!LANGUAGE_MENTION.some(([, re]) => re.test(t))) return false
-    return SWITCH_FRAME.some(re => re.test(t))
+    return isSwitchRequest(text)
   }
 
   /**
@@ -398,10 +413,9 @@ export class LanguageManager {
    * from the rejected one, so we defer to the classifier.
    */
   parseSwitchTarget(text) {
-    const t = String(text || '')
-    const mentioned = LANGUAGE_MENTION.filter(([, re]) => re.test(t)).map(([code]) => code)
+    const mentioned = mentionedLanguages(text)
     if (mentioned.length !== 1) return null
-    if (NEGATION.test(t)) return null
+    if (hasNegation(text)) return null
     return mentioned[0]
   }
 

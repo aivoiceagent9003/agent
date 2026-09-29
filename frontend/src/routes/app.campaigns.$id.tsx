@@ -20,10 +20,21 @@ import {
   Plus,
   Clock,
   X,
+  BookOpen,
+  MessageSquareQuote,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
+import { KbSourceToggle } from "@/components/portal/KbSourceToggle";
 import {
   useCampaign,
+  useCampaignKnowledge,
+  useDeleteCampaignFile,
+  useSaveAiSettings,
+  useKnowledgeDecision,
+  uploadCampaignFile,
+  DEFAULT_CAMPAIGN_GREETING,
+  type Campaign,
   useCampaignContacts,
   useCampaignAnalytics,
   useCampaignLogs,
@@ -45,7 +56,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/app/campaigns/$id")({ component: CampaignDetail });
 
-const TABS = ["overview", "contacts", "sources", "analytics", "activity"] as const;
+const TABS = ["overview", "agent", "contacts", "sources", "analytics", "activity"] as const;
 
 function CampaignDetail() {
   const { id } = useParams({ from: "/app/campaigns/$id" });
@@ -58,6 +69,13 @@ function CampaignDetail() {
   if (!c) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   const scheduledFor =
     c.status === "scheduled" && c.schedule?.start_at ? new Date(c.schedule.start_at) : null;
+  const isAi = c.type !== "broadcast";
+  // The "agent" tab (opening line + what it talks from) only exists for AI calls.
+  const tabs = TABS.filter((t) => t !== "agent" || isAi);
+  // The server refuses some actions with a reason (e.g. an AI campaign set to talk
+  // from its own files, with none uploaded) — say it rather than doing nothing.
+  const run = (a: Parameters<typeof action.mutate>[0]) =>
+    action.mutate(a, { onError: (e: any) => toast.error(e.message || "Could not do that") });
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -82,14 +100,14 @@ function CampaignDetail() {
         <div className="flex gap-2">
           {c.status === "running" ? (
             <ActionBtn
-              onClick={() => action.mutate("pause")}
+              onClick={() => run("pause")}
               icon={Pause}
               label="Pause"
               cls="border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
             />
           ) : c.status === "scheduled" ? (
             <ActionBtn
-              onClick={() => action.mutate("unschedule")}
+              onClick={() => run("unschedule")}
               icon={X}
               label="Cancel schedule"
               cls="border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
@@ -97,7 +115,7 @@ function CampaignDetail() {
           ) : (
             <>
               <ActionBtn
-                onClick={() => action.mutate(c.status === "paused" ? "resume" : "start")}
+                onClick={() => run(c.status === "paused" ? "resume" : "start")}
                 icon={Play}
                 label={c.status === "paused" ? "Resume" : "Start now"}
                 cls="border-success/40 text-success hover:bg-success/10"
@@ -111,7 +129,7 @@ function CampaignDetail() {
             </>
           )}
           <ActionBtn
-            onClick={() => action.mutate("stop")}
+            onClick={() => run("stop")}
             icon={Square}
             label="Stop"
             cls="border-destructive/40 text-destructive hover:bg-destructive/10"
@@ -145,9 +163,13 @@ function CampaignDetail() {
             />
             <button
               onClick={async () => {
-                await schedule.mutateAsync(new Date(startAt).toISOString());
-                setScheduling(false);
-                setStartAt("");
+                try {
+                  await schedule.mutateAsync(new Date(startAt).toISOString());
+                  setScheduling(false);
+                  setStartAt("");
+                } catch (e: any) {
+                  toast.error(e.message || "Could not schedule");
+                }
               }}
               disabled={!startAt || new Date(startAt).getTime() <= Date.now() || schedule.isPending}
               className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50"
@@ -167,8 +189,10 @@ function CampaignDetail() {
         </div>
       )}
 
-      <div className="mt-6 flex gap-2 border-b border-border">
-        {TABS.map((t) => (
+      {isAi && c.status === "completed" && <KnowledgeOffer id={id} />}
+
+      <div className="mt-6 flex gap-2 border-b border-border overflow-x-auto">
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -181,10 +205,235 @@ function CampaignDetail() {
 
       <div className="mt-6">
         {tab === "overview" && <Overview id={id} />}
+        {tab === "agent" && isAi && <AgentTab key={c.id} campaign={c} />}
         {tab === "contacts" && <Contacts id={id} />}
         {tab === "sources" && <Sources id={id} />}
         {tab === "analytics" && <Analytics id={id} />}
         {tab === "activity" && <Activity id={id} />}
+      </div>
+    </div>
+  );
+}
+
+// Once a campaign that talked from its own files is finished: keep them to this
+// campaign, or add them to the knowledge base so every call can use them?
+function KnowledgeOffer({ id }: { id: string }) {
+  const { data } = useCampaignKnowledge(id);
+  const decide = useKnowledgeDecision(id);
+  const pending = data?.pending_offer || [];
+  if (!pending.length) return null;
+  const one = pending.length === 1;
+
+  async function answer(add: boolean) {
+    try {
+      const r = await decide.mutateAsync(add);
+      toast.success(
+        add
+          ? `Added ${r.added} file${r.added === 1 ? "" : "s"} to your knowledge base`
+          : "Kept only in this campaign",
+      );
+    } catch (e: any) {
+      toast.error(e.message || "Could not update your knowledge base");
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <BookOpen className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium">
+            Add {one ? `"${pending[0].filename}"` : `these ${pending.length} files`} to your
+            knowledge base?
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            This campaign is finished. {one ? "Its file isn't" : "Its files aren't"} in your
+            knowledge base, so your other calls can't talk about {one ? "it" : "them"} yet.
+          </p>
+          {!one && (
+            <p className="text-xs text-muted-foreground mt-1 truncate">
+              {pending.map((f) => f.filename).join(" · ")}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => answer(true)}
+              disabled={decide.isPending}
+              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50"
+            >
+              {decide.isPending ? "Saving…" : "Add to knowledge base"}
+            </button>
+            <button
+              onClick={() => answer(false)}
+              disabled={decide.isPending}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-muted disabled:opacity-50"
+            >
+              Keep only in this campaign
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// What the agent says on this campaign's calls: its opening line, and whether it
+// talks from the knowledge base or only from files uploaded here.
+function AgentTab({ campaign }: { campaign: Campaign }) {
+  const id = campaign.id;
+  const qc = useQueryClient();
+  const save = useSaveAiSettings(id);
+  const { data: kb } = useCampaignKnowledge(id);
+  const del = useDeleteCampaignFile(id);
+  const savedGreeting = campaign.config?.campaign_greeting || DEFAULT_CAMPAIGN_GREETING;
+  const [greeting, setGreeting] = useState(savedGreeting);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const useExisting = campaign.config?.kb_source !== "campaign";
+  const files = kb?.files || [];
+  const readyCount = files.filter((f) => f.status === "ready").length;
+
+  async function saveGreeting() {
+    try {
+      await save.mutateAsync({ campaign_greeting: greeting });
+      toast.success("Opening line saved");
+    } catch (e: any) {
+      toast.error(e.message || "Could not save");
+    }
+  }
+
+  async function setSource(existing: boolean) {
+    try {
+      await save.mutateAsync({ kb_source: existing ? "existing" : "campaign" });
+    } catch (e: any) {
+      toast.error(e.message || "Could not save");
+    }
+  }
+
+  async function onFiles(list: FileList | null) {
+    if (!list?.length) return;
+    setUploading(true);
+    try {
+      for (const f of Array.from(list)) {
+        try {
+          await uploadCampaignFile(id, f);
+          toast.success(`${f.name} added`);
+        } catch (e: any) {
+          toast.error(`${f.name}: ${e.message || "upload failed"}`);
+        }
+      }
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+      qc.invalidateQueries({ queryKey: ["campaign", id, "knowledge"] });
+    }
+  }
+
+  async function removeFile(docId: string, filename: string) {
+    if (!confirm(`Remove "${filename}" from this campaign?`)) return;
+    try {
+      await del.mutateAsync(docId);
+    } catch (e: any) {
+      toast.error(e.message || "Could not remove the file");
+    }
+  }
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="text-sm font-medium flex items-center gap-2">
+          <MessageSquareQuote className="w-4 h-4 text-primary" /> Opening line
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          The first thing the agent says when someone picks up. {"{name}"} becomes the contact's
+          name; {"{agent_name}"} and {"{business_name}"} come from your agent settings.
+        </p>
+        <textarea
+          value={greeting}
+          onChange={(e) => setGreeting(e.target.value)}
+          maxLength={500}
+          className="mt-3 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm min-h-20"
+        />
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={saveGreeting}
+            disabled={save.isPending || greeting.trim() === savedGreeting.trim()}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50"
+          >
+            {save.isPending ? "Saving…" : "Save"}
+          </button>
+          {greeting !== DEFAULT_CAMPAIGN_GREETING && (
+            <button
+              onClick={() => setGreeting(DEFAULT_CAMPAIGN_GREETING)}
+              className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted"
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+        <div className="text-sm font-medium flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-primary" /> What the agent talks about
+        </div>
+        <KbSourceToggle useExisting={useExisting} onChange={setSource} disabled={save.isPending} />
+
+        {!useExisting && (
+          <div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-sm disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" /> {uploading ? "Uploading…" : "Upload files"}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.png,.jpg,.jpeg"
+                className="hidden"
+                onChange={(e) => onFiles(e.target.files)}
+              />
+            </div>
+            {readyCount === 0 && (
+              <p className="text-xs text-amber-500 mt-2">
+                No files yet — this campaign can't start until the agent has something to talk
+                from.
+              </p>
+            )}
+            {files.length > 0 && (
+              <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
+                {files.map((f) => (
+                  <li key={f.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                    <FileText className="w-4 h-4 text-primary shrink-0" />
+                    <span className="truncate flex-1">{f.filename}</span>
+                    <span
+                      className={`text-xs ${f.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
+                    >
+                      {f.status === "ready"
+                        ? f.kb_decision === "added"
+                          ? "in knowledge base"
+                          : `${f.chunk_count} sections`
+                        : f.status === "error"
+                          ? "couldn't be read"
+                          : "processing…"}
+                    </span>
+                    <button
+                      onClick={() => removeFile(f.id, f.filename)}
+                      className="p-1 rounded hover:bg-muted text-muted-foreground"
+                      aria-label={`Remove ${f.filename}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

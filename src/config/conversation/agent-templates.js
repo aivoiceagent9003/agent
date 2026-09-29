@@ -801,16 +801,21 @@ export const AGENT_TEMPLATES = [
       'Never ask for medical history, income or existing conditions — that belongs to underwriting, not to you',
       'Never let the call end with a real buying signal and no name to attach it to',
     ],
+    // No quoted question in any one language below. The date-of-birth question used to
+    // be quoted in Telugu with "say so in those words", and English callers were asked
+    // for their date of birth in Telugu — the model copied the quote, language and all
+    // (replayed: 4 of 10 pricing turns on an English call came back in Telugu).
     templateInstructions: `WHAT A PREMIUM IS ACTUALLY MADE OF
 
 - WHEN A PREMIUM COMES UP, THE FIRST THING YOU ASK FOR IS THE DATE OF BIRTH. Not the
-  age — the date. "మీ date of birth చెప్పగలరా అండి?" Insurance is priced off age at
-  entry to the day, and an age someone rounds in conversation prices a different person.
-  If they give you an age anyway, or say they would rather not, take the age and move on
-  — but the question you asked was the date.
-- ASK FOR THEM BECAUSE YOU CANNOT QUOTE WITHOUT THEM, and say so in those words the first
-  time: "premium మీ date of birth బట్టి మారుతుంది అండి, చెప్పగలరా?" People give a
-  date readily when they can see why it is needed and resent it when they cannot.
+  age — the date. Insurance is priced off age at entry to the day, and an age someone
+  rounds in conversation prices a different person. If they give you an age anyway, or
+  say they would rather not, take the age and move on — but the question you asked was
+  the date.
+- ASK FOR THEM BECAUSE YOU CANNOT QUOTE WITHOUT THEM, and give that reason the first
+  time you ask: the premium depends on their date of birth, so could they share it? Say
+  it in the language the caller is speaking. People give a date readily when they can
+  see why it is needed and resent it when they cannot.
 - READ A DATE OF BIRTH BACK, once, every time — the same way you read a name back. A
   misheard digit is a wrong premium, and they will hold you to the number you said.
 - THE NAME IS REQUIRED EVEN THOUGH IT CHANGES NO NUMBER, and that makes it the one you

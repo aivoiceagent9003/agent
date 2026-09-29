@@ -7,21 +7,29 @@
 
 import { Router } from 'express'
 import { makeUpload, sniff, KINDS, uploadErrorHandler } from './uploads.js'
-import { campaignWriteLimiter } from './rate-limits.js'
+import { campaignWriteLimiter, ingestLimiter } from './rate-limits.js'
 import { randomUUID } from 'node:crypto'
 import { supabase } from './db.js'
 import { requireClient } from './auth.js'
-import { guardRouter } from './permissions.js'
+import { guardRouter, requirePermission } from './permissions.js'
 import { enqueueRun, scheduleRunOnce, cancelScheduledRun, scheduleRecurring, cancelRecurring, queueCounts, enqueueSourceSync, scheduleSourcePoll, cancelSourcePoll, CAMPAIGNS_ENABLED, CAMPAIGN_RUNNER } from '../queue/queues.js'
 import { REDIS_ENABLED } from '../queue/connection.js'
 import { importContacts, buildContacts, parsePastedList } from '../services/campaigns/contacts.js'
 import { parseFileToRows, INGRESS_PRESETS } from '../services/campaigns/sources.js'
 import { rollupCampaign } from '../services/campaigns/analytics.js'
 import { dialerInfo } from '../services/campaigns/dialer.js'
+import { extractTextFromFile } from '../services/extract-text.js'
+import {
+  listCampaignDocuments, addCampaignDocument, deleteCampaignDocument, deleteAllCampaignDocuments,
+  copyCampaignDocuments, readyCampaignFileCount, pendingKnowledgeOffer, decideCampaignKnowledge,
+  offerCampaignKnowledge,
+} from '../services/campaigns/knowledge.js'
 import telemetry from '../services/telemetry.js'
 
 const router = Router()
 const upload = makeUpload({ limitMb: 25, kinds: KINDS.contacts })
+// Files an AI campaign talks from: the same types and cap as the knowledge base.
+const kbUpload = makeUpload({ limitMb: 15, kinds: KINDS.knowledge })
 router.use(requireClient())
 // Owners and managers run campaigns; front-line agents never see this router.
 // Guarding by method means a route added later inherits the check automatically.
@@ -138,15 +146,35 @@ router.delete('/:id', async (req, res) => {
   await cancelRecurring(c.id)
   await cancelScheduledRun(c.id)
   await supabase.from('campaign_contacts').delete().eq('campaign_id', c.id)
+  // Its own files go with it. Any the owner added to the knowledge base were copied
+  // there and are unaffected.
+  await deleteAllCampaignDocuments(c.id).catch(e => console.error('[CAMPAIGNS] delete files:', e.message))
   await supabase.from('campaigns').delete().eq('id', c.id)
   res.json({ ok: true })
 })
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+// An AI campaign set to talk only from its own files, with none ready, would ring
+// its whole list and not be able to answer one question about why it called.
+// Returns an error message, or null when the campaign is fine to dial.
+async function campaignFilesProblem(c) {
+  if (c.type === 'broadcast' || c.config?.kb_source !== 'campaign') return null
+  try {
+    if ((await readyCampaignFileCount(c.id)) > 0) return null
+    return 'This campaign is set to talk only from its own files, and none are uploaded yet. Upload a file in the Agent tab, or switch it to use your knowledge base.'
+  } catch (e) {
+    console.error('[CAMPAIGNS] campaign files check:', e.message)
+    return 'Campaign files are unavailable right now (has sql/campaign-knowledge.sql been run?). Switch the campaign to use your knowledge base, or try again.'
+  }
+}
+
 router.post('/:id/start', async (req, res) => {
   const c = await ownedCampaign(req.params.id, req.auth.tenantId)
   if (!c) return res.status(404).json({ error: 'Campaign not found' })
   if (!CAMPAIGNS_ENABLED) return res.status(503).json({ error: 'Campaign runner disabled (CAMPAIGN_RUNNER=off). Set REDIS_URL + run the worker, or leave it unset for the in-process runner.' })
+  const filesProblem = await campaignFilesProblem(c)
+  if (filesProblem) return res.status(400).json({ error: filesProblem })
 
   // Optional body.start_at (ISO datetime) → persist and start at that moment.
   let sched = c.schedule || {}
@@ -193,6 +221,8 @@ router.post('/:id/pause', async (req, res) => {
 router.post('/:id/resume', async (req, res) => {
   const c = await ownedCampaign(req.params.id, req.auth.tenantId)
   if (!c) return res.status(404).json({ error: 'Campaign not found' })
+  const filesProblem = await campaignFilesProblem(c)
+  if (filesProblem) return res.status(400).json({ error: filesProblem })
   if (CAMPAIGNS_ENABLED) await enqueueRun({ campaignId: c.id })
   await supabase.from('campaigns').update({ status: 'running' }).eq('id', c.id)
   res.json({ ok: true })
@@ -205,6 +235,9 @@ router.post('/:id/stop', async (req, res) => {
   await supabase.from('campaigns').update({ status: 'completed' }).eq('id', c.id)
   await supabase.from('campaign_runs').update({ status: 'stopped', ended_at: new Date().toISOString() })
     .eq('campaign_id', c.id).eq('status', 'running')
+  // Stopping by hand is a finish too — for a campaign that was actually calling. Not
+  // for a draft (it talked to nobody), nor one already finished (asked already).
+  if (c.status === 'running' || c.status === 'paused') await offerCampaignKnowledge(c)
   res.json({ ok: true })
 })
 router.post('/:id/duplicate', async (req, res) => {
@@ -214,6 +247,10 @@ router.post('/:id/duplicate', async (req, res) => {
   const { data, error } = await supabase.from('campaigns')
     .insert({ ...rest, name: `${c.name} (copy)`, status: 'draft' }).select().single()
   if (error) return res.status(500).json({ error: 'Could not duplicate' })
+  if (c.config?.kb_source === 'campaign') {
+    await copyCampaignDocuments(req.auth.tenantId, c.id, data.id)
+      .catch(e => console.error('[CAMPAIGNS] duplicate files:', e.message))
+  }
   res.status(201).json(data)
 })
 
@@ -265,6 +302,99 @@ router.post('/:id/contacts/import', campaignWriteLimiter, upload.single('file'),
     })
     res.json({ inserted, invalidCount, duplicateCount, parsed: rows.length })
   } catch (e) { console.error('[CAMPAIGNS] import:', e.message); res.status(400).json({ error: e.message || 'Import failed' }) }
+})
+
+// ─── Campaign knowledge (the files an AI campaign talks from) ────────────────
+// config.kb_source picks where the agent speaks from: 'existing' = the business's
+// knowledge base, 'campaign' = only the files uploaded here. See
+// services/campaigns/knowledge.js for why they are kept apart.
+router.get('/:id/knowledge', async (req, res) => {
+  const c = await ownedCampaign(req.params.id, req.auth.tenantId)
+  if (!c) return res.status(404).json({ error: 'Campaign not found' })
+  try {
+    const files = await listCampaignDocuments(c.id)
+    // The "add these to your knowledge base?" question, once the campaign is over.
+    const offer = c.status === 'completed' ? await pendingKnowledgeOffer(c.id) : []
+    res.json({ kb_source: c.config?.kb_source === 'campaign' ? 'campaign' : 'existing', files, pending_offer: offer })
+  } catch (e) {
+    console.error('[CAMPAIGNS] knowledge list:', e.message)
+    res.status(500).json({ error: 'Could not load campaign files' })
+  }
+})
+
+router.post('/:id/knowledge', ingestLimiter, kbUpload.single('file'), uploadErrorHandler, async (req, res) => {
+  const c = await ownedCampaign(req.params.id, req.auth.tenantId)
+  if (!c) return res.status(404).json({ error: 'Campaign not found' })
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+  const check = sniff(req.file, KINDS.knowledge)
+  if (!check.ok) return res.status(400).json({ error: check.error })
+  try {
+    const text = await extractTextFromFile(req.file)
+    if (!text?.trim()) return res.status(422).json({ error: 'Could not extract any text from this file' })
+    const doc = await addCampaignDocument(req.auth.tenantId, c.id, {
+      filename: req.file.originalname || 'upload', mimeType: req.file.mimetype, buffer: req.file.buffer, text,
+    })
+    res.status(201).json({ ...doc, chars: text.length })
+  } catch (e) {
+    console.error('[CAMPAIGNS] knowledge upload:', e.message)
+    res.status(500).json({ error: e.message || 'Could not process file' })
+  }
+})
+
+router.delete('/:id/knowledge/:docId', async (req, res) => {
+  const c = await ownedCampaign(req.params.id, req.auth.tenantId)
+  if (!c) return res.status(404).json({ error: 'Campaign not found' })
+  const ok = await deleteCampaignDocument(c.id, req.params.docId)
+  if (!ok) return res.status(404).json({ error: 'File not found' })
+  res.json({ ok: true })
+})
+
+// What the agent says on this campaign's calls: its opening line and where it talks
+// from. Merged into config HERE rather than sent whole through PATCH, which replaces
+// config outright and would drop what the server keeps in it (event_token, ingest_source).
+// Body: { campaign_greeting?: string, kb_source?: 'existing' | 'campaign' }
+router.put('/:id/ai-settings', async (req, res) => {
+  const c = await ownedCampaign(req.params.id, req.auth.tenantId)
+  if (!c) return res.status(404).json({ error: 'Campaign not found' })
+  const { campaign_greeting, kb_source } = req.body || {}
+  const next = { ...(c.config || {}) }
+  if (campaign_greeting !== undefined) {
+    if (typeof campaign_greeting !== 'string' || campaign_greeting.length > 500) {
+      return res.status(400).json({ error: 'The opening line must be text of at most 500 characters' })
+    }
+    next.campaign_greeting = campaign_greeting.trim()
+  }
+  if (kb_source !== undefined) {
+    if (!['existing', 'campaign'].includes(kb_source)) return res.status(400).json({ error: "kb_source must be 'existing' or 'campaign'" })
+    next.kb_source = kb_source
+  }
+  // A live campaign switched to files it does not have would dial on, knowing nothing.
+  if (['running', 'scheduled'].includes(c.status)) {
+    const problem = await campaignFilesProblem({ ...c, config: next })
+    if (problem) return res.status(400).json({ error: problem })
+  }
+  const { data, error } = await supabase.from('campaigns')
+    .update({ config: next, updated_at: new Date().toISOString() }).eq('id', c.id).select().single()
+  if (error) return res.status(500).json({ error: 'Could not save' })
+  res.json(data)
+})
+
+// The owner's answer to "add this campaign's files to your knowledge base?".
+// Body: { add: true | false }. Adding changes what EVERY call knows, so it also
+// needs the knowledge-base permission, not only the campaign one.
+router.post('/:id/knowledge/decision', async (req, res, next) => {
+  if (req.body?.add === true) return requirePermission('knowledge:write')(req, res, next)
+  next()
+}, async (req, res) => {
+  const c = await ownedCampaign(req.params.id, req.auth.tenantId)
+  if (!c) return res.status(404).json({ error: 'Campaign not found' })
+  if (typeof req.body?.add !== 'boolean') return res.status(400).json({ error: 'add must be true or false' })
+  try {
+    res.json(await decideCampaignKnowledge(req.auth.tenantId, c.id, req.body.add))
+  } catch (e) {
+    console.error('[CAMPAIGNS] knowledge decision:', e.message)
+    res.status(500).json({ error: e.message || 'Could not update the knowledge base' })
+  }
 })
 
 // ─── Schedule / retry config ──────────────────────────────────────────────────

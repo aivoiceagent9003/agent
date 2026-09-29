@@ -323,6 +323,46 @@ describe('call context', () => {
     expect(t).not.toMatch(/^- a:/m)
     expect(t).not.toMatch(/^- b:/m)
   })
+
+  // The campaign builder's "Conversation goal" was stored on every AI campaign and read
+  // by nothing, so the agent never knew what the call it had placed was for.
+  it("tells an outbound agent the campaign's goal", () => {
+    const t = layer(onCall(tenant({ is_outbound: true, conversation_goal: 'Book a site visit' })), 'call_context')
+    expect(t).toContain('Book a site visit')
+  })
+
+  // A real campaign call: after "Yes, I do have" to "do you have a minute?", the agent
+  // introduced itself a second time, pitched, and asked "do you want any details?".
+  it('tells an outbound agent it has already introduced itself', () => {
+    const t = flat(layer(onCall(tenant({ is_outbound: true })), 'call_context'))
+    expect(t).toMatch(/Never introduce yourself or the company again/)
+  })
+
+  it('has a campaign call say why it rang, then ask about interest', () => {
+    const t = flat(layer(onCall(tenant({ is_outbound: true, campaign_id: 'c1' })), 'call_context'))
+    expect(t).toMatch(/why you are calling/)
+    expect(t).toMatch(/INTERESTED in hearing more/)
+    expect(t).toMatch(/Never "do you want details\?"/)
+  })
+
+  it('keeps the campaign pitch out of an instant (lead) call', () => {
+    // An instant call is someone who reached out; the greeting already asks what they
+    // are looking for, so there is nothing to pitch.
+    const t = flat(layer(onCall(tenant({ is_outbound: true })), 'call_context'))
+    expect(t).not.toMatch(/INTERESTED in hearing more/)
+  })
+
+  it('never gives an inbound call the outbound opening rules', () => {
+    const t = flat(layer(onCall(tenant({ campaign_id: 'c1' })), 'call_context'))
+    expect(t).not.toMatch(/OUTBOUND CALL/)
+    expect(t).not.toMatch(/INTERESTED in hearing more/)
+  })
+
+  it('keeps a campaign goal out of an inbound call', () => {
+    // Inbound, the caller's reason comes first — a stored goal must not steer it.
+    const t = layer(onCall(tenant({ conversation_goal: 'Book a site visit' })), 'call_context')
+    expect(t).not.toContain('Book a site visit')
+  })
 })
 
 // ─── Respect and delivery ────────────────────────────────────────────────────
@@ -584,6 +624,50 @@ describe('language', () => {
     expect(locked).toMatch(/CURRENT CONVERSATION LANGUAGE: Hindi/)
     expect(locked).not.toMatch(/DEFAULT WHILE YOU CANNOT TELL/)
   })
+
+  // Nearly every example phrase in the prompt is Telugu or Hindi, and the model copies an
+  // example's language along with its wording. On a real English call it said goodbye in
+  // Telugu and explained cover in Hindi; replayed, 5 of 10 goodbyes left English. With
+  // this rule, 0 of 30 English replies did, and Telugu/Hindi callers still got theirs.
+  // The business's setting on phone calls (call-language.js).
+  const INDIC_SCRIPT = /[ऀ-ॿఀ-౿]/
+  it('gives an English-only agent English rules and nothing to copy in another language', () => {
+    const t = flat(layer(onCall(tenant(), { language: { mode: 'english' } }), 'language'))
+    expect(t).toMatch(/THIS BUSINESS TAKES EVERY CALL IN ENGLISH/)
+    expect(t).not.toMatch(/Tinglish|Hinglish|YOU OWN THE CONVERSATION LANGUAGE/)
+    expect(t).not.toMatch(INDIC_SCRIPT)
+  })
+
+  it('locks a caller-chooses agent to the language the caller picks', () => {
+    const t = flat(layer(onCall(tenant(), { language: { mode: 'caller_choice', choices: ['English', 'Telugu', 'Hindi'], opening: 'English' } }), 'language'))
+    expect(t).toMatch(/THE CALLER CHOOSES THIS CALL'S LANGUAGE, ONCE/)
+    expect(t).toMatch(/English, Telugu or Hindi/)
+    expect(t).toMatch(/Until they have chosen, speak English/)
+    expect(t).not.toMatch(/YOU OWN THE CONVERSATION LANGUAGE/)
+    expect(t).toMatch(/Tinglish/)   // how to speak Telugu, since it can be chosen
+  })
+
+  it('leaves out the Telugu and Hindi coaching when neither can be chosen', () => {
+    const t = layer(onCall(tenant(), { language: { mode: 'caller_choice', choices: ['English', 'Tamil'] } }), 'language')
+    expect(t).not.toMatch(INDIC_SCRIPT)
+    expect(t).toMatch(/Speak Tamil the way people do on the phone/)
+  })
+
+  it("quotes the campaign's interest question only in languages the call can be in", () => {
+    const campaign = tenant({ is_outbound: true, campaign_id: 'c1' })
+    const english = layer(onCall(campaign, { language: { mode: 'english' } }), 'call_context')
+    expect(english).toMatch(/Would you be interested in hearing more about it/)
+    expect(english).not.toMatch(INDIC_SCRIPT)
+    const choice = layer(onCall(campaign, { language: { mode: 'caller_choice', choices: ['English', 'Telugu'] } }), 'call_context')
+    expect(choice).toMatch(/[ఀ-౿]/)          // Telugu example: Telugu can be chosen
+    expect(choice).not.toMatch(/[ऀ-ॿ]/)      // no Hindi one: Hindi cannot
+  })
+
+  it('makes English a language of its own, and the examples no guide to which one to use', () => {
+    const t = flat(layer(onCall(tenant()), 'language'))
+    expect(t).toMatch(/ENGLISH IS ONE OF YOUR LANGUAGES/)
+    expect(t).toMatch(/they never decide WHICH language you speak/)
+  })
 })
 
 // ─── Template library ────────────────────────────────────────────────────────
@@ -634,6 +718,19 @@ describe('template library', () => {
     for (const t of AGENT_TEMPLATES) {
       const text = [t.templateInstructions, ...(t.prohibitedBehavior || [])].join('\n')
       for (const re of UNIVERSAL) expect(text, `${t.id} restates ${re}`).not.toMatch(re)
+    }
+  })
+
+  it('never quotes a line in one fixed Indian language', () => {
+    // A template is used on calls in every language. insurance_sales quoted its date-of-
+    // birth question in Telugu, "in those words", and an English caller was asked for their
+    // date of birth in Telugu — 4 of 10 times when replayed. Say what to ask; the language
+    // rules decide what language to ask it in.
+    const INDIC = /[ऀ-ॿঀ-৿஀-௿ఀ-౿ಀ-೿ഀ-ൿ]/
+    for (const t of AGENT_TEMPLATES) {
+      const text = [t.role, t.conversationStrategy, t.templateInstructions, ...(t.primaryGoals || []),
+        ...(t.prohibitedBehavior || []), ...(t.informationPriorities || []).map(p => `${p.field} ${p.why}`)].join('\n')
+      expect(text, t.id).not.toMatch(INDIC)
     }
   })
 

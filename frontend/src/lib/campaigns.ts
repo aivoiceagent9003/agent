@@ -206,6 +206,99 @@ export async function importContactsCsv(id: string, file: File) {
   return body;
 }
 
+// ─── What an AI campaign's agent says ───────────────────────────────────────
+// kb_source: "existing" = the business's knowledge base; "campaign" = only the
+// files uploaded to this campaign (for something the knowledge base doesn't cover
+// yet, like a project launched last week).
+export type KbSource = "existing" | "campaign";
+
+// The line a campaign call opens with when the business hasn't written its own.
+// Placeholders are filled per call; keep this neutral — it is spoken verbatim.
+export const DEFAULT_CAMPAIGN_GREETING =
+  "Hello {name}, this is {agent_name} from {business_name}. Do you have a minute to talk?";
+
+export interface CampaignFile {
+  id: string;
+  filename: string;
+  size_bytes: number | null;
+  chunk_count: number;
+  status: "processing" | "ready" | "error";
+  kb_decision: "added" | "kept" | null;
+  created_at: string;
+}
+
+export interface CampaignKnowledge {
+  kb_source: KbSource;
+  files: CampaignFile[];
+  // Filled once the campaign is finished: files not yet added to (or kept out of)
+  // the knowledge base, which the owner is asked about.
+  pending_offer: { id: string; filename: string }[];
+}
+
+export function useCampaignKnowledge(id: string) {
+  return useQuery({
+    queryKey: ["campaign", id, "knowledge"],
+    enabled: isBrowser && !!id,
+    queryFn: async (): Promise<CampaignKnowledge> =>
+      apiFetch(`/api/client/campaigns/${id}/knowledge`),
+  });
+}
+
+export async function uploadCampaignFile(id: string, file: File) {
+  const token = getToken();
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/client/campaigns/${id}/knowledge`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Upload failed");
+  return body;
+}
+
+export function useDeleteCampaignFile(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docId: string) =>
+      apiFetch(`/api/client/campaigns/${id}/knowledge/${docId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["campaign", id, "knowledge"] }),
+  });
+}
+
+export function useSaveAiSettings(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { campaign_greeting?: string; kb_source?: KbSource }) =>
+      apiFetch(`/api/client/campaigns/${id}/ai-settings`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", id] });
+    },
+  });
+}
+
+// The owner's answer to "add this campaign's files to your knowledge base?".
+export function useKnowledgeDecision(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (add: boolean): Promise<{ added: number; kept: number }> =>
+      apiFetch(`/api/client/campaigns/${id}/knowledge/decision`, {
+        method: "POST",
+        body: JSON.stringify({ add }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", id, "knowledge"] });
+      // The knowledge-base page (KnowledgeManager) — the files just landed there.
+      qc.invalidateQueries({ queryKey: ["client", "documents"] });
+      qc.invalidateQueries({ queryKey: ["client", "knowledge"] });
+    },
+  });
+}
+
 // ─── Data sources ───────────────────────────────────────────────────────────
 export interface ContactSource {
   id: string;

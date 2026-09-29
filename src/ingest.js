@@ -143,6 +143,28 @@ export async function mergeKeyterms(tenantId, newTerms) {
   }
 }
 
+// Chunk + embed, without storing anything: [{ content, embedding }]. Campaign files
+// (services/campaigns/knowledge.js) go through this too, so a campaign file is cut
+// and embedded exactly like a knowledge-base file and can later be moved into the
+// knowledge base as-is.
+//
+// THROWS rather than returning []. Swallowing this returned chunks_added: 0 with an
+// HTTP 200, so an upload that embedded nothing at all looked successful in the
+// dashboard and the only trace was a console line nobody was watching. The caller
+// marks the document failed and surfaces the reason (documents.js).
+export async function embedChunks(text) {
+  const chunks = chunkText(text)
+  if (!chunks.length) return []
+  let embeddings
+  try {
+    embeddings = await embedBatch(chunks)
+  } catch (e) {
+    console.error('[INGEST] batch embed error:', e.message)
+    throw new Error(`Could not embed this document: ${e.message}`)
+  }
+  return chunks.map((content, i) => ({ content, embedding: embeddings[i] }))
+}
+
 // Reusable ingestion (used by the API and the CLI).
 // Chunks + embeds + stores text for a tenant. Returns { chunks_added }.
 // When `documentId` is given, every chunk is linked to that document so deleting
@@ -160,25 +182,13 @@ export async function ingestText(
     invalidateKnowledge(tenantId)
   }
 
-  const chunks = chunkText(text)
-  if (!chunks.length) return { chunks_added: 0 }
+  const embedded = await embedChunks(text)
+  if (!embedded.length) return { chunks_added: 0 }
 
-  // THROW rather than returning 0. Swallowing this returned chunks_added: 0 with
-  // an HTTP 200, so an upload that embedded nothing at all looked successful in
-  // the dashboard and the only trace was a console line nobody was watching.
-  // The caller marks the document failed and surfaces the reason (documents.js).
-  let embeddings
-  try {
-    embeddings = await embedBatch(chunks)
-  } catch (e) {
-    console.error('[INGEST] batch embed error:', e.message)
-    throw new Error(`Could not embed this document: ${e.message}`)
-  }
-
-  const rows = chunks.map((content, i) => ({
+  const rows = embedded.map(({ content, embedding }) => ({
     tenant_id: tenantId,
     content,
-    embedding: embeddings[i],
+    embedding,
     source,
     ...(documentId ? { document_id: documentId } : {}),
   }))

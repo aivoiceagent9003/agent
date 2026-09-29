@@ -43,6 +43,33 @@ describe('voice-turn-context — language', () => {
     expect(tail).not.toMatch(/Telugu\/Hindi grammar/)
     expect(tail).toMatch(/caller's own language/)
   })
+
+  // A language the caller CHOSE is different from a guessed one: it is the one fact about
+  // language the call is sure of, and restating it last every turn is what holds the lock.
+  const guidanceFor = (language) =>
+    voiceTurnMessages([{ role: 'user', content: 'hello' }], { language })[0].content
+
+  it('holds an English agent to English', () => {
+    expect(guidanceFor({ mode: 'english' })).toMatch(/THIS CALL'S LANGUAGE IS English/)
+  })
+
+  it('asks for the choice until there is one, without reading out the list', () => {
+    const g = guidanceFor({ mode: 'caller_choice', chosen: null, choices: ['English', 'Telugu', 'Hindi'], opening: 'English' })
+    expect(g).toMatch(/has NOT chosen a language yet \(you can speak: English, Telugu, Hindi\)/)
+    expect(g).toMatch(/Do not read out the list/)
+    expect(g).not.toMatch(/THIS CALL'S LANGUAGE IS/)
+  })
+
+  it('restates the chosen language, and carries on the held-back opening once', () => {
+    const just = guidanceFor({ mode: 'caller_choice', chosen: 'Telugu', justChosen: true, pending: 'Do you have a minute to talk?' })
+    expect(just).toMatch(/THIS CALL'S LANGUAGE IS Telugu — the caller chose it/)
+    expect(just).toMatch(/Do not introduce yourself again/)
+    expect(just).toContain('"Do you have a minute to talk?"')
+
+    const later = guidanceFor({ mode: 'caller_choice', chosen: 'Telugu', justChosen: false, pending: 'Do you have a minute to talk?' })
+    expect(later).toMatch(/THIS CALL'S LANGUAGE IS Telugu/)
+    expect(later).not.toContain('Do you have a minute to talk?')
+  })
 })
 
 describe('compactHistory', () => {

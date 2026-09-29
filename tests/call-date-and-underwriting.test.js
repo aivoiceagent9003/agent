@@ -86,12 +86,19 @@ describe('the insurance template asks for what a premium is made of', () => {
 
   // The voice reads Latin letters with English phonetics, so a romanised Telugu example
   // in the prompt teaches the model to produce something the caller hears as nonsense.
-  it('spells its Telugu examples in Telugu script', () => {
-    const tpl = getAgentTemplate('insurance_sales')
-    const text = JSON.stringify(tpl)
+  it('never spells a Telugu example in English letters', () => {
+    const text = JSON.stringify(getAgentTemplate('insurance_sales'))
     for (const roman of ['cheppagalara', 'maarutundi', 'batti ', 'andi?']) {
       expect(text.toLowerCase()).not.toContain(roman)
     }
-    expect(tpl.templateInstructions).toMatch(/[\u0C00-\u0C7F]/)
+  })
+
+  // It no longer quotes the question in ANY one language: the Telugu quote was copied,
+  // language and all, to English callers (see conversation.test.js, "never quotes a line
+  // in one fixed Indian language"). What it must still say is WHY the date is needed.
+  it('asks for the date of birth with its reason, in the caller\'s language', () => {
+    const t = getAgentTemplate('insurance_sales').templateInstructions.replace(/\s+/g, ' ')
+    expect(t).toMatch(/the premium depends on their date of birth/)
+    expect(t).toMatch(/in the language the caller is speaking/)
   })
 })
